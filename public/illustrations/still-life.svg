@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="380" viewBox="0 0 400 380" fill="none">
+  <defs>
+    <linearGradient id="sun" x1="291" y1="39" x2="276" y2="195" gradientUnits="userSpaceOnUse"><stop stop-color="#F3EBD6"/><stop offset="1" stop-color="#E3E3C9" stop-opacity=".12"/></linearGradient>
+    <linearGradient id="island" x1="178" y1="270" x2="178" y2="352" gradientUnits="userSpaceOnUse"><stop stop-color="#F1EDD9"/><stop offset="1" stop-color="#DAD9BE"/></linearGradient>
+    <linearGradient id="stone" x1="119" y1="266" x2="189" y2="333" gradientUnits="userSpaceOnUse"><stop stop-color="#CBCAB4"/><stop offset=".6" stop-color="#B8BDA5"/><stop offset="1" stop-color="#9CA991"/></linearGradient>
+    <linearGradient id="vase" x1="158" y1="210" x2="216" y2="286" gradientUnits="userSpaceOnUse"><stop stop-color="#E6E4CF"/><stop offset=".53" stop-color="#CBCDB8"/><stop offset="1" stop-color="#A8B199"/></linearGradient>
+    <linearGradient id="leaf" x1="246" y1="76" x2="184" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#96A780"/><stop offset="1" stop-color="#54795D"/></linearGradient>
+    <linearGradient id="darkLeaf" x1="213" y1="118" x2="185" y2="240" gradientUnits="userSpaceOnUse"><stop stop-color="#50755A"/><stop offset="1" stop-color="#315D48"/></linearGradient>
+    <filter id="shadow" x="-.4" y="-1" width="1.8" height="3"><feGaussianBlur stdDeviation="8"/></filter>
+  </defs>
+  <circle cx="278" cy="120" r="81" fill="url(#sun)"/>
+  <circle cx="94" cy="175" r="3" fill="#BFCDAE"/>
+  <path d="M321 203C325 192 332 193 330 199C329 203 325 204 321 203Z" fill="#B7C5A3"/>
+  <path d="M115 106C117 100 123 98 123 102C123 106 119 108 115 106Z" fill="#C3CEB0"/>
+  <ellipse cx="210" cy="318" rx="148" ry="30" fill="#879474" opacity=".1" filter="url(#shadow)"/>
+  <path d="M53 310C60 282 123 275 182 275C251 275 325 280 349 305C371 329 306 345 222 348C137 351 44 339 53 310Z" fill="url(#island)"/>
+  <path d="M91 319C133 332 243 339 305 319" stroke="#FFFDF0" stroke-opacity=".5" stroke-linecap="round"/>
+  <ellipse cx="190" cy="316" rx="83" ry="13" fill="#738369" opacity=".21" filter="url(#shadow)"/>
+  <path d="M112 300C113 281 139 267 180 268C210 268 239 282 244 300C250 321 224 328 180 326C139 324 108 320 112 300Z" fill="url(#stone)"/>
+  <path d="M123 291C139 280 165 278 181 278" stroke="#E5E4D0" stroke-opacity=".8" stroke-width="2" stroke-linecap="round"/>
+  <path d="M143 252C139 242 145 223 164 217C182 210 210 212 220 225C230 238 224 257 211 269C198 280 156 277 146 266C143 262 143 257 143 252Z" fill="url(#vase)"/>
+  <ellipse cx="184" cy="221" rx="23" ry="7" fill="#AAB399"/>
+  <ellipse cx="184" cy="221" rx="14" ry="4" fill="#526D51"/>
+  <path d="M184 225C190 189 202 157 237 100M183 220C178 182 170 155 143 128M186 213C207 183 233 162 270 151M186 201C187 159 188 125 177 89" stroke="#4C7154" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M216 135C214 105 226 73 257 53C252 93 239 123 216 135Z" fill="url(#leaf)"/>
+  <path d="M218 132C232 108 241 84 250 67" stroke="#BDD0A3" stroke-opacity=".55" stroke-linecap="round"/>
+  <path d="M201 162C212 128 250 125 277 117C260 144 240 167 201 162Z" fill="url(#darkLeaf)"/>
+  <path d="M204 160L263 126" stroke="#8CA77D" stroke-opacity=".65" stroke-linecap="round"/>
+  <path d="M178 174C145 171 126 148 123 120C148 126 171 143 178 174Z" fill="#72916A"/>
+  <path d="M174 170C158 151 147 140 133 130" stroke="#B6C4A2" stroke-opacity=".55" stroke-linecap="round"/>
+  <path d="M186 151C161 138 151 111 159 78C180 99 192 124 186 151Z" fill="url(#darkLeaf)"/>
+  <path d="M184 146C175 124 166 103 162 89" stroke="#8BA780" stroke-opacity=".5" stroke-linecap="round"/>
+  <path d="M236 171C250 144 279 137 303 139C287 158 263 176 236 171Z" fill="#8EA77E"/>
+  <path d="M240 170C258 157 277 148 292 144" stroke="#CED7B4" stroke-opacity=".65" stroke-linecap="round"/>
+  <path d="M190 204C203 179 218 175 244 179C230 197 214 208 190 204Z" fill="#60835F"/>
+  <path d="M186 195C157 199 139 182 128 160C153 162 173 173 186 195Z" fill="#A7B797"/>
+  <path d="M182 193L139 168" stroke="#DFE5CC" stroke-opacity=".7" stroke-linecap="round"/>
+  <path d="M183 119C175 100 179 74 188 61C197 86 194 105 183 119Z" fill="#95A880"/>
+  <path d="M281 307C281 304 285 297 291 295C293 302 289 308 281 307Z" fill="#99AD80"/>
+  <path d="M284 307L295 311" stroke="#6B8761" stroke-linecap="round"/>
+  <ellipse cx="99" cy="309" rx="5" ry="2" fill="#C3C9AF"/>
+  <ellipse cx="280" cy="327" rx="8" ry="3" fill="#D3D4BB"/>
+</svg>
