@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' customprotocol: asset:; img-src 'self' asset: data:; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta name="theme-color" content="#edf3e7" />
+    <title>Repose · 屏幕休息中</title>
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+    <header><span class="brand">repose<span>.</span></span><span class="badge"><i></i> 屏幕休息中</span></header>
+    <main>
+      <section id="short-guide" class="short-guide">
+        <div class="plant" aria-hidden="true">❦</div>
+        <p class="eyebrow">A LITTLE PAUSE, JUST FOR YOU</p>
+        <h1 id="short-title">让目光，离开屏幕一会。</h1>
+        <p id="short-description">看向远处，放松双肩。接下来的时间，留给自己。</p>
+      </section>
+      <section id="long-guide" class="long-guide" aria-label="大休息拉伸训练" hidden>
+        <div id="stretch-visual" class="stretch-visual">
+          <div class="stage-glow" aria-hidden="true"></div>
+          <div id="stretch-stage" class="stretch-stage" aria-hidden="true"></div>
+          <div id="stretch-fallback" class="fallback-person" aria-hidden="true" hidden><i class="head"></i><i class="body"></i><i class="arm left"></i><i class="arm right"></i><i class="leg left"></i><i class="leg right"></i></div>
+          <span class="three-badge">✦&nbsp; 3D 动作示范</span>
+        </div>
+        <div class="stretch-copy" aria-live="polite">
+          <div class="action-topline"><span id="action-focus">肩颈与上背</span><span id="action-index">1 / 8</span></div>
+          <p class="eyebrow">MOVE SLOWLY, BREATHE EASILY</p>
+          <h1 id="action-title">下巴微收</h1>
+          <p id="action-cue" class="action-cue"></p>
+          <p id="action-safety" class="action-safety"></p>
+          <div class="action-progress" aria-label="当前动作进度"><span id="action-progress"></span></div>
+          <div class="action-meta"><span id="action-time">30 秒后换动作</span><span>缓慢呼吸 · 左右交替</span></div>
+          <nav class="action-navigation" aria-label="切换拉伸动作">
+            <button id="previous-action" type="button" aria-label="上一个拉伸动作">‹</button>
+            <div id="action-dots" class="action-dots" aria-label="动作序号"></div>
+            <button id="next-action" type="button" aria-label="下一个拉伸动作">›</button>
+          </nav>
+        </div>
+      </section>
+      <section class="break-status">
+        <span id="total-label">本次休息剩余</span>
+        <div id="countdown" class="countdown" role="timer">00:20</div>
+        <div class="progress"><span id="progress"></span></div>
+        <p id="hint" class="hint">休息结束后，屏幕会自动恢复</p>
+        <button id="postpone" type="button" hidden>延迟 1 分钟 · 仅此一次</button>
+        <p id="postpone-note" class="note" role="status"></p>
+      </section>
+    </main>
+    <footer><span>给日常，留一点空白。</span><span id="kind">强制休息 · 倒计时结束后恢复</span></footer>
+    <script type="module" src="/src/break.ts"></script>
+  </body>
+</html>

@@ -285,7 +285,7 @@ export function createStretchScene(container: HTMLElement, initialId: StretchExe
     const breath = reducedMotion ? 0 : Math.sin(now / 950) * 0.012
     rig.chestBody.scale.set(1 + breath * 0.4, 1 + breath, 0.75 + breath * 0.3)
     const cameraYaw = pose.cameraYaw
-    camera.position.set(Math.sin(cameraYaw) * 7.55, 0.24, Math.cos(cameraYaw) * 7.55)
+    camera.position.set(Math.sin(cameraYaw) * 9.8, 0.12, Math.cos(cameraYaw) * 9.8)
     camera.lookAt(0, 0.1, 0)
     halo.rotation.z = reducedMotion ? 0.08 : 0.08 + Math.sin(now / 2600) * 0.025
     renderer.render(scene, camera)
