@@ -47,7 +47,6 @@ export interface WeeklyStats extends DailyStats {
 }
 
 export const STORAGE_KEY = 'repose.timer.v1'
-export const MAX_RESTORE_GAP_MS = 5 * 60 * 1000
 export const DEFAULT_SETTINGS: Readonly<TimerSettings> = Object.freeze({
   shortInterval: 20,
   shortDuration: 20,
@@ -213,52 +212,48 @@ function transition(state: TimerState, at: number): void {
   state.remaining = state.phaseDuration
 }
 
-/**
- * Use wall-clock time within a phase, but never replay unseen breaks after suspension.
- * A newly due phase gets its full duration from the moment the app processes it.
- */
-export function advanceTimer(original: TimerState, now: number): TimerState {
-  if (now === original.updatedAt) return original
-  const gap = now - original.updatedAt
-  if (gap < 0 || gap > MAX_RESTORE_GAP_MS || !original.running) return { ...original, updatedAt: now }
+/** Advance only by a trusted elapsed duration; wall time is for attribution. */
+export function advanceTimerBy(original: TimerState, elapsedSeconds: number, now = Date.now()): TimerState {
+  if (!finiteNumber(elapsedSeconds) || elapsedSeconds <= 0 || !original.running) {
+    return { ...original, updatedAt: now }
+  }
   const state: TimerState = {
     ...original,
     days: { ...original.days },
     history: [...original.history],
     updatedAt: now,
   }
-  const segmentEnd = Math.min(now, original.updatedAt + state.remaining * 1000)
-  recordTime(state.days, state.phase, original.updatedAt, segmentEnd)
-  state.remaining = Math.max(0, state.remaining - (segmentEnd - original.updatedAt) / 1000)
-  if (state.remaining <= 0.000001) transition(state, segmentEnd)
+  const elapsed = Math.min(elapsedSeconds, state.remaining)
+  recordTime(state.days, state.phase, now - elapsed * 1000, now)
+  state.remaining = Math.max(0, state.remaining - elapsed)
+  if (state.remaining <= 0.000001) transition(state, now)
   trimRecords(state, now)
   return state
 }
 
-export function toggleTimer(original: TimerState, now = Date.now()): TimerState {
-  const state = advanceTimer(original, now)
-  if (original.deferredBreak) return state
+export function toggleTimer(original: TimerState, now = Date.now(), wasRunning = original.running): TimerState {
+  if (original.deferredBreak) return original
   // Preserve the user's pause/resume intent if a phase ended between render and click.
-  return { ...state, running: !original.running, updatedAt: now }
+  return { ...original, running: !wasRunning, updatedAt: now }
 }
 
 export function startTimerBreak(original: TimerState, type: 'short' | 'long', now = Date.now()): TimerState {
-  const state = advanceTimer(original, now)
   // Repeated native/menu actions must not replace an already active occurrence.
-  if (state.phase !== 'focus') return state
-  if (state.deferredBreak) {
+  if (original.phase !== 'focus') return original
+  if (original.deferredBreak) {
     return {
-      ...state,
-      phase: state.deferredBreak.type,
-      remaining: state.deferredBreak.duration,
-      phaseDuration: state.deferredBreak.duration,
+      ...original,
+      phase: original.deferredBreak.type,
+      remaining: original.deferredBreak.duration,
+      phaseDuration: original.deferredBreak.duration,
       deferredBreak: null,
       running: true,
+      updatedAt: now,
     }
   }
-  const duration = getPhaseDuration(type, state.settings)
+  const duration = getPhaseDuration(type, original.settings)
   return {
-    ...state,
+    ...original,
     phase: type,
     remaining: duration,
     phaseDuration: duration,
@@ -266,24 +261,23 @@ export function startTimerBreak(original: TimerState, type: 'short' | 'long', no
     breakId: createBreakId(now),
     deferredBreak: null,
     postponeUsed: false,
+    updatedAt: now,
   }
 }
 
 /** Delay this occurrence once without completing it or advancing its cycle. */
 export function postponeTimerBreak(original: TimerState, now = Date.now()): TimerState {
   if (original.phase === 'focus' || original.postponeUsed) return original
-  const state = advanceTimer(original, now)
-  // A click racing the deadline cannot postpone the next occurrence or completed break.
-  if (state.phase === 'focus' || now >= original.updatedAt + original.remaining * 1000) return state
-  const duration = getPostponeSeconds(state.phase)
+  const duration = getPostponeSeconds(original.phase)
   return {
-    ...state,
+    ...original,
     phase: 'focus',
     remaining: duration,
     phaseDuration: duration,
     running: true,
-    deferredBreak: { type: state.phase, duration: state.phaseDuration },
+    deferredBreak: { type: original.phase, duration: original.phaseDuration },
     postponeUsed: true,
+    updatedAt: now,
   }
 }
 
@@ -305,14 +299,13 @@ export function completeTimerBreak(original: TimerState, now = Date.now()): Time
 }
 
 export function skipTimerBreak(original: TimerState, now = Date.now()): TimerState {
-  const state = advanceTimer(original, now)
-  if (state.phase === 'focus' && !state.deferredBreak) return state
-  const days = { ...state.days }
+  if (original.phase === 'focus' && !original.deferredBreak) return original
+  const days = { ...original.days }
   getDay(days, now).skippedBreaks += 1
-  const duration = getPhaseDuration('focus', state.settings)
+  const duration = getPhaseDuration('focus', original.settings)
   return {
-    ...state, days, phase: 'focus', remaining: duration, phaseDuration: duration, running: true,
-    breakId: null, deferredBreak: null, postponeUsed: false,
+    ...original, days, phase: 'focus', remaining: duration, phaseDuration: duration, running: true,
+    breakId: null, deferredBreak: null, postponeUsed: false, updatedAt: now,
   }
 }
 
@@ -321,32 +314,33 @@ export function changeTimerSettings(
   partial: Partial<TimerSettings>,
   now = Date.now(),
 ): TimerState {
-  const state = advanceTimer(original, now)
-  const settings = normalizeSettings(partial, state.settings)
+  const settings = normalizeSettings(partial, original.settings)
   // Configuration changes apply to future occurrences; they cannot push back a delay
   // or shorten the full break promised when the user postponed this occurrence.
-  if (state.deferredBreak || (state.phase !== 'focus' && state.postponeUsed)) return { ...state, settings }
-  const phaseDuration = getPhaseDuration(state.phase, settings)
-  const elapsed = state.phaseDuration - state.remaining
+  if (original.deferredBreak || (original.phase !== 'focus' && original.postponeUsed)) {
+    return { ...original, settings, updatedAt: now }
+  }
+  const phaseDuration = getPhaseDuration(original.phase, settings)
+  const elapsed = original.phaseDuration - original.remaining
   // A shorter duration takes effect on the next clock tick; avoid a zero-length phase.
   const remaining = Math.max(1, phaseDuration - elapsed)
-  return { ...state, settings, phaseDuration, remaining }
+  return { ...original, settings, phaseDuration, remaining, updatedAt: now }
 }
 
 export function resetTimerState(original: TimerState, now = Date.now()): TimerState {
-  const state = advanceTimer(original, now)
-  if (state.deferredBreak || (state.phase !== 'focus' && state.postponeUsed)) return state
-  const duration = getPhaseDuration('focus', state.settings)
+  if (original.deferredBreak || (original.phase !== 'focus' && original.postponeUsed)) return original
+  const duration = getPhaseDuration('focus', original.settings)
   return {
-    ...state,
+    ...original,
     phase: 'focus',
     remaining: duration,
     phaseDuration: duration,
-    running: state.settings.autoStart,
+    running: original.settings.autoStart,
     completedCycles: 0,
     breakId: null,
     deferredBreak: null,
     postponeUsed: false,
+    updatedAt: now,
   }
 }
 
@@ -413,10 +407,8 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
       updatedAt: finiteNumber(data.updatedAt) && data.updatedAt >= 0 ? data.updatedAt : now,
     }
     trimRecords(state, now)
-    const gap = now - state.updatedAt
-    // A new page after a long absence resumes the saved countdown instead of inventing work.
-    if (gap < 0 || gap > MAX_RESTORE_GAP_MS) return { ...state, updatedAt: now }
-    return advanceTimer(state, now)
+    // A new process resumes the saved countdown without inventing activity.
+    return { ...state, updatedAt: now }
   } catch {
     return createTimerState(now)
   }
