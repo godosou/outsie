@@ -1,0 +1,2 @@
+#include "Generated.xcconfig"
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) REPOSE_TASK9_RELEASE_BLOCKED
