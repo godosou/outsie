@@ -217,7 +217,7 @@ export function createStretchScene(container: HTMLElement, initialId: StretchExe
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.08
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.domElement.className = 'stretch-canvas'
   renderer.domElement.setAttribute('aria-hidden', 'true')
   container.append(renderer.domElement)
