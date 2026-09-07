@@ -38,7 +38,7 @@ export interface TimerState {
   completedCycles: number
   days: Record<string, DailyStats>
   history: BreakHistoryEntry[]
-  lastLifecycleIntervalId: string | null
+  lifecycleIntervalIds: string[]
   updatedAt: number
 }
 
@@ -146,7 +146,7 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
     completedCycles: 0,
     days: { [localDateKey(now)]: { ...EMPTY_STATS } },
     history: [],
-    lastLifecycleIntervalId: null,
+    lifecycleIntervalIds: [],
     updatedAt: now,
   }
 }
@@ -267,11 +267,12 @@ export function applyInactivityInterval(
   context: InactivityContext,
   interval: InactivityInterval,
 ): TimerState {
-  if (!interval.intervalId || interval.intervalId === original.lastLifecycleIntervalId
+  if (!interval.intervalId || original.lifecycleIntervalIds.includes(interval.intervalId)
     || !finiteNumber(interval.elapsedSeconds) || interval.elapsedSeconds < 0) return original
+  const lifecycleIntervalIds = [...original.lifecycleIntervalIds, interval.intervalId].slice(-32)
   const state: TimerState = {
     ...original,
-    lastLifecycleIntervalId: interval.intervalId,
+    lifecycleIntervalIds,
     updatedAt: interval.endedAt,
   }
   if (!context.running || interval.elapsedSeconds === 0) return state
@@ -279,7 +280,7 @@ export function applyInactivityInterval(
     if (original.phase !== context.phase || original.breakId !== context.breakId) return state
     return {
       ...advanceTimerBy(original, interval.elapsedSeconds, interval.endedAt),
-      lastLifecycleIntervalId: interval.intervalId,
+      lifecycleIntervalIds,
     }
   }
   if (original.phase !== 'focus') return state
@@ -491,9 +492,12 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
       completedCycles: boundedNumber(data.completedCycles, 0, 0, 12),
       days,
       history: history.sort((a, b) => b.completedAt - a.completedAt),
-      lastLifecycleIntervalId: data.version === 2 && typeof data.lastLifecycleIntervalId === 'string'
-        && data.lastLifecycleIntervalId.length > 0 && data.lastLifecycleIntervalId.length <= 200
-        ? data.lastLifecycleIntervalId : null,
+      lifecycleIntervalIds: data.version === 2
+        ? Array.from(new Set([
+          ...(Array.isArray(data.lifecycleIntervalIds) ? data.lifecycleIntervalIds : []),
+          data.lastLifecycleIntervalId,
+        ].filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 200))).slice(-32)
+        : [],
       updatedAt: finiteNumber(data.updatedAt) && data.updatedAt >= 0 ? data.updatedAt : now,
     }
     trimRecords(state, now)
