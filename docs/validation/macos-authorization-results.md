@@ -2,8 +2,8 @@
 
 > Gate status: **NOT RUN / GATE CLOSED**
 >
-> Observation time: 2026-09-08 00:31 CST. This record contains read-only host and
-> toolchain inventory only. No package was installed, no Authorization Services right was read or
+> Initial host observation: 2026-09-08 00:31 CST; mobile toolchain evidence was refreshed during
+> the same Task 14 verification run. No package was installed, no Authorization Services right was read or
 > changed, no launchd job was loaded or removed, and no login, lock-screen, password, keychain,
 > latency, power-loss, repair, or uninstall experiment was run.
 

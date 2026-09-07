@@ -31,3 +31,19 @@ npm run package:mac
 Rust 桌面实现位于 `src-tauri/src/lib.rs`，macOS AppKit/CoreGraphics 桥接位于 `src-tauri/native/macos.m`，前端桥接位于 `src/tauriBridge.ts`。
 
 实现依据：[Tauri 2](https://v2.tauri.app/start/)、[macOS 使用系统 WKWebView](https://v2.tauri.app/reference/webview-versions/)、[macOS App 打包](https://v2.tauri.app/distribute/macos-application-bundle/)。
+
+## 手机靠近解锁原型
+
+仓库包含一个“手机离开后重新靠近，再尝试解锁已登录 macOS 会话”的安全原型。它由
+Rust 状态机和协议、最小 macOS Authorization Plugin/服务、React/Tauri Mac 设置页、面向
+Android/iOS 的 Flutter 手机界面以及 Android 原生后台层组成。BLE RSSI 只用于经过校准的
+便利级接近判断；真正的授权还需要已配对手机持有的 P-256 私钥完成挑战响应。
+
+该能力目前仍是 **GATE CLOSED**：普通构建不会安装或启用系统授权组件，Android 生产 BLE
+角色保持禁用，iOS 原生后台实现等待受支持的 Xcode/iOS SDK，GT5 Pro 与专用测试 Mac 的真机
+矩阵也尚未执行。现阶段不能把它当作可用的自动解锁功能，更不能跳过系统密码。
+
+- [使用范围、配对、校准和恢复说明](docs/phone-unlock.md)
+- [安全威胁模型](docs/security/phone-unlock-threat-model.md)
+- [验证状态与发布门禁](docs/validation/verification-summary.md)
+- [线协议 v1](docs/protocol/repose-unlock-v1.md)
