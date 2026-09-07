@@ -156,7 +156,24 @@ impl ChallengeId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The one-shot command data for starting or cancelling a challenge worker.
+///
+/// Challenge commands deliberately cannot be cloned:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::ChallengeRequest;
+/// fn assert_clone<T: Clone>() {}
+/// assert_clone::<ChallengeRequest>();
+/// ```
+///
+/// Nor can they be copied:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::ChallengeRequest;
+/// fn assert_copy<T: Copy>() {}
+/// assert_copy::<ChallengeRequest>();
+/// ```
+#[derive(Debug, PartialEq, Eq)]
 pub struct ChallengeRequest {
     binding: SessionBinding,
     challenge_id: ChallengeId,
@@ -165,6 +182,29 @@ pub struct ChallengeRequest {
 
 impl ChallengeRequest {
     #[must_use]
+    pub const fn binding(&self) -> SessionBinding {
+        self.binding
+    }
+
+    #[must_use]
+    pub const fn challenge_id(&self) -> ChallengeId {
+        self.challenge_id
+    }
+
+    #[must_use]
+    pub const fn deadline(&self) -> MonoMillis {
+        self.deadline
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChallengeRecord {
+    binding: SessionBinding,
+    challenge_id: ChallengeId,
+    deadline: MonoMillis,
+}
+
+impl ChallengeRecord {
     const fn new(binding: SessionBinding, challenge_id: ChallengeId, deadline: MonoMillis) -> Self {
         Self {
             binding,
@@ -173,19 +213,12 @@ impl ChallengeRequest {
         }
     }
 
-    #[must_use]
-    pub const fn binding(self) -> SessionBinding {
-        self.binding
-    }
-
-    #[must_use]
-    pub const fn challenge_id(self) -> ChallengeId {
-        self.challenge_id
-    }
-
-    #[must_use]
-    pub const fn deadline(self) -> MonoMillis {
-        self.deadline
+    const fn command(self) -> ChallengeRequest {
+        ChallengeRequest {
+            binding: self.binding,
+            challenge_id: self.challenge_id,
+            deadline: self.deadline,
+        }
     }
 }
 
@@ -234,10 +267,28 @@ impl Permit {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A one-shot command emitted by the pure reducer.
+///
+/// Effects cannot be cloned into duplicate command executions:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::Effect;
+/// fn assert_clone<T: Clone>() {}
+/// assert_clone::<Effect>();
+/// ```
+///
+/// Effects also cannot be implicitly copied:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::Effect;
+/// fn assert_copy<T: Copy>() {}
+/// assert_copy::<Effect>();
+/// ```
+#[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     StartChallenge(ChallengeRequest),
     CancelChallenge(ChallengeRequest),
+    AbortAllChallenges,
     CreatePermit(Permit),
     ClearPermit,
 }
@@ -316,16 +367,35 @@ pub enum UnlockPhase {
     Unlocking,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The linear state token consumed by [`transition`].
+///
+/// Safe callers cannot fork the reducer by cloning its state:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::{TimingPolicy, UnlockState};
+/// fn assert_clone<T: Clone>() {}
+/// assert_clone::<UnlockState>();
+/// # let _ = TimingPolicy::new(5_000, 3_000, 2_000);
+/// ```
+///
+/// The state token is not copyable either:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::UnlockState;
+/// fn assert_copy<T: Copy>() {}
+/// assert_copy::<UnlockState>();
+/// ```
+#[derive(Debug, PartialEq, Eq)]
 pub struct UnlockState {
     state: StateData,
     last_observed_at: Option<MonoMillis>,
-    highest_lock_epoch: Option<LockEpoch>,
+    authoritative_binding: Option<SessionBinding>,
     last_challenge_id: u64,
     timing_policy: TimingPolicy,
+    worker_fence: Option<WorkerFence>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StateData {
     Unlocked,
     LockedUnarmed {
@@ -336,10 +406,10 @@ enum StateData {
         cooldown_until: Option<MonoMillis>,
     },
     Challenging {
-        request: ChallengeRequest,
+        request: ChallengeRecord,
     },
     Cancelling {
-        request: ChallengeRequest,
+        request: ChallengeRecord,
         cooldown_until: Option<MonoMillis>,
     },
     PermitReady {
@@ -356,9 +426,10 @@ impl UnlockState {
         Self {
             state: StateData::Unlocked,
             last_observed_at: None,
-            highest_lock_epoch: None,
+            authoritative_binding: None,
             last_challenge_id: 0,
             timing_policy,
+            worker_fence: None,
         }
     }
 
@@ -422,13 +493,27 @@ impl UnlockState {
 
     #[must_use]
     pub const fn highest_lock_epoch(&self) -> Option<LockEpoch> {
-        self.highest_lock_epoch
+        match self.authoritative_binding {
+            Some(binding) => Some(binding.lock_epoch),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn authoritative_binding(&self) -> Option<SessionBinding> {
+        self.authoritative_binding
     }
 
     #[must_use]
     pub const fn timing_policy(&self) -> TimingPolicy {
         self.timing_policy
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkerFence {
+    binding: SessionBinding,
+    challenge_id: ChallengeId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -501,6 +586,15 @@ pub fn transition(
     ensure_monotonic(&state, now)?;
 
     let metadata = StateMetadata::from_state(&state);
+    if let Some(worker_fence) = metadata.worker_fence {
+        return Ok(transition_fenced(
+            state.state,
+            event,
+            now,
+            metadata,
+            worker_fence,
+        ));
+    }
     let next = match state.state {
         StateData::Unlocked => inert(StateData::Unlocked, now, metadata),
         StateData::LockedUnarmed { binding } => transition_unarmed(binding, event, now, metadata),
@@ -532,6 +626,31 @@ fn ensure_monotonic(state: &UnlockState, now: MonoMillis) -> Result<(), Transiti
         });
     }
     Ok(())
+}
+
+fn transition_fenced(
+    outward_state: StateData,
+    event: Event,
+    now: MonoMillis,
+    mut metadata: StateMetadata,
+    worker_fence: WorkerFence,
+) -> (UnlockState, Vec<Effect>) {
+    if matches!(
+        event,
+        Event::ChallengeTerminated {
+            binding,
+            challenge_id,
+        } | Event::ChallengeFailed {
+            binding,
+            challenge_id,
+        } | Event::ChallengeTimedOut {
+            binding,
+            challenge_id,
+        } if binding == worker_fence.binding && challenge_id == worker_fence.challenge_id
+    ) {
+        metadata.worker_fence = None;
+    }
+    state(outward_state, now, metadata)
 }
 
 fn transition_unarmed(
@@ -579,11 +698,11 @@ fn transition_armed(
                 metadata.timing_policy.challenge_ttl_ms,
                 TimingOperation::ChallengeDeadline,
             )?;
-            let request = ChallengeRequest::new(current, challenge_id, deadline);
+            let request = ChallengeRecord::new(current, challenge_id, deadline);
             Ok(with_effect(
                 StateData::Challenging { request },
                 now,
-                Effect::StartChallenge(request),
+                Effect::StartChallenge(request.command()),
                 metadata,
             ))
         }
@@ -599,7 +718,7 @@ fn transition_armed(
 }
 
 fn transition_challenging(
-    request: ChallengeRequest,
+    request: ChallengeRecord,
     event: Event,
     now: MonoMillis,
     metadata: StateMetadata,
@@ -619,7 +738,7 @@ fn transition_challenging(
                 cooldown_until: Some(cooldown_until),
             },
             now,
-            Effect::CancelChallenge(request),
+            Effect::CancelChallenge(request.command()),
             metadata,
         ));
     }
@@ -668,7 +787,7 @@ fn transition_challenging(
                     cooldown_until: None,
                 },
                 now,
-                Effect::CancelChallenge(request),
+                Effect::CancelChallenge(request.command()),
                 metadata,
             ))
         }
@@ -676,7 +795,7 @@ fn transition_challenging(
     }
 }
 
-fn matching_challenge_termination(event: Event, request: ChallengeRequest) -> bool {
+fn matching_challenge_termination(event: Event, request: ChallengeRecord) -> bool {
     match event {
         Event::ChallengeFailed {
             binding,
@@ -695,7 +814,7 @@ fn matching_challenge_termination(event: Event, request: ChallengeRequest) -> bo
 }
 
 fn finish_challenge_with_cooldown(
-    request: ChallengeRequest,
+    request: ChallengeRecord,
     now: MonoMillis,
     metadata: StateMetadata,
 ) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
@@ -715,7 +834,7 @@ fn finish_challenge_with_cooldown(
 }
 
 fn transition_cancelling(
-    request: ChallengeRequest,
+    request: ChallengeRecord,
     cooldown_until: Option<MonoMillis>,
     event: Event,
     now: MonoMillis,
@@ -821,40 +940,53 @@ fn reset_locked(
     binding: SessionBinding,
     now: MonoMillis,
 ) -> (UnlockState, Vec<Effect>) {
-    let mut metadata = StateMetadata::from_state(&previous);
-    if previous
-        .highest_lock_epoch
-        .is_some_and(|highest| binding.lock_epoch < highest)
-    {
-        return match previous.binding() {
-            Some(current) => with_effect_and_high_water(
+    let current_binding = previous.binding();
+    let stale_binding = previous.authoritative_binding.is_some_and(|highest| {
+        binding.lock_epoch < highest.lock_epoch
+            || (binding.lock_epoch == highest.lock_epoch && binding != highest)
+    });
+    let (mut metadata, effects) = reset_metadata_and_effects(&previous);
+    if stale_binding {
+        return match current_binding {
+            Some(current) => with_effects(
                 StateData::LockedUnarmed { binding: current },
                 now,
-                Effect::ClearPermit,
+                effects,
                 metadata,
             ),
-            None => {
-                with_effect_and_high_water(StateData::Unlocked, now, Effect::ClearPermit, metadata)
-            }
+            None => with_effects(StateData::Unlocked, now, effects, metadata),
         };
     }
 
-    metadata.highest_lock_epoch = Some(binding.lock_epoch);
-    with_effect_and_high_water(
-        StateData::LockedUnarmed { binding },
-        now,
-        Effect::ClearPermit,
-        metadata,
-    )
+    metadata.authoritative_binding = Some(binding);
+    with_effects(StateData::LockedUnarmed { binding }, now, effects, metadata)
 }
 
 fn reset_unlocked(previous: UnlockState, now: MonoMillis) -> (UnlockState, Vec<Effect>) {
-    with_effect_and_high_water(
-        StateData::Unlocked,
-        now,
-        Effect::ClearPermit,
-        StateMetadata::from_state(&previous),
-    )
+    let (metadata, effects) = reset_metadata_and_effects(&previous);
+    with_effects(StateData::Unlocked, now, effects, metadata)
+}
+
+fn reset_metadata_and_effects(previous: &UnlockState) -> (StateMetadata, Vec<Effect>) {
+    let mut metadata = StateMetadata::from_state(previous);
+    if metadata.worker_fence.is_none() {
+        metadata.worker_fence = match previous.state {
+            StateData::Challenging { request } | StateData::Cancelling { request, .. } => {
+                Some(WorkerFence {
+                    binding: request.binding,
+                    challenge_id: request.challenge_id,
+                })
+            }
+            _ => None,
+        };
+    }
+
+    let effects = if metadata.worker_fence.is_some() {
+        vec![Effect::AbortAllChallenges, Effect::ClearPermit]
+    } else {
+        vec![Effect::ClearPermit]
+    };
+    (metadata, effects)
 }
 
 fn inert(
@@ -874,9 +1006,10 @@ fn state(
         UnlockState {
             state: state_data,
             last_observed_at: Some(now),
-            highest_lock_epoch: metadata.highest_lock_epoch,
+            authoritative_binding: metadata.authoritative_binding,
             last_challenge_id: metadata.last_challenge_id,
             timing_policy: metadata.timing_policy,
+            worker_fence: metadata.worker_fence,
         },
         Vec::new(),
     )
@@ -897,31 +1030,43 @@ fn with_effect_and_high_water(
     effect: Effect,
     metadata: StateMetadata,
 ) -> (UnlockState, Vec<Effect>) {
+    with_effects(state_data, now, vec![effect], metadata)
+}
+
+fn with_effects(
+    state_data: StateData,
+    now: MonoMillis,
+    effects: Vec<Effect>,
+    metadata: StateMetadata,
+) -> (UnlockState, Vec<Effect>) {
     (
         UnlockState {
             state: state_data,
             last_observed_at: Some(now),
-            highest_lock_epoch: metadata.highest_lock_epoch,
+            authoritative_binding: metadata.authoritative_binding,
             last_challenge_id: metadata.last_challenge_id,
             timing_policy: metadata.timing_policy,
+            worker_fence: metadata.worker_fence,
         },
-        vec![effect],
+        effects,
     )
 }
 
 #[derive(Debug, Clone, Copy)]
 struct StateMetadata {
-    highest_lock_epoch: Option<LockEpoch>,
+    authoritative_binding: Option<SessionBinding>,
     last_challenge_id: u64,
     timing_policy: TimingPolicy,
+    worker_fence: Option<WorkerFence>,
 }
 
 impl StateMetadata {
     const fn from_state(state: &UnlockState) -> Self {
         Self {
-            highest_lock_epoch: state.highest_lock_epoch,
+            authoritative_binding: state.authoritative_binding,
             last_challenge_id: state.last_challenge_id,
             timing_policy: state.timing_policy,
+            worker_fence: state.worker_fence,
         }
     }
 }
@@ -1241,7 +1386,7 @@ mod tests {
         let mut state = challenging(current);
         let challenge_id = state.challenge_id().unwrap();
         state.state = StateData::Challenging {
-            request: ChallengeRequest::new(current, challenge_id, time(u64::MAX)),
+            request: ChallengeRecord::new(current, challenge_id, time(u64::MAX)),
         };
         state.last_observed_at = Some(time(u64::MAX - 3));
         let now = time(u64::MAX - 2);
@@ -1313,16 +1458,50 @@ mod tests {
     #[test]
     fn permit_naturally_expires_at_or_after_its_policy_deadline() {
         let current = binding(7, 41, 501);
-        let state = permit_ready(current);
 
-        let (before, effects) = transition(state.clone(), Event::Tick, time(6)).unwrap();
+        let (before, effects) = transition(permit_ready(current), Event::Tick, time(6)).unwrap();
         assert_eq!(before.phase(), UnlockPhase::PermitReady);
         assert!(effects.is_empty());
 
         for now in [7, 8] {
-            let (next, effects) = transition(state.clone(), Event::Tick, time(now)).unwrap();
+            let (next, effects) =
+                transition(permit_ready(current), Event::Tick, time(now)).unwrap();
             assert_eq!(next.phase(), UnlockPhase::LockedArmed);
             assert_eq!(effects, vec![Effect::ClearPermit]);
         }
+    }
+
+    #[test]
+    fn proof_after_global_reset_is_inert_until_the_worker_fence_is_retired() {
+        let current = binding(7, 41, 501);
+        let active = challenging(current);
+        let challenge_id = active.challenge_id().unwrap();
+        let (reset, effects) = transition(active, Event::SessionUnlocked, time(4)).unwrap();
+        assert_eq!(reset.phase(), UnlockPhase::Unlocked);
+        assert_eq!(
+            effects,
+            vec![Effect::AbortAllChallenges, Effect::ClearPermit]
+        );
+
+        let (after_proof, effects) = transition(
+            reset,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            time(5),
+        )
+        .unwrap();
+        assert_eq!(after_proof.phase(), UnlockPhase::Unlocked);
+        assert!(!effects.iter().any(Effect::is_create_permit));
+
+        let (retired, effects) = transition(
+            after_proof,
+            Event::ChallengeTerminated {
+                binding: current,
+                challenge_id,
+            },
+            time(6),
+        )
+        .unwrap();
+        assert_eq!(retired.phase(), UnlockPhase::Unlocked);
+        assert!(effects.is_empty());
     }
 }

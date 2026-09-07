@@ -11,6 +11,10 @@ fn policy() -> TimingPolicy {
     TimingPolicy::new(100, 3, 20).unwrap()
 }
 
+fn abort_and_clear() -> Vec<Effect> {
+    vec![Effect::AbortAllChallenges, Effect::ClearPermit]
+}
+
 fn binding(epoch: u64, audit_session: u32, uid: u32) -> SessionBinding {
     SessionBinding::new(
         LockEpoch::new(epoch),
@@ -92,6 +96,36 @@ fn challenging(current: SessionBinding) -> UnlockState {
     transition(armed, Event::NearStable { binding: current }, time(3))
         .unwrap()
         .0
+}
+
+fn locked_unarmed(current: SessionBinding) -> UnlockState {
+    transition(
+        UnlockState::unlocked(policy()),
+        Event::SessionLocked { binding: current },
+        time(1),
+    )
+    .unwrap()
+    .0
+}
+
+fn locked_armed(current: SessionBinding) -> UnlockState {
+    transition(
+        locked_unarmed(current),
+        Event::FarStable { binding: current },
+        time(2),
+    )
+    .unwrap()
+    .0
+}
+
+fn cancelling(current: SessionBinding) -> UnlockState {
+    transition(
+        challenging(current),
+        Event::FarStable { binding: current },
+        time(4),
+    )
+    .unwrap()
+    .0
 }
 
 #[test]
@@ -197,33 +231,12 @@ fn duplicate_near_events_never_create_concurrent_challenges() {
 #[test]
 fn restart_cannot_preserve_any_publicly_reachable_transient_state() {
     let current = binding(7, 41, 501);
-    let unlocked = UnlockState::unlocked(policy());
-    let (unarmed, _) = transition(
-        unlocked.clone(),
-        Event::SessionLocked { binding: current },
-        time(1),
-    )
-    .unwrap();
-    let (armed, _) = transition(
-        unarmed.clone(),
-        Event::FarStable { binding: current },
-        time(2),
-    )
-    .unwrap();
-    let challenging = challenging(current);
-    let (cancelling, _) = transition(
-        challenging.clone(),
-        Event::FarStable { binding: current },
-        time(4),
-    )
-    .unwrap();
-
-    for (state, now) in [
-        (unlocked, 1_u64),
-        (unarmed, 2),
-        (armed, 3),
-        (challenging, 4),
-        (cancelling, 5),
+    for (state, now, had_worker) in [
+        (UnlockState::unlocked(policy()), 1_u64, false),
+        (locked_unarmed(current), 2, false),
+        (locked_armed(current), 3, false),
+        (challenging(current), 4, true),
+        (cancelling(current), 5, true),
     ] {
         let (next, effects) = transition(
             state,
@@ -237,7 +250,12 @@ fn restart_cannot_preserve_any_publicly_reachable_transient_state() {
         assert_eq!(next.binding(), Some(current));
         assert_eq!(next.challenge_id(), None);
         assert_eq!(next.permit_expires_at(), None);
-        assert_eq!(effects, vec![Effect::ClearPermit]);
+        let expected = if had_worker {
+            vec![Effect::AbortAllChallenges, Effect::ClearPermit]
+        } else {
+            vec![Effect::ClearPermit]
+        };
+        assert_eq!(effects, expected);
     }
 }
 
@@ -284,7 +302,7 @@ fn every_authoritative_reset_rebases_backward_time_and_clears_a_challenge() {
         assert_eq!(next.binding(), expected_binding);
         assert_eq!(next.last_observed_at(), Some(time(2)));
         assert_eq!(next.challenge_id(), None);
-        assert_eq!(effects, vec![Effect::ClearPermit]);
+        assert_eq!(effects, abort_and_clear());
     }
 }
 
@@ -308,7 +326,7 @@ fn lower_epoch_lifecycle_events_never_revive_old_bindings() {
         let (mut state, effects) = transition(current_state, lifecycle_event, time(4)).unwrap();
         assert_eq!(state.phase(), UnlockPhase::LockedUnarmed);
         assert_eq!(state.binding(), Some(current));
-        assert_eq!(effects, vec![Effect::ClearPermit]);
+        assert_eq!(effects, abort_and_clear());
 
         let old_events = [
             Event::FarStable { binding: stale },
@@ -334,6 +352,130 @@ fn lower_epoch_lifecycle_events_never_revive_old_bindings() {
             assert!(!effects.iter().any(Effect::is_start_challenge));
             assert!(!effects.iter().any(Effect::is_create_permit));
             state = next;
+        }
+    }
+}
+
+#[test]
+fn equal_epoch_uid_or_audit_changes_never_replace_the_authoritative_binding() {
+    let current = binding(8, 41, 501);
+    let incompatible_bindings = [binding(8, 41, 502), binding(8, 42, 501)];
+
+    for incompatible in incompatible_bindings {
+        let lifecycle_events = [
+            Event::SessionLocked {
+                binding: incompatible,
+            },
+            Event::FastUserSwitch {
+                locked_binding: Some(incompatible),
+            },
+            Event::ServiceRestarted {
+                locked_binding: Some(incompatible),
+            },
+        ];
+
+        for lifecycle_event in lifecycle_events {
+            let (reset, effects) =
+                transition(challenging(current), lifecycle_event, time(4)).unwrap();
+            assert_eq!(reset.phase(), UnlockPhase::LockedUnarmed);
+            assert_eq!(reset.binding(), Some(current));
+            assert_eq!(effects, abort_and_clear());
+
+            let (after_far, effects) = transition(
+                reset,
+                Event::FarStable {
+                    binding: incompatible,
+                },
+                time(5),
+            )
+            .unwrap();
+            assert_eq!(after_far.phase(), UnlockPhase::LockedUnarmed);
+            assert_eq!(after_far.binding(), Some(current));
+            assert!(!effects.iter().any(Effect::is_start_challenge));
+        }
+
+        let (unlocked, _) =
+            transition(challenging(current), Event::SessionUnlocked, time(4)).unwrap();
+        let (still_unlocked, effects) = transition(
+            unlocked,
+            Event::SessionLocked {
+                binding: incompatible,
+            },
+            time(5),
+        )
+        .unwrap();
+        assert_eq!(still_unlocked.phase(), UnlockPhase::Unlocked);
+        assert_eq!(still_unlocked.binding(), None);
+        assert_eq!(effects, abort_and_clear());
+    }
+}
+
+#[test]
+fn every_active_worker_reset_stays_fenced_until_matching_termination() {
+    let current = binding(7, 41, 501);
+    let replacement = binding(8, 42, 502);
+    let reset_events = [
+        Event::SessionLocked { binding: current },
+        Event::SessionUnlocked,
+        Event::Logout,
+        Event::FastUserSwitch {
+            locked_binding: Some(replacement),
+        },
+        Event::ServiceRestarted {
+            locked_binding: Some(current),
+        },
+    ];
+
+    for begin_cancelling in [false, true] {
+        for reset in reset_events {
+            let active = challenging(current);
+            let active_id = active.challenge_id().unwrap();
+            let state = if begin_cancelling {
+                transition(active, Event::FarStable { binding: current }, time(4))
+                    .unwrap()
+                    .0
+            } else {
+                active
+            };
+            let now = if begin_cancelling { 5 } else { 4 };
+            let (reset_state, effects) = transition(state, reset, time(now)).unwrap();
+            assert_eq!(
+                effects,
+                vec![Effect::AbortAllChallenges, Effect::ClearPermit]
+            );
+
+            let outward_binding = reset_state.binding();
+            let probe_binding = outward_binding.unwrap_or(current);
+            let (after_far, effects) = transition(
+                reset_state,
+                Event::FarStable {
+                    binding: probe_binding,
+                },
+                time(now + 1),
+            )
+            .unwrap();
+            assert!(!effects.iter().any(Effect::is_start_challenge));
+            let (after_near, effects) = transition(
+                after_far,
+                Event::NearStable {
+                    binding: probe_binding,
+                },
+                time(now + 2),
+            )
+            .unwrap();
+            assert!(!effects.iter().any(Effect::is_start_challenge));
+
+            let (retired, effects) = transition(
+                after_near,
+                Event::ChallengeTerminated {
+                    binding: current,
+                    challenge_id: active_id,
+                },
+                time(now + 3),
+            )
+            .unwrap();
+            assert!(effects.is_empty());
+            assert_eq!(retired.challenge_id(), None);
         }
     }
 }
