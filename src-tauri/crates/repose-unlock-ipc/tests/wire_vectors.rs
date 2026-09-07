@@ -29,6 +29,23 @@ fn selector() -> SessionSelector {
     SessionSelector::new(ConsoleUid::new(501), AuditSessionId::new(0x1122_3344))
 }
 
+fn c_define_u64(header: &str, name: &str) -> u64 {
+    let literal = header
+        .lines()
+        .find_map(|line| {
+            let mut fields = line.split_whitespace();
+            (fields.next() == Some("#define") && fields.next() == Some(name))
+                .then(|| fields.next())
+                .flatten()
+        })
+        .unwrap_or_else(|| panic!("C header is missing #define {name}"));
+    let literal = literal.strip_suffix('u').unwrap_or(literal);
+    literal.strip_prefix("0x").map_or_else(
+        || literal.parse::<u64>().expect("decimal C integer define"),
+        |hex| u64::from_str_radix(hex, 16).expect("hexadecimal C integer define"),
+    )
+}
+
 #[test]
 fn consume_or_watch_has_one_exact_big_endian_c_layout() {
     let frame = encode_consume_or_watch(nonce(), selector());
@@ -256,9 +273,15 @@ fn c_header_constants_match_rust_wire_layout() {
     )
     .unwrap();
     for (name, value) in [
-        ("REPOSE_UNLOCK_IPC_FRAME_LEN", FRAME_LEN),
-        ("REPOSE_UNLOCK_IPC_HEADER_LEN", HEADER_LEN),
-        ("REPOSE_UNLOCK_IPC_PAYLOAD_LEN", PAYLOAD_LEN),
+        ("REPOSE_UNLOCK_IPC_FRAME_LEN", FRAME_LEN as u64),
+        ("REPOSE_UNLOCK_IPC_HEADER_LEN", HEADER_LEN as u64),
+        ("REPOSE_UNLOCK_IPC_PAYLOAD_LEN", PAYLOAD_LEN as u64),
+        ("REPOSE_UNLOCK_IPC_MAGIC_OFFSET", 0),
+        ("REPOSE_UNLOCK_IPC_VERSION_OFFSET", 4),
+        ("REPOSE_UNLOCK_IPC_OPERATION_OFFSET", 5),
+        ("REPOSE_UNLOCK_IPC_STATUS_OFFSET", 6),
+        ("REPOSE_UNLOCK_IPC_FLAGS_OFFSET", 7),
+        ("REPOSE_UNLOCK_IPC_PAYLOAD_LEN_OFFSET", 8),
         ("REPOSE_UNLOCK_IPC_NONCE_OFFSET", 12),
         ("REPOSE_UNLOCK_IPC_CONSOLE_UID_OFFSET", 44),
         ("REPOSE_UNLOCK_IPC_AUDIT_SESSION_OFFSET", 48),
@@ -266,27 +289,24 @@ fn c_header_constants_match_rust_wire_layout() {
         ("REPOSE_UNLOCK_IPC_INSTANCE_OFFSET", 60),
         ("REPOSE_UNLOCK_IPC_WATCH_ID_OFFSET", 76),
     ] {
-        assert!(
-            header.contains(&format!("#define {name} {value}u")),
-            "C header missing synchronized {name}={value}"
-        );
+        assert_eq!(c_define_u64(&header, name), value, "C header {name} drift");
     }
-    for line in [
-        "#define REPOSE_UNLOCK_IPC_MAGIC_0 0x52u",
-        "#define REPOSE_UNLOCK_IPC_MAGIC_1 0x50u",
-        "#define REPOSE_UNLOCK_IPC_MAGIC_2 0x55u",
-        "#define REPOSE_UNLOCK_IPC_MAGIC_3 0x49u",
-        "#define REPOSE_UNLOCK_IPC_VERSION 1u",
-        "#define REPOSE_UNLOCK_IPC_OP_CONSUME_OR_WATCH 1u",
-        "#define REPOSE_UNLOCK_IPC_OP_PERMIT_AVAILABLE 2u",
-        "#define REPOSE_UNLOCK_IPC_STATUS_REQUEST 0u",
-        "#define REPOSE_UNLOCK_IPC_STATUS_CONSUMED 1u",
-        "#define REPOSE_UNLOCK_IPC_STATUS_WATCHING 2u",
-        "#define REPOSE_UNLOCK_IPC_STATUS_DENIED 3u",
-        "#define REPOSE_UNLOCK_IPC_STATUS_EVENT 4u",
-        "#define REPOSE_UNLOCK_IPC_STATUS_KEEPALIVE 5u",
-        "#define REPOSE_UNLOCK_IPC_REQUEST_REQUIRES_WRITE_HALF_CLOSE 1u",
+    for (name, value) in [
+        ("REPOSE_UNLOCK_IPC_MAGIC_0", u64::from(b'R')),
+        ("REPOSE_UNLOCK_IPC_MAGIC_1", u64::from(b'P')),
+        ("REPOSE_UNLOCK_IPC_MAGIC_2", u64::from(b'U')),
+        ("REPOSE_UNLOCK_IPC_MAGIC_3", u64::from(b'I')),
+        ("REPOSE_UNLOCK_IPC_VERSION", 1),
+        ("REPOSE_UNLOCK_IPC_OP_CONSUME_OR_WATCH", 1),
+        ("REPOSE_UNLOCK_IPC_OP_PERMIT_AVAILABLE", 2),
+        ("REPOSE_UNLOCK_IPC_STATUS_REQUEST", 0),
+        ("REPOSE_UNLOCK_IPC_STATUS_CONSUMED", 1),
+        ("REPOSE_UNLOCK_IPC_STATUS_WATCHING", 2),
+        ("REPOSE_UNLOCK_IPC_STATUS_DENIED", 3),
+        ("REPOSE_UNLOCK_IPC_STATUS_EVENT", 4),
+        ("REPOSE_UNLOCK_IPC_STATUS_KEEPALIVE", 5),
+        ("REPOSE_UNLOCK_IPC_REQUEST_REQUIRES_WRITE_HALF_CLOSE", 1),
     ] {
-        assert!(header.contains(line), "C header missing `{line}`");
+        assert_eq!(c_define_u64(&header, name), value, "C header {name} drift");
     }
 }

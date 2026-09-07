@@ -142,9 +142,9 @@ impl<S: CounterStore, C: MonotonicClock> PermitBroker<S, C> {
         selector: SessionSelector,
         nonce: RequestNonce,
     ) -> Result<BrokerOutcome, BrokerError> {
-        let now = self.clock.now();
         let registry = Arc::downgrade(&self.inner);
         let mut inner = self.inner.lock();
+        let now = self.clock.now();
         if clock_rolled_back(&inner, now) {
             reset_after_clock_rollback(&mut inner, now);
             return Err(BrokerError::ClockRollback);
@@ -213,8 +213,8 @@ impl<S: CounterStore, C: MonotonicClock> PermitBroker<S, C> {
     }
 
     pub fn publish(&self, permit: Permit) -> Result<PublishOutcome, BrokerError> {
-        let now = self.clock.now();
         let mut inner = self.inner.lock();
+        let now = self.clock.now();
         if clock_rolled_back(&inner, now) {
             reset_after_clock_rollback(&mut inner, now);
             return Err(BrokerError::ClockRollback);
@@ -275,8 +275,8 @@ impl<S: CounterStore, C: MonotonicClock> PermitBroker<S, C> {
         &self,
         authoritative_binding: Option<SessionBinding>,
     ) -> Result<(), BrokerError> {
-        let now = self.clock.now();
         let mut inner = self.inner.lock();
+        let now = self.clock.now();
         if clock_rolled_back(&inner, now) {
             reset_after_clock_rollback(&mut inner, now);
             return Err(BrokerError::ClockRollback);
@@ -320,8 +320,8 @@ impl<S: CounterStore, C: MonotonicClock> PermitBroker<S, C> {
         new_instance: ServiceInstanceId,
         authoritative_binding: Option<SessionBinding>,
     ) -> Result<(), BrokerError> {
-        let now = self.clock.now();
         let mut inner = self.inner.lock();
+        let now = self.clock.now();
         let reused_instance = new_instance == inner.service_instance;
         let prior_epoch = reducer(&inner).highest_lock_epoch();
         let epoch_advanced = match (prior_epoch, authoritative_binding) {
@@ -765,8 +765,8 @@ impl Error for BrokerError {}
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Barrier, Weak};
     use std::time::Duration;
 
     use repose_unlock_core::domain::{AuditSessionId, ConsoleUid, LockEpoch, MonoMillis};
@@ -776,7 +776,9 @@ mod tests {
     };
     use repose_unlock_ipc::{RequestNonce, ServiceInstanceId, SessionSelector};
 
-    use super::{BrokerOutcome, MonotonicClock, PermitBroker, WatchWaitError};
+    use super::{
+        BrokerError, BrokerOutcome, BrokerState, MonotonicClock, PermitBroker, WatchWaitError,
+    };
 
     #[derive(Clone)]
     struct Clock(Arc<AtomicU64>);
@@ -784,6 +786,66 @@ mod tests {
     impl MonotonicClock for Clock {
         fn now(&self) -> MonoMillis {
             MonoMillis::new(self.0.load(Ordering::SeqCst))
+        }
+    }
+
+    #[derive(Clone)]
+    struct InversionClock {
+        next: Arc<AtomicU64>,
+        armed: Arc<AtomicBool>,
+        rendezvous: Arc<Barrier>,
+        sampled_outside_lock: Arc<AtomicBool>,
+        broker: Arc<parking_lot::Mutex<Option<Weak<parking_lot::Mutex<BrokerState>>>>>,
+    }
+
+    impl InversionClock {
+        fn new(first: u64) -> Self {
+            Self {
+                next: Arc::new(AtomicU64::new(first)),
+                armed: Arc::new(AtomicBool::new(false)),
+                rendezvous: Arc::new(Barrier::new(2)),
+                sampled_outside_lock: Arc::new(AtomicBool::new(false)),
+                broker: Arc::new(parking_lot::Mutex::new(None)),
+            }
+        }
+
+        fn attach(&self, broker: Weak<parking_lot::Mutex<BrokerState>>) {
+            *self.broker.lock() = Some(broker);
+        }
+
+        fn arm(&self) {
+            assert!(!self.armed.swap(true, Ordering::AcqRel));
+        }
+
+        fn wait_until_sampled(&self) {
+            self.rendezvous.wait();
+        }
+
+        fn release(&self) {
+            self.rendezvous.wait();
+        }
+
+        fn sampled_outside_lock(&self) -> bool {
+            self.sampled_outside_lock.load(Ordering::Acquire)
+        }
+    }
+
+    impl MonotonicClock for InversionClock {
+        fn now(&self) -> MonoMillis {
+            let sampled = self.next.fetch_add(1, Ordering::AcqRel);
+            if self.armed.swap(false, Ordering::AcqRel) {
+                let broker = self
+                    .broker
+                    .lock()
+                    .as_ref()
+                    .and_then(Weak::upgrade)
+                    .expect("clock attached to live broker");
+                self.sampled_outside_lock
+                    .store(broker.try_lock().is_some(), Ordering::Release);
+                self.rendezvous.wait();
+                self.rendezvous.wait();
+            }
+            MonoMillis::new(sampled)
         }
     }
 
@@ -850,6 +912,66 @@ mod tests {
             broker
                 .consume_or_watch(selector, RequestNonce::try_new([2; 32]).unwrap())
                 .is_err()
+        );
+        assert_eq!(broker.watch_count(), 0);
+    }
+
+    #[test]
+    fn inverse_thread_arrival_cannot_turn_monotonic_time_into_a_false_rollback() {
+        let (state, _) = transition(
+            UnlockState::unlocked(TimingPolicy::new(5_000, 3_000, 1_000).unwrap()),
+            Event::SessionLocked {
+                binding: binding(1),
+            },
+            MonoMillis::new(10),
+        )
+        .unwrap();
+        let clock = InversionClock::new(11);
+        let broker = Arc::new(PermitBroker::new(
+            DurableReplayGuard::new(MemoryCounterStore::new(), ReplayPolicy::default()),
+            clock.clone(),
+            ServiceInstanceId::try_new([1; 16]).unwrap(),
+            state,
+            8,
+        ));
+        clock.attach(Arc::downgrade(&broker.inner));
+        let selector = SessionSelector::new(ConsoleUid::new(501), AuditSessionId::new(7));
+
+        clock.arm();
+        let first = {
+            let broker = Arc::clone(&broker);
+            std::thread::spawn(move || {
+                broker.consume_or_watch(selector, RequestNonce::try_new([1; 32]).unwrap())
+            })
+        };
+        clock.wait_until_sampled();
+
+        // In the buggy implementation the first thread has sampled 11 without
+        // holding the broker lock, so let the second invocation linearize with
+        // 12 before releasing it. With in-lock sampling, release the first lock
+        // holder before making the second invocation.
+        let second_before_release = clock
+            .sampled_outside_lock()
+            .then(|| broker.consume_or_watch(selector, RequestNonce::try_new([2; 32]).unwrap()));
+        clock.release();
+        let first = first.join().unwrap();
+        let second = second_before_release.unwrap_or_else(|| {
+            broker.consume_or_watch(selector, RequestNonce::try_new([2; 32]).unwrap())
+        });
+
+        let false_rollback = matches!(&first, Err(BrokerError::ClockRollback));
+        for outcome in [first, second] {
+            if let Ok(BrokerOutcome::Watching(watch)) = outcome {
+                drop(watch);
+            }
+        }
+        assert!(
+            !false_rollback,
+            "lock order must define monotonic time order"
+        );
+        assert_eq!(
+            broker.service_instance(),
+            ServiceInstanceId::try_new([1; 16]).unwrap()
         );
         assert_eq!(broker.watch_count(), 0);
     }

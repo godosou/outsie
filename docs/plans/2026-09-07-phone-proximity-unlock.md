@@ -318,16 +318,22 @@ git commit -m "feat: add safe screensaver authorization policy"
 
 **Files:**
 
+- Modify: `src-tauri/Cargo.toml`
+- Modify: `src-tauri/Cargo.lock`
+- Create: `docs/protocol/repose-unlock-ipc-v1.md`
 - Create: `src-tauri/crates/repose-unlock-ipc/Cargo.toml`
 - Create: `src-tauri/crates/repose-unlock-ipc/src/lib.rs`
 - Create: `src-tauri/crates/repose-unlock-ipc/include/repose_unlock_ipc.h`
 - Create: `src-tauri/crates/repose-unlock-ipc/tests/wire_vectors.rs`
 - Create: `src-tauri/crates/repose-unlock-service/Cargo.toml`
+- Create: `src-tauri/crates/repose-unlock-service/build.rs`
 - Create: `src-tauri/crates/repose-unlock-service/src/lib.rs`
 - Create: `src-tauri/crates/repose-unlock-service/src/main.rs`
 - Create: `src-tauri/crates/repose-unlock-service/src/permit_broker.rs`
 - Create: `src-tauri/crates/repose-unlock-service/src/ipc_server.rs`
+- Create: `src-tauri/crates/repose-unlock-service/src/launchd.rs`
 - Create: `src-tauri/crates/repose-unlock-service/src/peer_identity.rs`
+- Create: `src-tauri/crates/repose-unlock-service/native/listener_identity.c`
 - Create: `src-tauri/crates/repose-unlock-service/native/peer_identity.c`
 - Test: `src-tauri/crates/repose-unlock-service/tests/consume_ipc.rs`
 - Test: `src-tauri/crates/repose-unlock-service/tests/watch_interrupt.rs`
@@ -335,7 +341,7 @@ git commit -m "feat: add safe screensaver authorization policy"
 
 **Step 1: Write failing wire and broker tests**
 
-Cover partial frames, oversized lengths, unknown operations, wrong nonce/session, service restart, watcher/consume races, and 100 concurrent consumers. Test `consume_or_watch` as one atomic broker operation so an event cannot occur between lookup and subscription.
+Cover partial frames, oversized lengths, unknown operations, wrong nonce/session, service restart, watcher/consume races, and 100 concurrent consumers. Use barriers or explicit test hooks—not scheduler sleeps—to force both publish/consume and session-or-restart/consume linearization orders. Also force inverse thread arrival to prove monotonic time is sampled only after entering the broker lock. Test `consume_or_watch` as one atomic broker operation so an event cannot occur between lookup and subscription.
 
 **Step 2: Verify red**
 
@@ -346,13 +352,15 @@ cargo test --manifest-path src-tauri/Cargo.toml -p repose-unlock-service
 
 **Step 3: Implement the test transport and production peer verifier**
 
-Use a temporary AF_UNIX socket in tests and `/var/run/ai.repose.unlockd/consume.sock` only in packaged launchd configuration. All connect/read/write operations use nonblocking I/O and one absolute 100 ms deadline. Production macOS peer verification obtains `LOCAL_PEERTOKEN`, checks euid/audit session, and validates this designated requirement with Security.framework:
+Use a temporary AF_UNIX socket in tests. Production never binds or unlinks `/var/run/ai.repose.unlockd/consume.sock`; launchd owns that node, and the service only validates the inherited listener against the fixed packaged path and ownership/mode contract. All connect/read/write operations use nonblocking I/O and one absolute 100 ms deadline. Production macOS peer verification obtains `LOCAL_PEERTOKEN`, checks euid/audit session, and validates this designated requirement with Security.framework:
 
 ```text
 identifier "com.apple.authorizationhost" and anchor apple
 ```
 
 The peer is Apple `authorizationhost`, not the Repose plugin bundle. Test builds inject a `PeerVerifier`; production builds cannot select `AllowAll`.
+
+Task 5's `src/main.rs` production entry is intentionally an authenticated deny-only/offline gate: it activates and validates the launchd listener, constructs the concrete production peer verifier, parses only strictly bounded requests, and closes without returning `CONSUMED` or `WATCHING`. It does **not** connect the prototype `PermitBroker` to a production durable/session runtime and must not be described as enabling phone unlock. A dedicated-Mac Task 8 validation build may wire that private runtime boundary for the feasibility tests; the real broker path must remain disabled for ordinary installation until Task 8 records a passing authorization, fallback, and keychain gate.
 
 **Step 4: Verify green and sanitizable boundaries**
 
@@ -365,7 +373,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -p repose-unlock-service --all
 **Step 5: Commit**
 
 ```bash
-git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/crates/repose-unlock-ipc src-tauri/crates/repose-unlock-service
+git add docs/plans/2026-09-07-phone-proximity-unlock.md docs/protocol/repose-unlock-ipc-v1.md src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/crates/repose-unlock-ipc src-tauri/crates/repose-unlock-service
 git commit -m "feat: add one-shot unlock permit broker"
 ```
 
