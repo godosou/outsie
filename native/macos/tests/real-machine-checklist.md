@@ -1,8 +1,25 @@
-# macOS Authorization Feasibility Checklist (Preparation Only)
+# macOS Authorization Feasibility Checklist (Gate Closed)
 
-> Status: **not executed**. Every checkbox and evidence field below is intentionally blank.
-> Task 7 must not be used as evidence that automatic unlock is enabled or safe. Run this
-> checklist only in Task 8 on a dedicated, restoreable Mac—never on a developer's daily Mac.
+> Status: **NOT RUN / GATE CLOSED**. Every checkbox below remains intentionally unchecked.
+> The read-only host inventory in
+> [`docs/validation/macos-authorization-results.md`](../../../docs/validation/macos-authorization-results.md)
+> confirms that this development Mac has not met the dedicated/restoreable-host or recovery
+> prerequisites. Task 7 must not be used as evidence that automatic unlock is enabled or safe.
+> Run this checklist only on a dedicated, restoreable Mac—never on a developer's daily Mac.
+
+## Current host observation (not validation evidence)
+
+Read-only inventory was recorded on 2026-09-08. It found macOS 14.6.1 (`23G93`) on an Apple M3
+MacBook Pro (`Mac15,3`), Command Line Tools 16.2 without full Xcode, and zero valid code-signing
+identities. FileVault status/recovery, a second administrator, remote recovery, erase/restore, and a
+tested backup restore are all unverified. Flutter 3.38.9 metadata, Android SDK API 35, ADB 35.0.2,
+and Java 17 are present, but the operator-provided realme GT5 Pro / Android 16 target was not
+independently enumerated or tested.
+
+This inventory does not satisfy any checkbox. No Authorization Services operation, installation,
+launchd action, lock-screen interaction, password trial, latency measurement, or recovery action was
+performed. Exact command outcomes and the conditions for reopening the gate are in the linked
+results document.
 
 ## Hard stop before any installation
 
@@ -121,13 +138,13 @@ journal, Authorization Services, filesystem, service, or launchd mutation.
 
 | Item | Result | Artifact/log/hash | Reviewer |
 |---|---|---|---|
-| Safety prerequisites | `NOT RUN` | `________________` | `________________` |
-| Signed-measurement gate | `NOT RUN` | `________________` | `________________` |
-| Password fallback | `NOT RUN` | `________________` | `________________` |
-| Permit timing | `NOT RUN` | `________________` | `________________` |
-| Fault injection | `NOT RUN` | `________________` | `________________` |
-| Power-loss recovery | `NOT RUN` | `________________` | `________________` |
-| Repair/uninstall | `NOT RUN` | `________________` | `________________` |
+| Safety prerequisites | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
+| Signed-measurement gate | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
+| Password fallback | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
+| Permit timing | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
+| Fault injection | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
+| Power-loss recovery | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
+| Repair/uninstall | `NOT RUN / GATE CLOSED` | `________________` | `________________` |
 
 Task 8 copies exact evidence into `docs/validation/macos-authorization-results.md`. A missing result,
 unattended re-evaluation failure, password/keychain regression, or unverifiable dependency closure

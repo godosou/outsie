@@ -552,10 +552,18 @@ git add native/macos/launchd native/macos/tests scripts/package-macos-auth-compo
 git commit -m "feat: add recoverable unlock component installer"
 ```
 
-### Task 8: Run the dedicated-Mac authorization feasibility gate
+### Task 8: Run the dedicated-Mac authorization feasibility gate — BLOCKED
+
+> Status on 2026-09-08: **NOT RUN / GATE CLOSED**. A read-only inventory of the current
+> development Mac is recorded in `docs/validation/macos-authorization-results.md`. This is not a
+> dedicated/restoreable test Mac, and the second-admin, remote-recovery, FileVault-recovery, tested
+> restore, signing, and production-measurement prerequisites are unresolved. No Authorization
+> Services, install, launchd, lock-screen, latency, password, keychain, repair, or uninstall test was
+> run. Steps 2–5 remain future work on a qualified test Mac.
 
 **Files:**
 
+- Modify: `docs/plans/2026-09-07-phone-proximity-unlock.md`
 - Modify: `native/macos/tests/real-machine-checklist.md`
 - Create: `docs/validation/macos-authorization-results.md`
 
@@ -581,12 +589,17 @@ After an automatic unlock, verify login keychain, saved passwords, SSH keys, and
 
 Write exact OS/build, hashes, timings, failures, and logs to `docs/validation/macos-authorization-results.md`. If unattended re-evaluation, fallback, or login keychain fails, mark the product gate failed and do not enable installation from Repose.
 
-**Step 6: Commit test evidence**
+**Step 6: Commit the closed-gate record**
 
 ```bash
+git add docs/plans/2026-09-07-phone-proximity-unlock.md
 git add native/macos/tests/real-machine-checklist.md docs/validation/macos-authorization-results.md
-git commit -m "test: validate macOS unlock authorization path"
+git commit -m "docs: record closed macOS authorization gate"
 ```
+
+When the prerequisites are later satisfied, record real-machine evidence in a separate commit.
+Do not replace `NOT RUN / GATE CLOSED` with a passing result until every claimed experiment has
+actually run and its logs, hashes, and timings are attached.
 
 ### Task 9: Scaffold the Flutter companion and test the shared UI state
 
