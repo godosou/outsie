@@ -122,7 +122,7 @@ test('manual focus pause does not turn lock time into passive rest', () => {
   })
   assert.equal(rested.remaining, paused.remaining)
   assert.deepEqual(getTodayStats(rested, START), getTodayStats(paused, START))
-  assert.equal(rested.lastLifecycleIntervalId, 'process-paused')
+  assert.deepEqual(rested.lifecycleIntervalIds, ['process-paused'])
 })
 
 test('passive rest during a delay completes the original occurrence without a new postpone', () => {
@@ -186,6 +186,28 @@ test('a duplicate lifecycle interval cannot advance or complete anything twice',
   }
   const completed = applyInactivityInterval(started, context, interval)
   assert.equal(applyInactivityInterval(completed, context, interval), completed)
+})
+
+test('an older lifecycle interval stays idempotent after newer intervals are applied', () => {
+  const focused = createTimerState(START)
+  const context = captureInactivity(focused)
+  const firstInterval = {
+    intervalId: 'passive-first',
+    elapsedSeconds: 1,
+    startedAt: START,
+    endedAt: START + 1_000,
+  }
+  const afterFirst = applyInactivityInterval(focused, context, firstInterval)
+  const afterSecond = applyInactivityInterval(afterFirst, context, {
+    intervalId: 'passive-second',
+    elapsedSeconds: 1,
+    startedAt: START + 2_000,
+    endedAt: START + 3_000,
+  })
+  assert.equal(applyInactivityInterval(afterSecond, context, firstInterval), afterSecond)
+  assert.equal(getTodayStats(afterSecond, START).breakSeconds, 2)
+  const restored = restoreTimerState(JSON.stringify(afterSecond), START + 4_000)
+  assert.equal(applyInactivityInterval(restored, context, firstInterval), restored)
 })
 
 test('native completion requires the current break identity', () => {
@@ -619,10 +641,10 @@ test('skipping an active or deferred occurrence clears its one-time state', () =
 
 test('old v1 states gain an occurrence identity and invalid pending data is discarded', () => {
   const started = startTimerBreak(createTimerState(START), 'short', START)
-  const { breakId: _id, deferredBreak: _pending, postponeUsed: _used, lastLifecycleIntervalId: _interval, ...old } = started
+  const { breakId: _id, deferredBreak: _pending, postponeUsed: _used, lifecycleIntervalIds: _intervals, ...old } = started
   const restored = restoreTimerState(JSON.stringify({ ...old, version: 1 }), START)
   assert.equal(restored.version, 2)
-  assert.equal(restored.lastLifecycleIntervalId, null)
+  assert.deepEqual(restored.lifecycleIntervalIds, [])
   assert.equal(restored.phase, 'short')
   assert.ok(restored.breakId)
   assert.equal(restored.postponeUsed, false)
