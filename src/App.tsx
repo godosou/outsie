@@ -9,7 +9,7 @@ type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
 
-const APP_VERSION = '0.3.0'
+const APP_VERSION = '0.4.0'
 
 const exercises: Exercise[] = [
   { id: 'eyes', category: '放松双眼', title: '目光，去远方散个步', subtitle: '暂时离开屏幕，看看窗外的风景。', duration: '短休息', type: 'short', art: 'eyes', color: 'sage', icon: Eye, steps: ['轻轻闭上眼睛，让眼周放松。', '望向窗外或房间远处，让目光自然停留。', '慢慢眨几次眼，感受眼睛重新湿润。'] },
