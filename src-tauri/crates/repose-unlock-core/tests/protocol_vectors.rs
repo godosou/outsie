@@ -481,6 +481,7 @@ fn forged_or_mutated_challenge_never_becomes_phone_authenticated() {
         vectors.device_id(),
         vectors.generation(),
         PublicKeyBytes::try_new(vectors.array("phone_signing_public_key")).unwrap(),
+        PublicKeyBytes::try_new(vectors.array("phone_signing_public_key")).unwrap(),
     );
     assert_eq!(
         verify_mac_challenge(&valid, &wrong_key).err().unwrap(),

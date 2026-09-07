@@ -133,6 +133,8 @@ impl Vectors {
             self.generation(),
             PublicKeyBytes::try_new(self.array("mac_signing_public_key"))
                 .expect("valid fixture Mac identity key"),
+            PublicKeyBytes::try_new(self.array("phone_signing_public_key"))
+                .expect("valid fixture phone identity key"),
         )
     }
 }
@@ -325,6 +327,7 @@ pub fn response_for_counter_and_generation(
         vectors.device_id(),
         generation,
         PublicKeyBytes::try_new(vectors.array("mac_signing_public_key")).unwrap(),
+        PublicKeyBytes::try_new(vectors.array("phone_signing_public_key")).unwrap(),
     );
     let authenticated_challenge = verify_mac_challenge(issued.frame(), &paired_mac).unwrap();
     let mut phone_nonce = vectors.bytes("phone_nonce");

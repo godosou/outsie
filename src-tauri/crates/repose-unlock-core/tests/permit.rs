@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
+use parking_lot::Mutex;
 use repose_unlock_core::domain::{AuditSessionId, ConsoleUid, LockEpoch};
 use repose_unlock_core::permit::{ConsumeError, ExpireOutcome, InstallError, PermitStore};
 use repose_unlock_core::protocol::messages::DeviceId;
@@ -386,6 +387,63 @@ fn authority_store_failure_returns_no_capability_and_destroys_the_permit() {
         ))
     );
     unavailable.store(false, Ordering::SeqCst);
+    assert_eq!(
+        permits
+            .consume(&guard, binding(), Some(binding()), ms(2_002))
+            .unwrap_err(),
+        ConsumeError::Empty
+    );
+}
+
+#[derive(Clone)]
+struct StaleReadAfterRevokeStore {
+    backing: MemoryCounterStore,
+    stale_read: Arc<Mutex<Option<DurableReplayState>>>,
+}
+
+impl CounterStore for StaleReadAfterRevokeStore {
+    fn load(&self, device_id: DeviceId) -> Result<Option<DurableReplayState>, ReplayStoreError> {
+        if let Some(stale) = *self.stale_read.lock() {
+            Ok(Some(stale))
+        } else {
+            self.backing.load(device_id)
+        }
+    }
+
+    fn compare_and_swap(
+        &self,
+        device_id: DeviceId,
+        expected: Option<&DurableReplayState>,
+        replacement: &DurableReplayState,
+    ) -> Result<bool, ReplayStoreError> {
+        self.backing
+            .compare_and_swap(device_id, expected, replacement)
+    }
+}
+
+#[test]
+fn stale_read_cannot_authorize_a_permit_after_revocation_has_returned() {
+    let store = StaleReadAfterRevokeStore {
+        backing: MemoryCounterStore::new(),
+        stale_read: Arc::new(Mutex::new(None)),
+    };
+    let guard = DurableReplayGuard::new(store.clone(), ReplayPolicy::default());
+    let (permit, vectors) = provenance_permit(&guard);
+    let active = store.backing.load(vectors.device_id()).unwrap().unwrap();
+    let permits = PermitStore::new();
+    permits.install(permit, ms(2_000)).unwrap();
+    guard
+        .revoke(vectors.mac_id(), vectors.device_id(), vectors.generation())
+        .unwrap();
+    *store.stale_read.lock() = Some(active);
+
+    assert_eq!(
+        permits
+            .consume(&guard, binding(), Some(binding()), ms(2_001))
+            .unwrap_err(),
+        ConsumeError::Authority(GenerationAuthorityError::StateMismatch)
+    );
+    *store.stale_read.lock() = None;
     assert_eq!(
         permits
             .consume(&guard, binding(), Some(binding()), ms(2_002))

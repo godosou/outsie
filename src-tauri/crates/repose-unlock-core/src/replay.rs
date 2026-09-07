@@ -171,6 +171,10 @@ pub trait CounterStore: Send + Sync {
     /// Atomically replace only the exact previously loaded value.
     ///
     /// Returning `Ok(true)` asserts that `replacement` is durable before return.
+    /// When `expected == replacement`, implementations MUST still compare the
+    /// current durable row in the same linearization domain used by every other
+    /// CAS (including revocation). They MUST NOT short-circuit a no-op CAS to
+    /// `true` from a cache or without observing durable current state.
     fn compare_and_swap(
         &self,
         device_id: DeviceId,
@@ -448,30 +452,40 @@ impl<S: CounterStore> DurableReplayGuard<S> {
         if provenance.guard_instance_id != self.instance_id {
             return Err(GenerationAuthorityError::WrongGuard);
         }
-        let current = self
-            .store
-            .load(provenance.device_id)
-            .map_err(GenerationAuthorityError::Store)?;
-        match current {
-            Some(DurableReplayState::Revoked(revoked))
+        let expected = DurableReplayState::Active(DurableCounterState {
+            mac_id: provenance.mac_id,
+            device_id: provenance.device_id,
+            pairing_generation: provenance.pairing_generation,
+            binding: provenance.binding,
+            challenge_id: provenance.challenge_id.get(),
+            counter: provenance.counter,
+        });
+        if self.compare_current(&expected)? {
+            return Ok(());
+        }
+
+        // A post-failure load is diagnostic only. It can refine the public error,
+        // but can never turn a failed atomic comparison into authorization.
+        match self.store.load(provenance.device_id) {
+            Ok(Some(DurableReplayState::Revoked(revoked)))
                 if revoked.mac_id == provenance.mac_id
                     && revoked.device_id == provenance.device_id
                     && revoked.pairing_generation >= provenance.pairing_generation =>
             {
                 Err(GenerationAuthorityError::Revoked)
             }
-            Some(DurableReplayState::Active(active))
-                if active.mac_id == provenance.mac_id
-                    && active.device_id == provenance.device_id
-                    && active.pairing_generation == provenance.pairing_generation
-                    && active.binding == provenance.binding
-                    && active.challenge_id == provenance.challenge_id.get()
-                    && active.counter == provenance.counter =>
-            {
-                Ok(())
-            }
+            Err(error) => Err(GenerationAuthorityError::Store(error)),
             _ => Err(GenerationAuthorityError::StateMismatch),
         }
+    }
+
+    fn compare_current(
+        &self,
+        expected: &DurableReplayState,
+    ) -> Result<bool, GenerationAuthorityError> {
+        self.store
+            .compare_and_swap(expected.device_id(), Some(expected), expected)
+            .map_err(GenerationAuthorityError::Store)
     }
 
     fn plan_commit(

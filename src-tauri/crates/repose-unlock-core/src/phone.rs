@@ -15,9 +15,10 @@ use sha2::{Digest, Sha256};
 
 use crate::protocol::crypto::{
     CryptoRandom, PhoneBuildError, PhoneResponseSigner, VerifiedMacChallenge, build_phone_response,
+    verify_phone_response_signature,
 };
-use crate::protocol::messages::{DeviceId, MacId, PairingGeneration};
-use crate::protocol::wire::RESPONSE_FRAME_LEN;
+use crate::protocol::messages::{DeviceId, MacId, PairingGeneration, PublicKeyBytes};
+use crate::protocol::wire::{CHALLENGE_FRAME_LEN, RESPONSE_FRAME_LEN};
 use crate::state_machine::{ChallengeId, SessionBinding};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +162,49 @@ pub struct CachedPhoneResponse {
     challenge_fingerprint: [u8; 32],
     counter: u64,
     response: [u8; RESPONSE_FRAME_LEN],
+}
+
+impl CachedPhoneResponse {
+    #[allow(clippy::too_many_arguments)]
+    fn matches_intent(
+        &self,
+        mac_id: MacId,
+        device_id: DeviceId,
+        pairing_generation: PairingGeneration,
+        binding: SessionBinding,
+        challenge_id: ChallengeId,
+        challenge_fingerprint: &[u8; 32],
+        counter: u64,
+        mac_nonce: &[u8; 32],
+        mac_ephemeral_public_key: PublicKeyBytes,
+        challenge_frame: &[u8; CHALLENGE_FRAME_LEN],
+        phone_identity_public_key: PublicKeyBytes,
+    ) -> bool {
+        let Ok(response) = crate::protocol::wire::decode_response(&self.response) else {
+            return false;
+        };
+        self.mac_id == mac_id
+            && self.device_id == device_id
+            && self.pairing_generation == pairing_generation
+            && self.binding == binding
+            && self.challenge_id == challenge_id
+            && &self.challenge_fingerprint == challenge_fingerprint
+            && self.counter == counter
+            && response.mac_id() == mac_id
+            && response.device_id() == device_id
+            && response.pairing_generation() == pairing_generation
+            && response.binding() == binding
+            && response.challenge_id() == challenge_id
+            && response.counter() == counter
+            && response.mac_nonce() == mac_nonce
+            && response.mac_ephemeral_public_key() == mac_ephemeral_public_key
+            && verify_phone_response_signature(
+                challenge_frame,
+                &response,
+                phone_identity_public_key,
+            )
+            .is_ok()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,6 +376,8 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
         signer: &mut I,
     ) -> Result<[u8; RESPONSE_FRAME_LEN], PhoneResponseError> {
         let _gate = self.gate.lock();
+        let challenge_frame = *challenge.frame();
+        let phone_identity_public_key = challenge.phone_identity_public_key();
         let message = challenge.message();
         let mac_id = message.mac_id();
         let device_id = message.device_id();
@@ -354,9 +400,19 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
             Some(DurablePhoneState::Ready(current)) => current.counter,
             Some(DurablePhoneState::Cached(current)) => {
                 if current.challenge_fingerprint == fingerprint {
-                    if current.binding != message.binding()
-                        || current.challenge_id != message.challenge_id()
-                    {
+                    if !current.matches_intent(
+                        mac_id,
+                        device_id,
+                        message.pairing_generation(),
+                        message.binding(),
+                        message.challenge_id(),
+                        &fingerprint,
+                        current.counter,
+                        message.mac_nonce(),
+                        message.mac_ephemeral_public_key(),
+                        &challenge_frame,
+                        phone_identity_public_key,
+                    ) {
                         return Err(PhoneResponseError::CorruptSnapshot);
                     }
                     return Ok(current.response);
@@ -378,18 +434,23 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
                 current.counter
             }
         };
-        previous_counter
+        let expected_counter = previous_counter
             .max(message.counter_floor())
             .checked_add(1)
             .ok_or(PhoneResponseError::CounterOverflow)?;
         let binding = message.binding();
         let challenge_id = message.challenge_id();
         let generation = message.pairing_generation();
+        let mac_nonce = *message.mac_nonce();
+        let mac_ephemeral_public_key = message.mac_ephemeral_public_key();
         let response = build_phone_response(challenge, previous_counter, rng, signer)
             .map_err(PhoneResponseError::Build)?;
         let counter = crate::protocol::wire::decode_response(&response)
             .map_err(|_| PhoneResponseError::CorruptSnapshot)?
             .counter();
+        if counter != expected_counter {
+            return Err(PhoneResponseError::CorruptSnapshot);
+        }
         let replacement = DurablePhoneState::Cached(Box::new(CachedPhoneResponse {
             mac_id,
             device_id,
@@ -420,11 +481,19 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
             .map_err(PhoneResponseError::Store)?
         {
             Some(DurablePhoneState::Cached(winner))
-                if winner.mac_id == mac_id
-                    && winner.pairing_generation == generation
-                    && winner.challenge_fingerprint == fingerprint
-                    && winner.binding == binding
-                    && winner.challenge_id == challenge_id =>
+                if winner.matches_intent(
+                    mac_id,
+                    device_id,
+                    generation,
+                    binding,
+                    challenge_id,
+                    &fingerprint,
+                    expected_counter,
+                    &mac_nonce,
+                    mac_ephemeral_public_key,
+                    &challenge_frame,
+                    phone_identity_public_key,
+                ) =>
             {
                 Ok(winner.response)
             }

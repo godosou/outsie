@@ -171,6 +171,7 @@ pub struct PairedMac {
     device_id: DeviceId,
     pairing_generation: PairingGeneration,
     mac_identity_public_key: PublicKeyBytes,
+    phone_identity_public_key: PublicKeyBytes,
 }
 
 impl PairedMac {
@@ -180,12 +181,14 @@ impl PairedMac {
         device_id: DeviceId,
         pairing_generation: PairingGeneration,
         mac_identity_public_key: PublicKeyBytes,
+        phone_identity_public_key: PublicKeyBytes,
     ) -> Self {
         Self {
             mac_id,
             device_id,
             pairing_generation,
             mac_identity_public_key,
+            phone_identity_public_key,
         }
     }
 }
@@ -389,6 +392,7 @@ impl Error for ChallengeVerificationError {}
 pub struct VerifiedMacChallenge {
     message: Challenge,
     frame: [u8; wire::CHALLENGE_FRAME_LEN],
+    phone_identity_public_key: PublicKeyBytes,
 }
 
 impl VerifiedMacChallenge {
@@ -400,6 +404,11 @@ impl VerifiedMacChallenge {
     #[must_use]
     pub(crate) const fn frame(&self) -> &[u8; wire::CHALLENGE_FRAME_LEN] {
         &self.frame
+    }
+
+    #[must_use]
+    pub(crate) const fn phone_identity_public_key(&self) -> PublicKeyBytes {
+        self.phone_identity_public_key
     }
 
     #[must_use]
@@ -457,7 +466,11 @@ pub fn verify_mac_challenge(
             &signature,
         )
         .map_err(|_| ChallengeVerificationError::Signature)?;
-    Ok(VerifiedMacChallenge { message, frame })
+    Ok(VerifiedMacChallenge {
+        message,
+        frame,
+        phone_identity_public_key: paired_mac.phone_identity_public_key,
+    })
 }
 
 /// Direction-separated session material. Secret bytes are zeroized on drop and
@@ -600,6 +613,7 @@ pub enum PhoneBuildError {
     Signing,
     InvalidSignatureEncoding,
     HighS,
+    Signature,
     Crypto(CryptoError),
 }
 
@@ -710,13 +724,33 @@ pub(crate) fn build_phone_response<R: CryptoRandom, S: PhoneResponseSigner>(
     let raw_signature = signer
         .sign_response(&request)
         .map_err(|_| PhoneBuildError::Signing)?;
-    let signature = Signature::from_slice(&raw_signature)
+    response.signature = raw_signature;
+    verify_phone_response_signature(
+        &authenticated_challenge.frame,
+        &response,
+        authenticated_challenge.phone_identity_public_key,
+    )?;
+    Ok(wire::encode_response(&response))
+}
+
+pub(crate) fn verify_phone_response_signature(
+    challenge_frame: &[u8; wire::CHALLENGE_FRAME_LEN],
+    response: &Response,
+    phone_identity_public_key: PublicKeyBytes,
+) -> Result<(), PhoneBuildError> {
+    let signature = Signature::from_slice(response.signature())
         .map_err(|_| PhoneBuildError::InvalidSignatureEncoding)?;
     if signature.normalize_s().is_some() {
         return Err(PhoneBuildError::HighS);
     }
-    response.signature = raw_signature;
-    Ok(wire::encode_response(&response))
+    let verifying_key = VerifyingKey::from_sec1_bytes(phone_identity_public_key.as_bytes())
+        .map_err(|_| PhoneBuildError::Signature)?;
+    verifying_key
+        .verify_prehash(
+            &transcript::signature_hash(challenge_frame, response),
+            &signature,
+        )
+        .map_err(|_| PhoneBuildError::Signature)
 }
 
 fn decrypt_response_proof(
