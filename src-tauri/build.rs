@@ -1,6 +1,7 @@
 fn main() {
     #[cfg(target_os = "macos")]
     {
+        println!("cargo:rerun-if-changed=native/macos.m");
         cc::Build::new()
             .file("native/macos.m")
             .flag("-fobjc-arc")
