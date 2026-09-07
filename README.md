@@ -2,9 +2,11 @@
 
 一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。
 
+当前分支是更轻量的 Rust / Tauri 0.2.0 版本，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。Electron 0.1.1 基线保留在 `main` 分支。
+
 ## 打开 Mac 应用
 
-完成打包后，在 Finder 中双击 `release/Repose.app`。应用包含运行环境，日常使用不需要启动浏览器、Node.js 或开发服务器。关闭主窗口后，应用继续在菜单栏运行。
+完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Repose Lite.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
 
 这是本地开发版本，只有本机使用的 ad hoc 签名，尚未通过 Apple Developer 签名或公证。生成的 ZIP 对应打包电脑的芯片架构，跨电脑分发前需要补充签名、公证和对应架构验证。
 
@@ -15,39 +17,28 @@
 
 这两个计时用途不同：休息时长控制工作间隔，30 秒闲置阈值负责离开电脑后的安全。浏览器预览仅用于查看界面；系统级行为需要运行 Mac 应用。
 
-强制休息由普通 macOS 应用实现。应用可覆盖显示器和拦截常见工作操作，但系统级强制退出、关机或管理员操作仍由 macOS 保留，无法承诺所有系统操作都不可绕过。实际权限、触发行为与桌面接口详见 [桌面版说明](README-desktop.md)。
+强制休息由普通 macOS 应用实现。应用可覆盖显示器和拦截常见工作操作，但系统级强制退出、关机或管理员操作仍由 macOS 保留，无法承诺所有系统操作都不可绕过。实现与权限详见 [Rust 版说明](README-rust.md)。
 
 ## 本地开发与打包
 
-需要 macOS 13 或更新版本、Node.js 和 npm。
+需要 macOS 14 或更新版本、Rust、Node.js、npm 和 Xcode Command Line Tools。
 
 ```sh
 npm install
 npm run desktop:dev
 ```
 
-生成可直接打开的 Mac 应用和压缩包：
+生成可直接打开的 Mac 应用：
 
 ```sh
 npm run package:mac
 ```
 
-产物位于 `release/Repose.app` 和 `release/Repose-0.1.1-mac-<架构>.zip`。打包脚本只在本项目生成文件，不安装到 `/Applications`，不修改系统权限或开机启动项。
-
-旧版正在运行时，可将新版保存为独立文件，避免覆盖运行中的应用：
-
-```sh
-npm run build
-node scripts/package-mac.mjs --output-name Repose-0.1.1.app
-```
-
-从菜单栏退出旧版后，再打开 `release/Repose-0.1.1.app`，原有设置会继续保留。
+产物位于 `src-tauri/target/release/bundle/macos/Repose Lite.app`。它使用独立的应用标识，可与 Electron 版并存。
 
 ```sh
 npm test
 npm run build
 ```
 
-`npm run dev` 是浏览器中的界面预览；`npm run desktop` 运行已构建的桌面应用。
-
-打包采用 Electron 官方的 [预构建二进制打包方式](https://www.electronjs.org/docs/latest/tutorial/application-distribution)，将应用资源放入 `.app` 的 `Contents/Resources/app`。桌面主进程位于 `electron/main.cjs`，安全隔离接口位于 `electron/preload.cjs`。
+`npm run dev` 是浏览器中的界面预览；`npm run desktop` 启动 Tauri 开发版。

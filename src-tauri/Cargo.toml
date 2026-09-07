@@ -1,0 +1,17 @@
+[package]
+name = "repose-lite"
+version = "0.2.0"
+description = "A quiet macOS break reminder"
+edition = "2024"
+
+[lib]
+name = "repose_lite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+cc = "1"
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }

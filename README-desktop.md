@@ -1,4 +1,6 @@
-# Repose 桌面版
+# Repose Electron 0.1.1 桌面版（基线）
+
+当前 Rust / Tauri 分支请阅读 [Rust 版说明](README-rust.md)。本文件记录 `main` 分支的 Electron 实现。
 
 Repose（歇一会）提供 Electron 桌面运行方式，使用与网页预览相同的界面。关闭主窗口后，应用继续留在菜单栏／系统托盘，休息计时继续运行。需要彻底退出时，选择托盘菜单中的「退出 Repose」。
 

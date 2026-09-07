@@ -38,6 +38,7 @@ function saveState(state: TimerState) {
 export function useBreakTimer() {
   const [state, setState] = useState<TimerState>(loadState)
   const stateRef = useRef(state)
+  const savedAt = useRef(0)
   stateRef.current = state
 
   useEffect(() => {
@@ -56,7 +57,15 @@ export function useBreakTimer() {
     }
   }, [])
 
-  useEffect(() => saveState(state), [state])
+  // The countdown is reconstructed from wall-clock time, so writing the whole
+  // history every second only creates needless background I/O. Page exit still
+  // persists immediately; while running, a 15-second checkpoint is sufficient.
+  useEffect(() => {
+    const now = Date.now()
+    if (now - savedAt.current < 15_000) return
+    saveState(state)
+    savedAt.current = now
+  }, [state])
 
   const toggleRunning = useCallback(() => setState((previous) => toggleTimer(previous)), [])
   const startBreak = useCallback((type: 'short' | 'long') => setState((previous) => startTimerBreak(previous, type)), [])
