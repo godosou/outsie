@@ -460,15 +460,46 @@ git commit -m "feat: add macOS authorization plugin prototype"
 
 **Files:**
 
+- Modify: `src-tauri/Cargo.toml`
+- Modify: `src-tauri/Cargo.lock`
+- Modify: `src-tauri/crates/repose-authdb-policy/src/transform.rs`
+- Modify: `src-tauri/crates/repose-unlock-service/src/main.rs`
+- Test: `src-tauri/crates/repose-unlock-service/tests/deny_only_health.rs`
 - Create: `src-tauri/crates/repose-unlockctl/Cargo.toml`
+- Create: `src-tauri/crates/repose-unlockctl/build.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/lib.rs`
 - Create: `src-tauri/crates/repose-unlockctl/src/main.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/cli.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/authdb.rs`
 - Create: `src-tauri/crates/repose-unlockctl/src/install_transaction.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/install_transaction/install.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/install_transaction/policy.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/install_transaction/uninstall.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/install_transaction/repair.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/install_transaction/recovery.rs`
 - Create: `src-tauri/crates/repose-unlockctl/src/artifact_verify.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/artifact_verify/package_fs.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/attestation.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/components.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/fs_state.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/journal.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/plugin_fs.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/process.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/receipt.rs`
+- Create: `src-tauri/crates/repose-unlockctl/src/production/tests.rs`
 - Create: `src-tauri/crates/repose-unlockctl/native/authorization_db.m`
+- Create: `src-tauri/crates/repose-unlockctl/native/authorization_db_fake_test.m`
+- Test: `src-tauri/crates/repose-unlockctl/tests/artifact_failures.rs`
+- Test: `src-tauri/crates/repose-unlockctl/tests/command_safety.rs`
+- Test: `src-tauri/crates/repose-unlockctl/tests/native_adapter_contract.rs`
+- Test: `src-tauri/crates/repose-unlockctl/tests/native_adapter_runtime.rs`
+- Test: `src-tauri/crates/repose-unlockctl/tests/package_script_contract.rs`
 - Test: `src-tauri/crates/repose-unlockctl/tests/transaction_failures.rs`
 - Create: `native/macos/launchd/ai.repose.unlockd.plist`
 - Create: `native/macos/tests/real-machine-checklist.md`
 - Create: `scripts/package-macos-auth-components.sh`
+- Modify: `scripts/verify-macos-auth-artifacts.sh`
 
 **Step 1: Write failing transaction tests**
 
@@ -493,12 +524,18 @@ repose-unlockctl uninstall --apply
 repose-unlockctl repair --apply --backup <explicit-path>
 ```
 
-Default behavior is read-only planning. `--apply` requires root and calls `AuthorizationRightGet/Set/Remove` through the Objective-C adapter; it never edits database files directly. Install policy last; uninstall policy first. Always verify artifact hashes, owner/mode, code signatures, helper deny-only health, and read-back structure.
+Default behavior is read-only planning. `--apply` requires root and calls only the fixed `system.login.screensaver` and `ai.repose.unlock` operations through the Objective-C `AuthorizationRightGet/Set/Remove` adapter; it never edits database files directly and never names `system.login.console`. Install policy last; uninstall policy first. A root-owned, `O_NOFOLLOW` single-writer lock and fsync'd phase journal make interruption recovery idempotent. Authorization updates transform the latest parseable live value and use structural readback to detect observable drift. Authorization Services has no compare-and-swap, however, so this is not an atomic guarantee against another privileged writer between the last read and write. Opening the Task 8 gate therefore also requires a dedicated maintenance window and exclusive operator serialization; all production mutations remain closed in Task 7.
+
+Task 7 packages are ad-hoc signed and **plan-only**. Their local `SHA256SUMS` detects damage but is not publisher authenticity, and the package verifier never executes a caller-supplied helper. Every production mutation (`install`, `uninstall`, and `repair`) is deliberately hard-gated before backend construction, lock/journal, Authorization Services, launchd, or target-file access until Task 8 pins a signed manifest, Developer ID/designated requirements, exact deny-only service measurement, package/protocol generation, OS/architecture bounds, downgrade rules, and an fd-stable sealed staging implementation that validates ACLs, xattrs/resource forks, and file flags. The helper health command is only bounded liveness sanity after a trusted installed measurement; it is never deny-only attestation.
+
+The recoverable ordering is: durable backup/journal; prove password-only policy; atomically commit and verify one component generation; persist its install receipt and durably record the returned target fingerprint before any policy reference; then set/read back the exact named rule, set/read back the screensaver candidate last, and recheck the receipt-bound loaded target as the final dependency read. Recovery never treats an arbitrary `Trusted` receipt as the requested target: a receipt effect without its target journal marker, or a different fingerprint, is disabled and rolled back. Upgrade first disables the candidate and journals the exact prior receipt. Uninstall precisely removes/read-backs the candidate and named rule before stopping or removing components; the expected prior fingerprint is revalidated inside each stop/quarantine operation so a stale outer read cannot authorize a new generation. It then uses same-parent quarantine rename, post-rename verification, unlink, and parent-directory fsync. The receipt is removed last. Repair recovery completes an already-active exact closure, but any ambiguous pre-terminal or failed-abort marker converges to password-only while retaining dependencies for an explicit retry. When rollback cannot prove the candidate inactive or detects drift, it retains dependencies and requires explicit repair rather than creating a dangling authorization reference.
+
+Task 7 tests the backend-independent transaction state machine at before/after-effect cutpoints plus temp-root `O_NOFOLLOW` lock, checksum-bound backup, receipt, atomic-writer, exact-tree, and quarantine behavior. The production syscall layer does not yet expose deterministic injection for every short write, rename, file/directory fsync, `EXDEV`, launchctl timeout/permission/not-found classification, or crash between those syscalls. Those operation-by-syscall tests, an authoritative loaded-job service adapter, and receipt creation from a trusted sealed generation are explicit Task 8 gate-opening blockers; the closed gate makes those incomplete production paths unreachable in Task 7.
 
 **Step 4: Verify all nonprivileged tests and package structure**
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml -p repose-unlockctl
+cargo test --offline --manifest-path src-tauri/Cargo.toml -p repose-unlockctl
 ./scripts/package-macos-auth-components.sh --unsigned --output target/macos-auth/package
 ./scripts/verify-macos-auth-artifacts.sh target/macos-auth/package
 ```
@@ -508,7 +545,10 @@ Do not run `install --apply` on this host.
 **Step 5: Commit**
 
 ```bash
-git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/crates/repose-unlockctl native/macos/launchd native/macos/tests scripts/package-macos-auth-components.sh
+git add docs/plans/2026-09-07-phone-proximity-unlock-design.md docs/plans/2026-09-07-phone-proximity-unlock.md
+git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/crates/repose-authdb-policy/src/transform.rs
+git add src-tauri/crates/repose-unlock-service src-tauri/crates/repose-unlockctl
+git add native/macos/launchd native/macos/tests scripts/package-macos-auth-components.sh scripts/verify-macos-auth-artifacts.sh
 git commit -m "feat: add recoverable unlock component installer"
 ```
 

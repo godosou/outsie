@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
+LC_ALL=C
+export LC_ALL
 
 fail() {
     echo "macOS authorization artifact verification failed: $1" >&2
@@ -59,8 +61,51 @@ fi
 
 script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
-plugin_directory="$repository_root/native/macos/authorization-plugin"
-make -C "$plugin_directory" build/bundle_smoke >/dev/null
-"$plugin_directory/build/bundle_smoke" "$executable" >/dev/null
+
+service="$artifact_directory/bin/ai.repose.unlockd"
+launchd_plist="$artifact_directory/launchd/ai.repose.unlockd.plist"
+manifest="$artifact_directory/SHA256SUMS"
+if [ -e "$service" ] || [ -e "$launchd_plist" ] || [ -e "$manifest" ]; then
+    [ -f "$service" ] && [ ! -L "$service" ] || fail "service is missing or a symlink"
+    [ -f "$launchd_plist" ] && [ ! -L "$launchd_plist" ] || \
+        fail "launchd plist is missing or a symlink"
+    [ -f "$manifest" ] && [ ! -L "$manifest" ] || \
+        fail "package manifest is missing or a symlink"
+    cmp -s "$launchd_plist" \
+        "$repository_root/native/macos/launchd/ai.repose.unlockd.plist" || \
+        fail "launchd plist differs from the fixed installer template"
+    /usr/bin/file "$service" | grep -q 'Mach-O 64-bit executable arm64' || \
+        fail "service is not an arm64 Mach-O executable"
+    [ "$(/usr/bin/lipo -archs "$service")" = "arm64" ] || \
+        fail "service must be arm64-only"
+    /usr/bin/codesign --verify --strict --verbose=2 "$service" || \
+        fail "service code signature is invalid"
+    service_signature=$(/usr/bin/codesign -dvv "$service" 2>&1)
+    printf '%s\n' "$service_signature" | grep -q '^Signature=adhoc$' || \
+        fail "service is not ad-hoc signed"
+    [ "$(sed -n '1p' "$manifest")" = "repose-package-v1" ] || \
+        fail "package manifest version is invalid"
+    [ "$(sed -n '2p' "$manifest")" = "mode=adhoc-development" ] || \
+        fail "package must be marked plan-only ad-hoc"
+    [ "$(wc -l <"$manifest" | tr -d ' ')" = "7" ] || \
+        fail "package manifest entry count is invalid"
+    for relative in \
+        ReposeUnlock.bundle/Contents/Info.plist \
+        ReposeUnlock.bundle/Contents/MacOS/ReposeUnlock \
+        ReposeUnlock.bundle/Contents/_CodeSignature/CodeResources \
+        bin/ai.repose.unlockd \
+        launchd/ai.repose.unlockd.plist
+    do
+        expected=$(awk -v path="$relative" '$2 == path { print $1 }' "$manifest")
+        [ "${#expected}" = "64" ] || fail "missing package digest for $relative"
+        actual=$(/usr/bin/shasum -a 256 "$artifact_directory/$relative" | awk '{print $1}')
+        [ "$actual" = "$expected" ] || fail "package digest mismatch for $relative"
+    done
+    package_file_count=$(find "$artifact_directory" -type f | wc -l | tr -d ' ')
+    [ "$package_file_count" = "6" ] || fail "package contains unexpected files"
+    if find "$artifact_directory" -type l | grep -q .; then
+        fail "package contains a symlink"
+    fi
+fi
 
 echo "macOS authorization artifacts: ok"

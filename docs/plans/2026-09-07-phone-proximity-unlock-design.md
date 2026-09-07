@@ -185,7 +185,13 @@ Unlock Service 验证：
 2. 保存 `system.login.screensaver` 的结构化备份及校验值。
 3. 安装 Unlock Service 和 Authorization Plugin，验证文件所有者、权限、签名及 IPC 健康状态。
 4. 最后将 Repose 机制合并到现有授权规则，保留 `use-login-window-ui` 和其他第三方机制。
-5. 立即回读并结构化比较结果；任何错误都恢复原规则并移除本次安装的组件。
+5. 立即回读并结构化比较结果；只有在从最新 live rule 精准移除 Repose candidate、回读证明密码 fallback 仍唯一且无并发漂移后，才允许恢复旧组件或移除本次组件。若 Authorization Services 返回结果不明确、live rule 无法安全解析、rollback 回读失败或发现外部写入，则保持 Repose 路径禁用并保留其依赖，进入显式 `repair`，绝不盲写旧 preimage 覆盖第三方变化。
+
+安装、升级、修复和卸载都由 root-owned `O_NOFOLLOW` 单写者锁与 fsync phase journal 串行化。升级先移除并回读 screensaver candidate，再替换同一 generation 的组件并验证 loaded image/deny-only closure；持久化新 receipt 后必须把返回的 target fingerprint 写入 journal，后续每次 closure 验证都精确匹配该 target，而不是接受任意 `Trusted` generation；named rule 就绪后才最后恢复 candidate。卸载严格反向：先精准移除并回读 candidate，再验证并移除 Repose 自己的 named rule；既存 prior fingerprint 必须在每个 bootout/quarantine 原子操作内部重验，外层 stale read 不能授权停载或删除新 generation；receipt 最后删除。任一 policy 步失败都保留全部依赖。断电恢复根据 durable phase、prior/target receipt fingerprint 与最新 live 状态完成已经激活且闭包完整的事务，或安全停在 password-only；缺少 target marker、fingerprint 不同以及修复的 pre-terminal/abort-marker 歧义一律保守停用，不使用 stale backup 模拟 CAS。
+
+Task 7 的 unsigned/ad-hoc 包只用于静态 plan。包内 `SHA256SUMS` 只能证明自洽，不能证明真实性；通用 verifier 不执行包中的 helper。所有 Production mutation（install/uninstall/repair）在 backend、lock、journal、Authorization Services、launchd 或目标文件访问之前硬关闭，直到 Task 8 固定 Developer ID/designated requirement、整体签名 manifest、plugin/service signing ID、deny-only build measurement、协议/package generation、最低 OS/arch、防降级规则，并实现 fd-relative sealed staging 及 ACL/xattr/file-flags 校验。`--health-check-deny-only` 仅是受信 installed measurement 后的 liveness sanity，不是 attestation。
+
+Authorization Services 不提供 compare-and-swap。最后时刻读取、精准结构变换与结构化回读只能检测可观察到的漂移，不能保证另一 privileged writer 不会在 read 与 `AuthorizationRightSet/Remove` 之间写入。Task 8 开闸必须在专用维护窗口中进行并提供独占的管理员操作协调；文档和状态输出不得把本地 installer lock 描述成对第三方 writer 的原子互斥。Task 8 还必须为 production filesystem/service adapter 增加 operation×syscall 故障注入，覆盖短写、rename、file/dir fsync、`EXDEV`、launchctl timeout/permission/not-found、quarantine 与 receipt replace/delete 的断电切点；在此之前 gate 保持关闭。
 
 正常升级和卸载只精准修改 Repose 自己的机制，不用旧备份覆盖其他软件后续变更。仅当当前规则损坏且安全验证允许时，修复工具才可使用备份恢复。
 

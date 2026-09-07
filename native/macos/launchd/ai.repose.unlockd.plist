@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>ai.repose.unlockd</string>
+<key>ProgramArguments</key><array><string>/Library/PrivilegedHelperTools/ai.repose.unlockd</string></array>
+<key>UserName</key><string>root</string>
+<key>GroupName</key><string>wheel</string>
+<key>Umask</key><integer>63</integer>
+<key>Sockets</key><dict><key>ConsumeSocket</key><dict>
+<key>SockPathName</key><string>/var/run/ai.repose.unlockd/consume.sock</string>
+<key>SockType</key><string>stream</string>
+<key>SockPassive</key><true/>
+<key>SockPathOwner</key><integer>0</integer>
+<key>SockPathGroup</key><integer>0</integer>
+<key>SockPathMode</key><integer>384</integer>
+</dict></dict>
+</dict></plist>

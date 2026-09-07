@@ -11,6 +11,7 @@ members = [
   "crates/repose-unlock-core",
   "crates/repose-unlock-ipc",
   "crates/repose-unlock-service",
+  "crates/repose-unlockctl",
 ]
 resolver = "3"
 

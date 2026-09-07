@@ -219,6 +219,15 @@ impl ScreenSaverPolicy {
         Ok(output)
     }
 
+    /// Compares the complete validated policy tree while ignoring only its
+    /// outer XML-versus-binary serialization. Authorization Services may
+    /// normalize that encoding during readback; every key and value still has
+    /// to match.
+    #[must_use]
+    pub fn structurally_equivalent(&self, other: &Self) -> bool {
+        self.root == other.root
+    }
+
     fn validate_shape(&self) -> Result<(), PolicyError> {
         let actual_class = match self.root.get("class") {
             Some(Value::String(class)) => Some(class.clone()),
