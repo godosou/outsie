@@ -120,6 +120,12 @@ export function getPostponeSeconds(type: 'short' | 'long'): number {
   return type === 'short' ? 60 : 300
 }
 
+/** Convert two in-process monotonic samples to trusted active elapsed seconds. */
+export function monotonicElapsedSeconds(previousMs: number, currentMs: number, inactive: boolean): number {
+  if (inactive || !finiteNumber(previousMs) || !finiteNumber(currentMs) || currentMs <= previousMs) return 0
+  return (currentMs - previousMs) / 1000
+}
+
 function createBreakId(at: number): string {
   return `${at}-${globalThis.crypto.randomUUID()}`
 }
