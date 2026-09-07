@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>class</key><string>rule</string>
+  <key>k-of-n</key><integer>1</integer>
+  <key>rule</key>
+  <array>
+    <dict>
+      <key>class</key><string>evaluate-mechanisms</string>
+      <key>mechanisms</key><array><string>ExampleLogin:Authenticate,privileged</string></array>
+    </dict>
+    <string>use-login-window-ui</string>
+  </array>
+</dict>
+</plist>

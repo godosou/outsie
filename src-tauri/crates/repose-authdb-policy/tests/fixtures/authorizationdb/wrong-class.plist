@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>class</key><string>evaluate-mechanisms</string>
+  <key>mechanisms</key><array><string>use-login-window-ui</string></array>
+</dict>
+</plist>

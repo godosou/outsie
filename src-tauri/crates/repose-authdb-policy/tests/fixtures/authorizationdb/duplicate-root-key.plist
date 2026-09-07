@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>class</key><string>rule</string>
+  <key>rule</key><string>use-login-window-ui</string>
+  <key>rule</key><string>com.example.shadowed</string>
+</dict>
+</plist>

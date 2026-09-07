@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>class</key>
+  <string>rule</string>
+  <key>comment</key>
+  <string>Unlock an already logged-in session.</string>
+  <key>rule</key>
+  <string>use-login-window-ui</string>
+  <key>shared</key>
+  <true/>
+  <key>tries</key>
+  <integer>10000</integer>
+  <key>repose-fixture-metadata</key>
+  <dict>
+    <key>enabled</key>
+    <false/>
+    <key>revision</key>
+    <real>14.6</real>
+  </dict>
+</dict>
+</plist>

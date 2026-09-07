@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>class</key><string>rule</string>
+  <key>k-of-n</key><integer>1</integer>
+  <key>rule</key>
+  <array>
+    <string>use-login-window-ui</string>
+    <string>use-login-window-ui</string>
+  </array>
+</dict>
+</plist>

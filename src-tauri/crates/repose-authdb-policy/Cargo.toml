@@ -1,0 +1,10 @@
+[package]
+name = "repose-authdb-policy"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+plist = { version = "~1.10.1", features = ["enable_unstable_features_that_may_break_with_minor_version_bumps"] }

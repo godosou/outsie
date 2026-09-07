@@ -5,7 +5,11 @@ description = "A quiet macOS break reminder"
 edition = "2024"
 
 [workspace]
-members = [".", "crates/repose-unlock-core"]
+members = [
+  ".",
+  "crates/repose-authdb-policy",
+  "crates/repose-unlock-core",
+]
 resolver = "3"
 
 [lib]
