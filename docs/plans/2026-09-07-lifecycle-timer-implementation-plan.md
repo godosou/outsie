@@ -117,7 +117,7 @@ Expected: FAIL because lifecycle APIs and persisted interval identity do not exi
 **Step 3: Implement minimal focus inactivity rules**
 
 - Upgrade restored state to version 2 without changing the existing storage key.
-- Add `lastLifecycleIntervalId`.
+- Add a bounded `lifecycleIntervalIds` history matching the native replay queue.
 - Add `captureInactivity` and `applyInactivityInterval`.
 - Derive due break from `deferredBreak` first, then the existing short/long cadence.
 - Complete a passive break with one history record and the normal cycle update.
@@ -346,4 +346,3 @@ Confirm:
 git add README-rust.md docs/plans
 git commit -m "docs: document lifecycle-aware timing"
 ```
-

@@ -2,7 +2,7 @@
 
 | 文档状态 | 日期 | 说明 |
 |---|---|---|
-| 已批准，待实现 | 2026-09-07 | 对应 [User Story](2026-09-07-lifecycle-timer-user-story.md) |
+| 已实现 | 2026-09-07 | 对应 [User Story](2026-09-07-lifecycle-timer-user-story.md) |
 
 ## 1. 目标
 
@@ -131,7 +131,7 @@ flowchart LR
 - 使用原因集合处理锁屏与睡眠重叠。
 - 只在集合 `0 → 1` 时开始区间，在 `1 → 0` 时结束区间。
 - 生成唯一 `intervalId`。
-- 保留最后一个未确认完成区间，允许 renderer 初始化或刷新后重放。
+- 有界保留最多 32 个未确认完成区间，允许 renderer 初始化或刷新后重放。
 - 强制休息完成事件携带 `breakId`，并使用连续单调截止时间。
 
 ## 7. 生命周期协议
@@ -140,10 +140,11 @@ flowchart LR
 type InactivityReason = 'screen-lock' | 'system-sleep' | 'session-inactive'
 
 type LifecycleEvent =
-  | { type: 'inactive-start'; intervalId: string; reason: InactivityReason; startedAt: number }
+  | { type: 'inactive-start'; intervalId: string; sequence: number; reason: InactivityReason; startedAt: number }
   | {
       type: 'inactive-end'
       intervalId: string
+      sequence: number
       elapsedSeconds: number
       startedAt: number
       endedAt: number
@@ -153,8 +154,8 @@ type LifecycleEvent =
 原生层还提供当前快照与确认命令：
 
 - 初始化订阅后读取当前活跃/不活跃状态，弥补监听器注册前的事件窗口。
-- `inactive-end` 在收到前端确认前可以重放。
-- TypeScript 状态保存 `lastLifecycleIntervalId`；重复区间直接忽略后仍发送确认。
+- `inactive-end` 在收到前端确认前可以重放；事件按原生单调 `sequence` 排序，不使用墙钟排序。
+- TypeScript 状态有界保存最近 32 个 `lifecycleIntervalIds`；重复或较早重放的区间直接忽略后仍发送确认。
 
 墙钟字段只用于统计日期归属。`elapsedSeconds` 是唯一可增加统计或减少倒计时的数值来源。
 
@@ -211,15 +212,15 @@ stateDiagram-v2
 
 新增字段：
 
-- `lastLifecycleIntervalId: string | null`。
+- `lifecycleIntervalIds: string[]`，最多保留最近 32 个已消费区间。
 
 迁移规则：
 
 - v1 设置、统计、历史和当前阶段全部保留。
-- v1 恢复时 `lastLifecycleIntervalId = null`。
+- v1 恢复时 `lifecycleIntervalIds = []`；早期 v2 的单个 `lastLifecycleIntervalId` 自动迁移到列表。
 - 恢复时不再根据 `updatedAt` 补算任何时间。
 - `updatedAt` 保留为最后保存/展示墙钟，不参与 elapsed 计算。
-- 非法 ID、负数、非有限 elapsed 和异常大的单次事件在系统边界拒绝。
+- 非法 ID、负数和非有限 elapsed 在系统边界拒绝；合法的长时间睡眠不设人为上限。
 
 ## 10. 并发与幂等
 
@@ -228,14 +229,15 @@ stateDiagram-v2
 | 锁屏后又睡眠 | 原因集合合并为一个区间 |
 | 重复锁屏/唤醒通知 | 集合操作幂等；无 `0 ↔ 1` 转换则不发新区间 |
 | renderer 初始化错过事件 | 启动快照 + 未确认完成区间重放 |
-| 完成区间重复投递 | `lastLifecycleIntervalId` 去重 |
+| 快照与实时事件交错 | 原生单调序号排序；同一类型与区间 ID 去重 |
+| 完成区间重复或乱序投递 | 最近 32 个 `lifecycleIntervalIds` 去重，与原生待确认队列上限一致 |
 | 原生完成与生命周期结束竞态 | 两者都携带 `breakId`；状态机只接受当前身份 |
 | 旧休息完成事件晚到 | `breakId` 不匹配则忽略 |
 | 系统墙钟跳变 | elapsed 只来自单调时钟 |
 
 ## 11. 错误处理与降级
 
-- macOS 生命周期观察器初始化失败时，不再用墙钟缺口猜测；活动 tick 仍工作，并记录本地诊断信息。
+- macOS 生命周期快照读取失败时，不再用墙钟缺口猜测；已注册的实时事件与活动 tick 仍工作。
 - 非法生命周期 payload 在 Tauri 边界拒绝，不修改计时状态。
 - `localStorage` 写入失败沿用现有降级：当前进程继续计时，但重启可能无法恢复。
 - 生命周期区间确认失败时保留区间，下一次同步可重放；状态机去重保证安全。
@@ -243,14 +245,7 @@ stateDiagram-v2
 
 ## 12. 可观测性
 
-本地桌面应用不新增网络遥测。开发构建记录以下结构化诊断事件：
-
-- 生命周期原因集合的 `0 → 1` 与 `1 → 0` 转换。
-- 区间 ID、单调 elapsed、开始阶段和消费结果。
-- 被忽略的重复区间或过期 `breakId`。
-- 原生观察器初始化失败。
-
-日志不包含用户输入、窗口内容或身份信息。
+本地桌面应用不新增网络遥测。生命周期快照、区间 ID、原生单调序号和确认结果只在进程内用于可靠投递；不记录用户输入、窗口内容或身份信息。
 
 ## 13. 测试策略
 
@@ -280,10 +275,17 @@ stateDiagram-v2
 - 解锁状态退出并重开。
 - 手动修改系统时间前后，累计秒数不跳变。
 
-## 14. 参考资料
+## 14. 实现结果
+
+- TypeScript 状态机使用显式 elapsed API，恢复快照时不补算关闭期间时间。
+- React 驱动器用 `performance.now()` 推进活动时间，并在生命周期开始/结束边界立即持久化与重置采样基线。
+- Rust 将锁屏、睡眠和会话离开合并为同一不活动区间；区间由 `mach_continuous_time` 计量，并以进程内单调序号重放。
+- 主动严格休息也使用连续时钟截止时间；原生完成事件携带 `breakId`，与生命周期区间的 `intervalId` 分别去重。
+- Electron 仅作为历史行为参考，未同步修改；手机接近、自动解锁及身份认证仍明确不在范围内。
+
+## 15. 参考资料
 
 - [Apple NSWorkspace 生命周期通知](https://developer.apple.com/documentation/appkit/nsworkspace)
 - [Apple mach_continuous_time](https://developer.apple.com/documentation/driverkit/mach_continuous_time)
 - [Electron macOS 锁屏事件实现](https://github.com/electron/electron/blob/main/shell/browser/api/electron_api_power_monitor_mac.mm)
 - [Tauri Rust 到前端事件](https://v2.tauri.app/develop/calling-frontend/)
-
