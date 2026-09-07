@@ -7,7 +7,7 @@
 ## 1. 目标
 
 1. 只有 Repose 正在运行、会话活跃且计时未暂停时才累计专注。
-2. 锁屏、睡眠和用户会话离开形成可信的不活动区间。
+2. 锁屏、显示器休眠、系统睡眠和用户会话离开形成可信的不活动区间。
 3. 进程内活动时间与不活动时间均不依赖可调整的系统墙钟计算时长。
 4. 主动休息和被动休息使用明确、互斥的记账规则。
 5. 所有生命周期区间与休息完成操作可安全重放，不重复记账。
@@ -120,6 +120,7 @@ flowchart LR
 
 - `com.apple.screenIsLocked` / `com.apple.screenIsUnlocked`。
 - `NSWorkspaceWillSleepNotification` / `NSWorkspaceDidWakeNotification`。
+- `NSWorkspaceScreensDidSleepNotification` / `NSWorkspaceScreensDidWakeNotification`。
 - 用户会话离开/恢复通知作为会话切换覆盖。
 
 原生时长使用 `mach_continuous_time`，该时钟在系统睡眠期间仍递增。
@@ -130,6 +131,7 @@ flowchart LR
 
 - 使用原因集合处理锁屏与睡眠重叠。
 - 只在集合 `0 → 1` 时开始区间，在 `1 → 0` 时结束区间。
+- 将解锁和会话恢复视为权威恢复信号，清除缺失结束通知留下的原因，避免永久门控。
 - 生成唯一 `intervalId`。
 - 有界保留最多 32 个未确认完成区间，允许 renderer 初始化或刷新后重放。
 - 强制休息完成事件携带 `breakId`，并使用连续单调截止时间。
@@ -137,7 +139,7 @@ flowchart LR
 ## 7. 生命周期协议
 
 ```ts
-type InactivityReason = 'screen-lock' | 'system-sleep' | 'session-inactive'
+type InactivityReason = 'screen-lock' | 'display-sleep' | 'system-sleep' | 'session-inactive'
 
 type LifecycleEvent =
   | { type: 'inactive-start'; intervalId: string; sequence: number; reason: InactivityReason; startedAt: number }
@@ -280,6 +282,7 @@ stateDiagram-v2
 - TypeScript 状态机使用显式 elapsed API，恢复快照时不补算关闭期间时间。
 - React 驱动器用 `performance.now()` 推进活动时间，并在生命周期开始/结束边界立即持久化与重置采样基线。
 - Rust 将锁屏、睡眠和会话离开合并为同一不活动区间；区间由 `mach_continuous_time` 计量，并以进程内单调序号重放。
+- 显示器休眠单独纳入原因集合；解锁或会话恢复可收敛残留原因并保证活动计时恢复。
 - 主动严格休息也使用连续时钟截止时间；原生完成事件携带 `breakId`，与生命周期区间的 `intervalId` 分别去重。
 - Electron 仅作为历史行为参考，未同步修改；手机接近、自动解锁及身份认证仍明确不在范围内。
 
