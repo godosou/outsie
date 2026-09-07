@@ -414,20 +414,22 @@ fn equal_epoch_uid_or_audit_changes_never_replace_the_authoritative_binding() {
 fn every_active_worker_reset_stays_fenced_until_matching_termination() {
     let current = binding(7, 41, 501);
     let replacement = binding(8, 42, 502);
-    let reset_events = [
-        Event::SessionLocked { binding: current },
-        Event::SessionUnlocked,
-        Event::Logout,
-        Event::FastUserSwitch {
-            locked_binding: Some(replacement),
-        },
-        Event::ServiceRestarted {
-            locked_binding: Some(current),
-        },
-    ];
+    let reset_events = || {
+        [
+            Event::SessionLocked { binding: current },
+            Event::SessionUnlocked,
+            Event::Logout,
+            Event::FastUserSwitch {
+                locked_binding: Some(replacement),
+            },
+            Event::ServiceRestarted {
+                locked_binding: Some(current),
+            },
+        ]
+    };
 
     for begin_cancelling in [false, true] {
-        for reset in reset_events {
+        for reset in reset_events() {
             let active = challenging(current);
             let active_id = active.challenge_id().unwrap();
             let state = if begin_cancelling {

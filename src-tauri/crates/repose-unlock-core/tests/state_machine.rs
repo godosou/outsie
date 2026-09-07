@@ -820,29 +820,31 @@ fn authoritative_resets_remain_infallible_after_a_transition_error() {
 fn global_resets_abort_and_fence_challenging_or_cancelling_workers() {
     let current = binding(7, 41, 501);
     let replacement = binding(8, 42, 502);
-    let resets = [
-        (
-            Event::SessionLocked { binding: current },
-            UnlockPhase::LockedUnarmed,
-        ),
-        (Event::SessionUnlocked, UnlockPhase::Unlocked),
-        (Event::Logout, UnlockPhase::Unlocked),
-        (
-            Event::FastUserSwitch {
-                locked_binding: Some(replacement),
-            },
-            UnlockPhase::LockedUnarmed,
-        ),
-        (
-            Event::ServiceRestarted {
-                locked_binding: Some(current),
-            },
-            UnlockPhase::LockedUnarmed,
-        ),
-    ];
+    let resets = || {
+        [
+            (
+                Event::SessionLocked { binding: current },
+                UnlockPhase::LockedUnarmed,
+            ),
+            (Event::SessionUnlocked, UnlockPhase::Unlocked),
+            (Event::Logout, UnlockPhase::Unlocked),
+            (
+                Event::FastUserSwitch {
+                    locked_binding: Some(replacement),
+                },
+                UnlockPhase::LockedUnarmed,
+            ),
+            (
+                Event::ServiceRestarted {
+                    locked_binding: Some(current),
+                },
+                UnlockPhase::LockedUnarmed,
+            ),
+        ]
+    };
 
     for start_cancelling in [false, true] {
-        for (reset, expected_phase) in resets {
+        for (reset, expected_phase) in resets() {
             let challenge = challenging(current);
             let state = if start_cancelling {
                 transition(challenge, Event::FarStable { binding: current }, time(4))

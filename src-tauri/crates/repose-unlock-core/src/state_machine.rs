@@ -150,6 +150,10 @@ impl ChallengeId {
         Self(value)
     }
 
+    pub(crate) const fn from_protocol(value: u64) -> Self {
+        Self(value)
+    }
+
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0
@@ -227,7 +231,20 @@ impl ChallengeRecord {
 /// The fields and constructor are intentionally not public. External callers can
 /// submit this type through [`Event::ChallengeVerified`] after a verifier in this
 /// crate creates it, but cannot manufacture verified evidence through the safe API.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// It is also a linear capability and cannot be duplicated:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::ChallengeVerified;
+/// fn assert_clone<T: Clone>() {}
+/// assert_clone::<ChallengeVerified>();
+/// ```
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::ChallengeVerified;
+/// fn assert_copy<T: Copy>() {}
+/// assert_copy::<ChallengeVerified>();
+/// ```
+#[derive(Debug, PartialEq, Eq)]
 pub struct ChallengeVerified {
     binding: SessionBinding,
     challenge_id: ChallengeId,
@@ -243,7 +260,22 @@ impl ChallengeVerified {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A linear one-shot command authorizing installation in the permit store.
+///
+/// It cannot be duplicated through the safe API:
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::Permit;
+/// fn assert_clone<T: Clone>() {}
+/// assert_clone::<Permit>();
+/// ```
+///
+/// ```compile_fail
+/// use repose_unlock_core::state_machine::Permit;
+/// fn assert_copy<T: Copy>() {}
+/// assert_copy::<Permit>();
+/// ```
+#[derive(Debug, PartialEq, Eq)]
 pub struct Permit {
     binding: SessionBinding,
     challenge_id: ChallengeId,
@@ -252,18 +284,35 @@ pub struct Permit {
 
 impl Permit {
     #[must_use]
-    pub const fn binding(self) -> SessionBinding {
+    pub const fn binding(&self) -> SessionBinding {
         self.binding
     }
 
     #[must_use]
-    pub const fn challenge_id(self) -> ChallengeId {
+    pub const fn challenge_id(&self) -> ChallengeId {
         self.challenge_id
     }
 
     #[must_use]
-    pub const fn expires_at(self) -> MonoMillis {
+    pub const fn expires_at(&self) -> MonoMillis {
         self.expires_at
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PermitRecord {
+    binding: SessionBinding,
+    challenge_id: ChallengeId,
+    expires_at: MonoMillis,
+}
+
+impl PermitRecord {
+    const fn command(self) -> Permit {
+        Permit {
+            binding: self.binding,
+            challenge_id: self.challenge_id,
+            expires_at: self.expires_at,
+        }
     }
 }
 
@@ -310,7 +359,7 @@ impl Effect {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Event {
     SessionLocked {
         binding: SessionBinding,
@@ -395,7 +444,7 @@ pub struct UnlockState {
     worker_fence: Option<WorkerFence>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum StateData {
     Unlocked,
     LockedUnarmed {
@@ -413,7 +462,7 @@ enum StateData {
         cooldown_until: Option<MonoMillis>,
     },
     PermitReady {
-        permit: Permit,
+        permit: PermitRecord,
     },
     Unlocking {
         binding: SessionBinding,
@@ -435,7 +484,7 @@ impl UnlockState {
 
     #[must_use]
     pub const fn phase(&self) -> UnlockPhase {
-        match self.state {
+        match &self.state {
             StateData::Unlocked => UnlockPhase::Unlocked,
             StateData::LockedUnarmed { .. } => UnlockPhase::LockedUnarmed,
             StateData::LockedArmed { .. } => UnlockPhase::LockedArmed,
@@ -448,11 +497,11 @@ impl UnlockState {
 
     #[must_use]
     pub const fn binding(&self) -> Option<SessionBinding> {
-        match self.state {
+        match &self.state {
             StateData::Unlocked => None,
             StateData::LockedUnarmed { binding }
             | StateData::LockedArmed { binding, .. }
-            | StateData::Unlocking { binding } => Some(binding),
+            | StateData::Unlocking { binding } => Some(*binding),
             StateData::Challenging { request } => Some(request.binding),
             StateData::Cancelling { request, .. } => Some(request.binding),
             StateData::PermitReady { permit } => Some(permit.binding),
@@ -461,7 +510,7 @@ impl UnlockState {
 
     #[must_use]
     pub const fn challenge_id(&self) -> Option<ChallengeId> {
-        match self.state {
+        match &self.state {
             StateData::Challenging { request } => Some(request.challenge_id),
             StateData::Cancelling { request, .. } => Some(request.challenge_id),
             StateData::PermitReady { permit } => Some(permit.challenge_id),
@@ -471,16 +520,16 @@ impl UnlockState {
 
     #[must_use]
     pub const fn cooldown_until(&self) -> Option<MonoMillis> {
-        match self.state {
+        match &self.state {
             StateData::LockedArmed { cooldown_until, .. }
-            | StateData::Cancelling { cooldown_until, .. } => cooldown_until,
+            | StateData::Cancelling { cooldown_until, .. } => *cooldown_until,
             _ => None,
         }
     }
 
     #[must_use]
     pub const fn permit_expires_at(&self) -> Option<MonoMillis> {
-        match self.state {
+        match &self.state {
             StateData::PermitReady { permit } => Some(permit.expires_at),
             _ => None,
         }
@@ -781,7 +830,7 @@ fn transition_challenging(
     metadata: StateMetadata,
 ) -> Result<(UnlockState, Vec<Effect>), TransitionErrorKind> {
     if now >= request.deadline {
-        if matching_challenge_termination(event, request) {
+        if matching_challenge_termination(&event, request) {
             return finish_challenge_with_cooldown(request, now, metadata);
         }
         let cooldown_until = checked_deadline(
@@ -809,7 +858,7 @@ fn transition_challenging(
                 metadata.timing_policy.permit_ttl_ms,
                 TimingOperation::PermitExpiry,
             )?;
-            let permit = Permit {
+            let permit = PermitRecord {
                 binding: request.binding,
                 challenge_id: request.challenge_id,
                 expires_at,
@@ -817,7 +866,7 @@ fn transition_challenging(
             Ok(with_effect(
                 StateData::PermitReady { permit },
                 now,
-                Effect::CreatePermit(permit),
+                Effect::CreatePermit(permit.command()),
                 metadata,
             ))
         }
@@ -852,7 +901,7 @@ fn transition_challenging(
     }
 }
 
-fn matching_challenge_termination(event: Event, request: ChallengeRecord) -> bool {
+fn matching_challenge_termination(event: &Event, request: ChallengeRecord) -> bool {
     match event {
         Event::ChallengeFailed {
             binding,
@@ -865,7 +914,7 @@ fn matching_challenge_termination(event: Event, request: ChallengeRecord) -> boo
         | Event::ChallengeTerminated {
             binding,
             challenge_id,
-        } => binding == request.binding && challenge_id == request.challenge_id,
+        } => *binding == request.binding && *challenge_id == request.challenge_id,
         _ => false,
     }
 }
@@ -929,7 +978,7 @@ fn transition_cancelling(
 }
 
 fn transition_permit_ready(
-    permit: Permit,
+    permit: PermitRecord,
     event: Event,
     now: MonoMillis,
     metadata: StateMetadata,
@@ -1027,7 +1076,7 @@ fn reset_unlocked(previous: UnlockState, now: MonoMillis) -> (UnlockState, Vec<E
 fn reset_metadata_and_effects(previous: &UnlockState) -> (StateMetadata, Vec<Effect>) {
     let mut metadata = StateMetadata::from_state(previous);
     if metadata.worker_fence.is_none() {
-        metadata.worker_fence = match previous.state {
+        metadata.worker_fence = match &previous.state {
             StateData::Challenging { request } | StateData::Cancelling { request, .. } => {
                 Some(WorkerFence {
                     binding: request.binding,
@@ -1191,7 +1240,7 @@ mod tests {
         assert_eq!(next.binding(), Some(current));
         assert_eq!(next.permit_expires_at(), Some(time(7)));
         assert_eq!(effects.len(), 1);
-        let Effect::CreatePermit(permit) = effects[0] else {
+        let Effect::CreatePermit(permit) = &effects[0] else {
             panic!("expected a create-permit effect");
         };
         assert_eq!(permit.binding(), current);
