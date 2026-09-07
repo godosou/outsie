@@ -15,6 +15,22 @@ internal class ChallengeVerificationException : IllegalArgumentException(
 )
 
 internal object ChallengeVerifier {
+    internal fun verifyTrustedPairing(
+        macId: ByteArray,
+        deviceId: ByteArray,
+        pairingGenerationBits: Long,
+        macIdentityPublicKey: PublicKey,
+        encodedChallenge: ByteArray,
+    ): VerifiedMacChallenge = verify(
+        PairedMacRecord(
+            macId,
+            deviceId,
+            pairingGenerationBits,
+            macIdentityPublicKey,
+        ),
+        encodedChallenge,
+    )
+
     internal fun verify(
         pairedMac: PairedMacRecord,
         encodedChallenge: ByteArray,
