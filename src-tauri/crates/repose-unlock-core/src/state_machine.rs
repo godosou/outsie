@@ -40,12 +40,113 @@ impl SessionBinding {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimingPolicy {
+    challenge_ttl_ms: u64,
+    permit_ttl_ms: u64,
+    cooldown_ms: u64,
+}
+
+impl TimingPolicy {
+    pub const MAX_CHALLENGE_TTL_MS: u64 = 60_000;
+    pub const MAX_PERMIT_TTL_MS: u64 = 10_000;
+    pub const MAX_COOLDOWN_MS: u64 = 300_000;
+
+    pub fn new(
+        challenge_ttl_ms: u64,
+        permit_ttl_ms: u64,
+        cooldown_ms: u64,
+    ) -> Result<Self, TimingPolicyError> {
+        for (field, value, maximum) in [
+            (
+                TimingField::ChallengeTtl,
+                challenge_ttl_ms,
+                Self::MAX_CHALLENGE_TTL_MS,
+            ),
+            (
+                TimingField::PermitTtl,
+                permit_ttl_ms,
+                Self::MAX_PERMIT_TTL_MS,
+            ),
+            (TimingField::Cooldown, cooldown_ms, Self::MAX_COOLDOWN_MS),
+        ] {
+            if value == 0 {
+                return Err(TimingPolicyError::Zero { field });
+            }
+            if value > maximum {
+                return Err(TimingPolicyError::ExceedsMaximum {
+                    field,
+                    value,
+                    maximum,
+                });
+            }
+        }
+        Ok(Self {
+            challenge_ttl_ms,
+            permit_ttl_ms,
+            cooldown_ms,
+        })
+    }
+
+    #[must_use]
+    pub const fn challenge_ttl_ms(self) -> u64 {
+        self.challenge_ttl_ms
+    }
+
+    #[must_use]
+    pub const fn permit_ttl_ms(self) -> u64 {
+        self.permit_ttl_ms
+    }
+
+    #[must_use]
+    pub const fn cooldown_ms(self) -> u64 {
+        self.cooldown_ms
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingField {
+    ChallengeTtl,
+    PermitTtl,
+    Cooldown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingPolicyError {
+    Zero {
+        field: TimingField,
+    },
+    ExceedsMaximum {
+        field: TimingField,
+        value: u64,
+        maximum: u64,
+    },
+}
+
+impl Display for TimingPolicyError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Zero { field } => write!(formatter, "{field:?} must be positive"),
+            Self::ExceedsMaximum {
+                field,
+                value,
+                maximum,
+            } => write!(
+                formatter,
+                "{field:?} value {value} exceeds maximum {maximum} milliseconds"
+            ),
+        }
+    }
+}
+
+impl Error for TimingPolicyError {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChallengeId(u64);
 
 impl ChallengeId {
     #[must_use]
-    pub const fn new(value: u64) -> Self {
+    const fn new(value: u64) -> Self {
         Self(value)
     }
 
@@ -64,11 +165,7 @@ pub struct ChallengeRequest {
 
 impl ChallengeRequest {
     #[must_use]
-    pub const fn new(
-        binding: SessionBinding,
-        challenge_id: ChallengeId,
-        deadline: MonoMillis,
-    ) -> Self {
+    const fn new(binding: SessionBinding, challenge_id: ChallengeId, deadline: MonoMillis) -> Self {
         Self {
             binding,
             challenge_id,
@@ -101,20 +198,14 @@ impl ChallengeRequest {
 pub struct ChallengeVerified {
     binding: SessionBinding,
     challenge_id: ChallengeId,
-    permit_expires_at: MonoMillis,
 }
 
 impl ChallengeVerified {
     #[allow(dead_code)]
-    pub(crate) const fn new(
-        binding: SessionBinding,
-        challenge_id: ChallengeId,
-        permit_expires_at: MonoMillis,
-    ) -> Self {
+    pub(crate) const fn new(binding: SessionBinding, challenge_id: ChallengeId) -> Self {
         Self {
             binding,
             challenge_id,
-            permit_expires_at,
         }
     }
 }
@@ -146,6 +237,7 @@ impl Permit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
     StartChallenge(ChallengeRequest),
+    CancelChallenge(ChallengeRequest),
     CreatePermit(Permit),
     ClearPermit,
 }
@@ -159,6 +251,11 @@ impl Effect {
     #[must_use]
     pub const fn is_create_permit(&self) -> bool {
         matches!(self, Self::CreatePermit(_))
+    }
+
+    #[must_use]
+    pub const fn is_cancel_challenge(&self) -> bool {
+        matches!(self, Self::CancelChallenge(_))
     }
 }
 
@@ -175,19 +272,19 @@ pub enum Event {
     },
     NearStable {
         binding: SessionBinding,
-        challenge_id: ChallengeId,
-        deadline: MonoMillis,
     },
     ChallengeVerified(ChallengeVerified),
     ChallengeFailed {
         binding: SessionBinding,
         challenge_id: ChallengeId,
-        cooldown_until: MonoMillis,
     },
     ChallengeTimedOut {
         binding: SessionBinding,
         challenge_id: ChallengeId,
-        cooldown_until: MonoMillis,
+    },
+    ChallengeTerminated {
+        binding: SessionBinding,
+        challenge_id: ChallengeId,
     },
     PermitConsumed {
         binding: SessionBinding,
@@ -205,6 +302,7 @@ pub enum Event {
     ServiceRestarted {
         locked_binding: Option<SessionBinding>,
     },
+    Tick,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,6 +311,7 @@ pub enum UnlockPhase {
     LockedUnarmed,
     LockedArmed,
     Challenging,
+    Cancelling,
     PermitReady,
     Unlocking,
 }
@@ -221,6 +320,9 @@ pub enum UnlockPhase {
 pub struct UnlockState {
     state: StateData,
     last_observed_at: Option<MonoMillis>,
+    highest_lock_epoch: Option<LockEpoch>,
+    last_challenge_id: u64,
+    timing_policy: TimingPolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -236,6 +338,10 @@ enum StateData {
     Challenging {
         request: ChallengeRequest,
     },
+    Cancelling {
+        request: ChallengeRequest,
+        cooldown_until: Option<MonoMillis>,
+    },
     PermitReady {
         permit: Permit,
     },
@@ -246,10 +352,13 @@ enum StateData {
 
 impl UnlockState {
     #[must_use]
-    pub const fn unlocked() -> Self {
+    pub const fn unlocked(timing_policy: TimingPolicy) -> Self {
         Self {
             state: StateData::Unlocked,
             last_observed_at: None,
+            highest_lock_epoch: None,
+            last_challenge_id: 0,
+            timing_policy,
         }
     }
 
@@ -260,6 +369,7 @@ impl UnlockState {
             StateData::LockedUnarmed { .. } => UnlockPhase::LockedUnarmed,
             StateData::LockedArmed { .. } => UnlockPhase::LockedArmed,
             StateData::Challenging { .. } => UnlockPhase::Challenging,
+            StateData::Cancelling { .. } => UnlockPhase::Cancelling,
             StateData::PermitReady { .. } => UnlockPhase::PermitReady,
             StateData::Unlocking { .. } => UnlockPhase::Unlocking,
         }
@@ -273,6 +383,7 @@ impl UnlockState {
             | StateData::LockedArmed { binding, .. }
             | StateData::Unlocking { binding } => Some(binding),
             StateData::Challenging { request } => Some(request.binding),
+            StateData::Cancelling { request, .. } => Some(request.binding),
             StateData::PermitReady { permit } => Some(permit.binding),
         }
     }
@@ -281,6 +392,7 @@ impl UnlockState {
     pub const fn challenge_id(&self) -> Option<ChallengeId> {
         match self.state {
             StateData::Challenging { request } => Some(request.challenge_id),
+            StateData::Cancelling { request, .. } => Some(request.challenge_id),
             StateData::PermitReady { permit } => Some(permit.challenge_id),
             _ => None,
         }
@@ -289,7 +401,8 @@ impl UnlockState {
     #[must_use]
     pub const fn cooldown_until(&self) -> Option<MonoMillis> {
         match self.state {
-            StateData::LockedArmed { cooldown_until, .. } => cooldown_until,
+            StateData::LockedArmed { cooldown_until, .. }
+            | StateData::Cancelling { cooldown_until, .. } => cooldown_until,
             _ => None,
         }
     }
@@ -306,11 +419,15 @@ impl UnlockState {
     pub const fn last_observed_at(&self) -> Option<MonoMillis> {
         self.last_observed_at
     }
-}
 
-impl Default for UnlockState {
-    fn default() -> Self {
-        Self::unlocked()
+    #[must_use]
+    pub const fn highest_lock_epoch(&self) -> Option<LockEpoch> {
+        self.highest_lock_epoch
+    }
+
+    #[must_use]
+    pub const fn timing_policy(&self) -> TimingPolicy {
+        self.timing_policy
     }
 }
 
@@ -320,10 +437,12 @@ pub enum TransitionError {
         previous: MonoMillis,
         current: MonoMillis,
     },
-    DeadlineNotInFuture {
+    TimeOverflow {
+        operation: TimingOperation,
         now: MonoMillis,
-        deadline: MonoMillis,
+        duration_ms: u64,
     },
+    ChallengeIdExhausted,
 }
 
 impl Display for TransitionError {
@@ -335,51 +454,69 @@ impl Display for TransitionError {
                 previous.get(),
                 current.get()
             ),
-            Self::DeadlineNotInFuture { now, deadline } => write!(
+            Self::TimeOverflow {
+                operation,
+                now,
+                duration_ms,
+            } => write!(
                 formatter,
-                "deadline {} must be later than current monotonic time {}",
-                deadline.get(),
+                "{operation:?} overflows at {} plus {duration_ms} milliseconds",
                 now.get()
             ),
+            Self::ChallengeIdExhausted => write!(formatter, "challenge identifier exhausted"),
         }
     }
 }
 
 impl Error for TransitionError {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimingOperation {
+    ChallengeDeadline,
+    PermitExpiry,
+    CooldownDeadline,
+}
+
 pub fn transition(
     state: UnlockState,
     event: Event,
     now: MonoMillis,
 ) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
-    ensure_monotonic(&state, now)?;
-
     match event {
         Event::SessionLocked { binding } => {
-            return Ok(reset_locked(binding, now));
+            return Ok(reset_locked(state, binding, now));
         }
         Event::SessionUnlocked | Event::Logout => {
-            return Ok(reset_unlocked(now));
+            return Ok(reset_unlocked(state, now));
         }
         Event::FastUserSwitch { locked_binding } | Event::ServiceRestarted { locked_binding } => {
             return Ok(match locked_binding {
-                Some(binding) => reset_locked(binding, now),
-                None => reset_unlocked(now),
+                Some(binding) => reset_locked(state, binding, now),
+                None => reset_unlocked(state, now),
             });
         }
         _ => {}
     }
 
+    ensure_monotonic(&state, now)?;
+
+    let metadata = StateMetadata::from_state(&state);
     let next = match state.state {
-        StateData::Unlocked => inert(StateData::Unlocked, now),
-        StateData::LockedUnarmed { binding } => transition_unarmed(binding, event, now),
+        StateData::Unlocked => inert(StateData::Unlocked, now, metadata),
+        StateData::LockedUnarmed { binding } => transition_unarmed(binding, event, now, metadata),
         StateData::LockedArmed {
             binding,
             cooldown_until,
-        } => transition_armed(binding, cooldown_until, event, now)?,
-        StateData::Challenging { request } => transition_challenging(request, event, now)?,
-        StateData::PermitReady { permit } => transition_permit_ready(permit, event, now),
-        StateData::Unlocking { binding } => inert(StateData::Unlocking { binding }, now),
+        } => transition_armed(binding, cooldown_until, event, now, metadata)?,
+        StateData::Challenging { request } => {
+            transition_challenging(request, event, now, metadata)?
+        }
+        StateData::Cancelling {
+            request,
+            cooldown_until,
+        } => transition_cancelling(request, cooldown_until, event, now, metadata),
+        StateData::PermitReady { permit } => transition_permit_ready(permit, event, now, metadata),
+        StateData::Unlocking { binding } => inert(StateData::Unlocking { binding }, now, metadata),
     };
 
     Ok(next)
@@ -401,6 +538,7 @@ fn transition_unarmed(
     current: SessionBinding,
     event: Event,
     now: MonoMillis,
+    metadata: StateMetadata,
 ) -> (UnlockState, Vec<Effect>) {
     match event {
         Event::FarStable { binding } | Event::ReliableDisconnect { binding }
@@ -412,9 +550,10 @@ fn transition_unarmed(
                     cooldown_until: None,
                 },
                 now,
+                metadata,
             )
         }
-        _ => inert(StateData::LockedUnarmed { binding: current }, now),
+        _ => inert(StateData::LockedUnarmed { binding: current }, now, metadata),
     }
 }
 
@@ -423,21 +562,29 @@ fn transition_armed(
     cooldown_until: Option<MonoMillis>,
     event: Event,
     now: MonoMillis,
+    mut metadata: StateMetadata,
 ) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
     match event {
-        Event::NearStable {
-            binding,
-            challenge_id,
-            deadline,
-        } if binding == current && cooldown_elapsed(cooldown_until, now) => {
-            if deadline <= now {
-                return Err(TransitionError::DeadlineNotInFuture { now, deadline });
-            }
+        Event::NearStable { binding }
+            if binding == current && cooldown_elapsed(cooldown_until, now) =>
+        {
+            let next_id = metadata
+                .last_challenge_id
+                .checked_add(1)
+                .ok_or(TransitionError::ChallengeIdExhausted)?;
+            metadata.last_challenge_id = next_id;
+            let challenge_id = ChallengeId::new(next_id);
+            let deadline = checked_deadline(
+                now,
+                metadata.timing_policy.challenge_ttl_ms,
+                TimingOperation::ChallengeDeadline,
+            )?;
             let request = ChallengeRequest::new(current, challenge_id, deadline);
             Ok(with_effect(
                 StateData::Challenging { request },
                 now,
                 Effect::StartChallenge(request),
+                metadata,
             ))
         }
         _ => Ok(inert(
@@ -446,6 +593,7 @@ fn transition_armed(
                 cooldown_until,
             },
             now,
+            metadata,
         )),
     }
 }
@@ -454,58 +602,153 @@ fn transition_challenging(
     request: ChallengeRequest,
     event: Event,
     now: MonoMillis,
+    metadata: StateMetadata,
 ) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
+    if now >= request.deadline {
+        if matching_challenge_termination(event, request) {
+            return finish_challenge_with_cooldown(request, now, metadata);
+        }
+        let cooldown_until = checked_deadline(
+            now,
+            metadata.timing_policy.cooldown_ms,
+            TimingOperation::CooldownDeadline,
+        )?;
+        return Ok(with_effect(
+            StateData::Cancelling {
+                request,
+                cooldown_until: Some(cooldown_until),
+            },
+            now,
+            Effect::CancelChallenge(request),
+            metadata,
+        ));
+    }
+
     match event {
         Event::ChallengeVerified(proof)
-            if proof.binding == request.binding
-                && proof.challenge_id == request.challenge_id
-                && now < request.deadline =>
+            if proof.binding == request.binding && proof.challenge_id == request.challenge_id =>
         {
-            if proof.permit_expires_at <= now {
-                return Err(TransitionError::DeadlineNotInFuture {
-                    now,
-                    deadline: proof.permit_expires_at,
-                });
-            }
+            let expires_at = checked_deadline(
+                now,
+                metadata.timing_policy.permit_ttl_ms,
+                TimingOperation::PermitExpiry,
+            )?;
             let permit = Permit {
                 binding: request.binding,
                 challenge_id: request.challenge_id,
-                expires_at: proof.permit_expires_at,
+                expires_at,
             };
             Ok(with_effect(
                 StateData::PermitReady { permit },
                 now,
                 Effect::CreatePermit(permit),
+                metadata,
             ))
         }
         Event::ChallengeFailed {
             binding,
             challenge_id,
-            cooldown_until,
         }
         | Event::ChallengeTimedOut {
             binding,
             challenge_id,
-            cooldown_until,
-        } if binding == request.binding && challenge_id == request.challenge_id => Ok(state(
-            StateData::LockedArmed {
-                binding: request.binding,
-                cooldown_until: Some(cooldown_until),
-            },
-            now,
-        )),
+        }
+        | Event::ChallengeTerminated {
+            binding,
+            challenge_id,
+        } if binding == request.binding && challenge_id == request.challenge_id => {
+            finish_challenge_with_cooldown(request, now, metadata)
+        }
         Event::FarStable { binding } | Event::ReliableDisconnect { binding }
             if binding == request.binding =>
         {
-            Ok(state(
-                StateData::LockedArmed {
-                    binding: request.binding,
+            Ok(with_effect(
+                StateData::Cancelling {
+                    request,
                     cooldown_until: None,
                 },
                 now,
+                Effect::CancelChallenge(request),
+                metadata,
             ))
         }
-        _ => Ok(inert(StateData::Challenging { request }, now)),
+        _ => Ok(inert(StateData::Challenging { request }, now, metadata)),
+    }
+}
+
+fn matching_challenge_termination(event: Event, request: ChallengeRequest) -> bool {
+    match event {
+        Event::ChallengeFailed {
+            binding,
+            challenge_id,
+        }
+        | Event::ChallengeTimedOut {
+            binding,
+            challenge_id,
+        }
+        | Event::ChallengeTerminated {
+            binding,
+            challenge_id,
+        } => binding == request.binding && challenge_id == request.challenge_id,
+        _ => false,
+    }
+}
+
+fn finish_challenge_with_cooldown(
+    request: ChallengeRequest,
+    now: MonoMillis,
+    metadata: StateMetadata,
+) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
+    let cooldown_until = checked_deadline(
+        now,
+        metadata.timing_policy.cooldown_ms,
+        TimingOperation::CooldownDeadline,
+    )?;
+    Ok(state(
+        StateData::LockedArmed {
+            binding: request.binding,
+            cooldown_until: Some(cooldown_until),
+        },
+        now,
+        metadata,
+    ))
+}
+
+fn transition_cancelling(
+    request: ChallengeRequest,
+    cooldown_until: Option<MonoMillis>,
+    event: Event,
+    now: MonoMillis,
+    metadata: StateMetadata,
+) -> (UnlockState, Vec<Effect>) {
+    match event {
+        Event::ChallengeTerminated {
+            binding,
+            challenge_id,
+        }
+        | Event::ChallengeFailed {
+            binding,
+            challenge_id,
+        }
+        | Event::ChallengeTimedOut {
+            binding,
+            challenge_id,
+        } if binding == request.binding && challenge_id == request.challenge_id => state(
+            StateData::LockedArmed {
+                binding: request.binding,
+                cooldown_until,
+            },
+            now,
+            metadata,
+        ),
+        _ => inert(
+            StateData::Cancelling {
+                request,
+                cooldown_until,
+            },
+            now,
+            metadata,
+        ),
     }
 }
 
@@ -513,6 +756,7 @@ fn transition_permit_ready(
     permit: Permit,
     event: Event,
     now: MonoMillis,
+    metadata: StateMetadata,
 ) -> (UnlockState, Vec<Effect>) {
     if now >= permit.expires_at {
         return with_effect(
@@ -522,6 +766,7 @@ fn transition_permit_ready(
             },
             now,
             Effect::ClearPermit,
+            metadata,
         );
     }
 
@@ -534,6 +779,7 @@ fn transition_permit_ready(
                 binding: permit.binding,
             },
             now,
+            metadata,
         ),
         Event::PermitExpired {
             binding,
@@ -545,8 +791,9 @@ fn transition_permit_ready(
             },
             now,
             Effect::ClearPermit,
+            metadata,
         ),
-        _ => inert(StateData::PermitReady { permit }, now),
+        _ => inert(StateData::PermitReady { permit }, now, metadata),
     }
 }
 
@@ -554,27 +801,82 @@ fn cooldown_elapsed(cooldown_until: Option<MonoMillis>, now: MonoMillis) -> bool
     cooldown_until.is_none_or(|deadline| now >= deadline)
 }
 
-fn reset_locked(binding: SessionBinding, now: MonoMillis) -> (UnlockState, Vec<Effect>) {
-    with_effect(
+fn checked_deadline(
+    now: MonoMillis,
+    duration_ms: u64,
+    operation: TimingOperation,
+) -> Result<MonoMillis, TransitionError> {
+    now.get()
+        .checked_add(duration_ms)
+        .map(MonoMillis::new)
+        .ok_or(TransitionError::TimeOverflow {
+            operation,
+            now,
+            duration_ms,
+        })
+}
+
+fn reset_locked(
+    previous: UnlockState,
+    binding: SessionBinding,
+    now: MonoMillis,
+) -> (UnlockState, Vec<Effect>) {
+    let mut metadata = StateMetadata::from_state(&previous);
+    if previous
+        .highest_lock_epoch
+        .is_some_and(|highest| binding.lock_epoch < highest)
+    {
+        return match previous.binding() {
+            Some(current) => with_effect_and_high_water(
+                StateData::LockedUnarmed { binding: current },
+                now,
+                Effect::ClearPermit,
+                metadata,
+            ),
+            None => {
+                with_effect_and_high_water(StateData::Unlocked, now, Effect::ClearPermit, metadata)
+            }
+        };
+    }
+
+    metadata.highest_lock_epoch = Some(binding.lock_epoch);
+    with_effect_and_high_water(
         StateData::LockedUnarmed { binding },
         now,
         Effect::ClearPermit,
+        metadata,
     )
 }
 
-fn reset_unlocked(now: MonoMillis) -> (UnlockState, Vec<Effect>) {
-    with_effect(StateData::Unlocked, now, Effect::ClearPermit)
+fn reset_unlocked(previous: UnlockState, now: MonoMillis) -> (UnlockState, Vec<Effect>) {
+    with_effect_and_high_water(
+        StateData::Unlocked,
+        now,
+        Effect::ClearPermit,
+        StateMetadata::from_state(&previous),
+    )
 }
 
-fn inert(state_data: StateData, now: MonoMillis) -> (UnlockState, Vec<Effect>) {
-    state(state_data, now)
+fn inert(
+    state_data: StateData,
+    now: MonoMillis,
+    metadata: StateMetadata,
+) -> (UnlockState, Vec<Effect>) {
+    state(state_data, now, metadata)
 }
 
-fn state(state_data: StateData, now: MonoMillis) -> (UnlockState, Vec<Effect>) {
+fn state(
+    state_data: StateData,
+    now: MonoMillis,
+    metadata: StateMetadata,
+) -> (UnlockState, Vec<Effect>) {
     (
         UnlockState {
             state: state_data,
             last_observed_at: Some(now),
+            highest_lock_epoch: metadata.highest_lock_epoch,
+            last_challenge_id: metadata.last_challenge_id,
+            timing_policy: metadata.timing_policy,
         },
         Vec::new(),
     )
@@ -584,14 +886,44 @@ fn with_effect(
     state_data: StateData,
     now: MonoMillis,
     effect: Effect,
+    metadata: StateMetadata,
+) -> (UnlockState, Vec<Effect>) {
+    with_effect_and_high_water(state_data, now, effect, metadata)
+}
+
+fn with_effect_and_high_water(
+    state_data: StateData,
+    now: MonoMillis,
+    effect: Effect,
+    metadata: StateMetadata,
 ) -> (UnlockState, Vec<Effect>) {
     (
         UnlockState {
             state: state_data,
             last_observed_at: Some(now),
+            highest_lock_epoch: metadata.highest_lock_epoch,
+            last_challenge_id: metadata.last_challenge_id,
+            timing_policy: metadata.timing_policy,
         },
         vec![effect],
     )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StateMetadata {
+    highest_lock_epoch: Option<LockEpoch>,
+    last_challenge_id: u64,
+    timing_policy: TimingPolicy,
+}
+
+impl StateMetadata {
+    const fn from_state(state: &UnlockState) -> Self {
+        Self {
+            highest_lock_epoch: state.highest_lock_epoch,
+            last_challenge_id: state.last_challenge_id,
+            timing_policy: state.timing_policy,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -610,36 +942,30 @@ mod tests {
         )
     }
 
+    fn policy() -> TimingPolicy {
+        TimingPolicy::new(20, 3, 6).unwrap()
+    }
+
     fn challenging(current: SessionBinding) -> UnlockState {
         let (locked, _) = transition(
-            UnlockState::unlocked(),
+            UnlockState::unlocked(policy()),
             Event::SessionLocked { binding: current },
             time(1),
         )
         .unwrap();
         let (armed, _) =
             transition(locked, Event::FarStable { binding: current }, time(2)).unwrap();
-        transition(
-            armed,
-            Event::NearStable {
-                binding: current,
-                challenge_id: ChallengeId::new(9),
-                deadline: time(20),
-            },
-            time(3),
-        )
-        .unwrap()
-        .0
+        transition(armed, Event::NearStable { binding: current }, time(3))
+            .unwrap()
+            .0
     }
 
-    fn permit_ready(current: SessionBinding, expires_at: MonoMillis) -> UnlockState {
+    fn permit_ready(current: SessionBinding) -> UnlockState {
+        let state = challenging(current);
+        let challenge_id = state.challenge_id().unwrap();
         transition(
-            challenging(current),
-            Event::ChallengeVerified(ChallengeVerified::new(
-                current,
-                ChallengeId::new(9),
-                expires_at,
-            )),
+            state,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
             time(4),
         )
         .unwrap()
@@ -649,28 +975,26 @@ mod tests {
     #[test]
     fn exact_verified_challenge_creates_a_bound_permit() {
         let current = binding(7, 41, 501);
+        let state = challenging(current);
+        let challenge_id = state.challenge_id().unwrap();
 
         let (next, effects) = transition(
-            challenging(current),
-            Event::ChallengeVerified(ChallengeVerified::new(
-                current,
-                ChallengeId::new(9),
-                time(12),
-            )),
+            state,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
             time(4),
         )
         .unwrap();
 
         assert_eq!(next.phase(), UnlockPhase::PermitReady);
         assert_eq!(next.binding(), Some(current));
-        assert_eq!(next.permit_expires_at(), Some(time(12)));
+        assert_eq!(next.permit_expires_at(), Some(time(7)));
         assert_eq!(effects.len(), 1);
         let Effect::CreatePermit(permit) = effects[0] else {
             panic!("expected a create-permit effect");
         };
         assert_eq!(permit.binding(), current);
-        assert_eq!(permit.challenge_id(), ChallengeId::new(9));
-        assert_eq!(permit.expires_at(), time(12));
+        assert_eq!(permit.challenge_id(), challenge_id);
+        assert_eq!(permit.expires_at(), time(7));
     }
 
     #[test]
@@ -683,13 +1007,11 @@ mod tests {
         ];
 
         for stale in stale_bindings {
+            let state = challenging(current);
+            let challenge_id = state.challenge_id().unwrap();
             let (next, effects) = transition(
-                challenging(current),
-                Event::ChallengeVerified(ChallengeVerified::new(
-                    stale,
-                    ChallengeId::new(9),
-                    time(12),
-                )),
+                state,
+                Event::ChallengeVerified(ChallengeVerified::new(stale, challenge_id)),
                 time(4),
             )
             .unwrap();
@@ -704,11 +1026,7 @@ mod tests {
 
         let (next, effects) = transition(
             challenging(current),
-            Event::ChallengeVerified(ChallengeVerified::new(
-                current,
-                ChallengeId::new(8),
-                time(12),
-            )),
+            Event::ChallengeVerified(ChallengeVerified::new(current, ChallengeId::new(2))),
             time(4),
         )
         .unwrap();
@@ -721,18 +1039,17 @@ mod tests {
     fn proof_at_or_after_challenge_deadline_never_creates_a_permit() {
         let current = binding(7, 41, 501);
 
-        for now in [20, 21] {
+        for now in [23, 24] {
+            let state = challenging(current);
+            let challenge_id = state.challenge_id().unwrap();
             let (next, effects) = transition(
-                challenging(current),
-                Event::ChallengeVerified(ChallengeVerified::new(
-                    current,
-                    ChallengeId::new(9),
-                    time(30),
-                )),
+                state,
+                Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
                 time(now),
             )
             .unwrap();
-            assert_eq!(next.phase(), UnlockPhase::Challenging);
+            assert_eq!(next.phase(), UnlockPhase::Cancelling);
+            assert!(effects.iter().any(Effect::is_cancel_challenge));
             assert!(!effects.iter().any(Effect::is_create_permit));
         }
     }
@@ -740,12 +1057,14 @@ mod tests {
     #[test]
     fn consuming_a_live_permit_enters_unlocking() {
         let current = binding(7, 41, 501);
+        let state = permit_ready(current);
+        let challenge_id = state.challenge_id().unwrap();
 
         let (next, effects) = transition(
-            permit_ready(current, time(12)),
+            state,
             Event::PermitConsumed {
                 binding: current,
-                challenge_id: ChallengeId::new(9),
+                challenge_id,
             },
             time(5),
         )
@@ -758,14 +1077,16 @@ mod tests {
     #[test]
     fn expiring_a_permit_returns_to_armed_and_clears_it() {
         let current = binding(7, 41, 501);
+        let state = permit_ready(current);
+        let challenge_id = state.challenge_id().unwrap();
 
         let (next, effects) = transition(
-            permit_ready(current, time(12)),
+            state,
             Event::PermitExpired {
                 binding: current,
-                challenge_id: ChallengeId::new(9),
+                challenge_id,
             },
-            time(12),
+            time(7),
         )
         .unwrap();
 
@@ -776,14 +1097,16 @@ mod tests {
     #[test]
     fn permit_consumption_at_expiry_fails_closed() {
         let current = binding(7, 41, 501);
+        let state = permit_ready(current);
+        let challenge_id = state.challenge_id().unwrap();
 
         let (next, effects) = transition(
-            permit_ready(current, time(12)),
+            state,
             Event::PermitConsumed {
                 binding: current,
-                challenge_id: ChallengeId::new(9),
+                challenge_id,
             },
-            time(12),
+            time(7),
         )
         .unwrap();
 
@@ -796,7 +1119,7 @@ mod tests {
         let current = binding(7, 41, 501);
 
         let (next, effects) = transition(
-            permit_ready(current, time(12)),
+            permit_ready(current),
             Event::ServiceRestarted {
                 locked_binding: Some(current),
             },
@@ -807,5 +1130,199 @@ mod tests {
         assert_eq!(next.phase(), UnlockPhase::LockedUnarmed);
         assert_eq!(next.permit_expires_at(), None);
         assert_eq!(effects, vec![Effect::ClearPermit]);
+    }
+
+    #[test]
+    fn authoritative_resets_rebase_time_even_from_permit_ready() {
+        let current = binding(7, 41, 501);
+        let replacement = binding(8, 42, 502);
+        let cases = [
+            (Event::SessionUnlocked, UnlockPhase::Unlocked, None),
+            (Event::Logout, UnlockPhase::Unlocked, None),
+            (
+                Event::FastUserSwitch {
+                    locked_binding: Some(replacement),
+                },
+                UnlockPhase::LockedUnarmed,
+                Some(replacement),
+            ),
+            (
+                Event::ServiceRestarted {
+                    locked_binding: Some(current),
+                },
+                UnlockPhase::LockedUnarmed,
+                Some(current),
+            ),
+        ];
+
+        for (event, expected_phase, expected_binding) in cases {
+            let (next, effects) = transition(permit_ready(current), event, time(2)).unwrap();
+            assert_eq!(next.phase(), expected_phase);
+            assert_eq!(next.binding(), expected_binding);
+            assert_eq!(next.last_observed_at(), Some(time(2)));
+            assert_eq!(next.permit_expires_at(), None);
+            assert_eq!(effects, vec![Effect::ClearPermit]);
+        }
+    }
+
+    #[test]
+    fn stale_lifecycle_epoch_clears_permit_without_reviving_stale_proof() {
+        let current = binding(8, 42, 502);
+        let stale = binding(7, 41, 501);
+
+        let (reset, effects) = transition(
+            permit_ready(current),
+            Event::ServiceRestarted {
+                locked_binding: Some(stale),
+            },
+            time(5),
+        )
+        .unwrap();
+        assert_eq!(reset.phase(), UnlockPhase::LockedUnarmed);
+        assert_eq!(reset.binding(), Some(current));
+        assert_eq!(effects, vec![Effect::ClearPermit]);
+
+        let (next, effects) = transition(
+            reset,
+            Event::ChallengeVerified(ChallengeVerified::new(stale, ChallengeId::new(1))),
+            time(6),
+        )
+        .unwrap();
+        assert_eq!(next.phase(), UnlockPhase::LockedUnarmed);
+        assert_eq!(next.binding(), Some(current));
+        assert!(!effects.iter().any(Effect::is_create_permit));
+    }
+
+    #[test]
+    fn verified_proof_is_inert_while_its_challenge_is_cancelling() {
+        let current = binding(7, 41, 501);
+        let state = challenging(current);
+        let challenge_id = state.challenge_id().unwrap();
+        let (cancelling, effects) =
+            transition(state, Event::FarStable { binding: current }, time(4)).unwrap();
+        assert_eq!(cancelling.phase(), UnlockPhase::Cancelling);
+        assert!(effects.iter().any(Effect::is_cancel_challenge));
+
+        let (next, effects) = transition(
+            cancelling,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            time(5),
+        )
+        .unwrap();
+        assert_eq!(next.phase(), UnlockPhase::Cancelling);
+        assert!(!effects.iter().any(Effect::is_create_permit));
+    }
+
+    #[test]
+    fn challenge_id_overflow_is_rejected_without_starting_work() {
+        let current = binding(7, 41, 501);
+        let mut state = transition(
+            transition(
+                UnlockState::unlocked(TimingPolicy::new(20, 3, 5).unwrap()),
+                Event::SessionLocked { binding: current },
+                time(1),
+            )
+            .unwrap()
+            .0,
+            Event::FarStable { binding: current },
+            time(2),
+        )
+        .unwrap()
+        .0;
+        state.last_challenge_id = u64::MAX;
+
+        let error = transition(state, Event::NearStable { binding: current }, time(3)).unwrap_err();
+        assert_eq!(error, TransitionError::ChallengeIdExhausted);
+    }
+
+    #[test]
+    fn permit_expiry_arithmetic_is_checked() {
+        let current = binding(7, 41, 501);
+        let mut state = challenging(current);
+        let challenge_id = state.challenge_id().unwrap();
+        state.state = StateData::Challenging {
+            request: ChallengeRequest::new(current, challenge_id, time(u64::MAX)),
+        };
+        state.last_observed_at = Some(time(u64::MAX - 3));
+        let now = time(u64::MAX - 2);
+
+        assert_eq!(
+            transition(
+                state,
+                Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+                now,
+            )
+            .unwrap_err(),
+            TransitionError::TimeOverflow {
+                operation: TimingOperation::PermitExpiry,
+                now,
+                duration_ms: policy().permit_ttl_ms(),
+            }
+        );
+    }
+
+    #[test]
+    fn proof_at_the_challenge_deadline_cancels_instead_of_creating_a_permit() {
+        let current = binding(7, 41, 501);
+        let state = challenging(current);
+        let challenge_id = state.challenge_id().unwrap();
+
+        let (next, effects) = transition(
+            state,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            time(23),
+        )
+        .unwrap();
+        assert_eq!(next.phase(), UnlockPhase::Cancelling);
+        assert!(effects.iter().any(Effect::is_cancel_challenge));
+        assert!(!effects.iter().any(Effect::is_create_permit));
+    }
+
+    #[test]
+    fn a_late_old_proof_cannot_match_a_newer_attempt() {
+        let current = binding(7, 41, 501);
+        let first = challenging(current);
+        let first_id = first.challenge_id().unwrap();
+        let (cancelling, _) =
+            transition(first, Event::FarStable { binding: current }, time(4)).unwrap();
+        let (armed, _) = transition(
+            cancelling,
+            Event::ChallengeTerminated {
+                binding: current,
+                challenge_id: first_id,
+            },
+            time(5),
+        )
+        .unwrap();
+        let (second, _) =
+            transition(armed, Event::NearStable { binding: current }, time(6)).unwrap();
+        let second_id = second.challenge_id().unwrap();
+        assert_ne!(second_id, first_id);
+
+        let (next, effects) = transition(
+            second,
+            Event::ChallengeVerified(ChallengeVerified::new(current, first_id)),
+            time(7),
+        )
+        .unwrap();
+        assert_eq!(next.phase(), UnlockPhase::Challenging);
+        assert_eq!(next.challenge_id(), Some(second_id));
+        assert!(!effects.iter().any(Effect::is_create_permit));
+    }
+
+    #[test]
+    fn permit_naturally_expires_at_or_after_its_policy_deadline() {
+        let current = binding(7, 41, 501);
+        let state = permit_ready(current);
+
+        let (before, effects) = transition(state.clone(), Event::Tick, time(6)).unwrap();
+        assert_eq!(before.phase(), UnlockPhase::PermitReady);
+        assert!(effects.is_empty());
+
+        for now in [7, 8] {
+            let (next, effects) = transition(state.clone(), Event::Tick, time(now)).unwrap();
+            assert_eq!(next.phase(), UnlockPhase::LockedArmed);
+            assert_eq!(effects, vec![Effect::ClearPermit]);
+        }
     }
 }
