@@ -30,7 +30,7 @@ export interface HourlyStats {
 }
 
 export interface TimerState {
-  version: 2
+  version: 3
   settings: TimerSettings
   phase: TimerPhase
   running: boolean
@@ -147,7 +147,7 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
   const normalizedSettings = normalizeSettings(settings)
   const duration = getPhaseDuration('focus', normalizedSettings)
   return {
-    version: 2,
+    version: 3,
     settings: normalizedSettings,
     phase: 'focus',
     running: normalizedSettings.autoStart,
@@ -244,6 +244,7 @@ function trimRecords(state: TimerState, now: number) {
   oldest.setDate(oldest.getDate() - 34)
   const cutoff = localDateKey(oldest.getTime())
   state.days = Object.fromEntries(Object.entries(state.days).filter(([key]) => key >= cutoff))
+  state.hourly = Object.fromEntries(Object.entries(state.hourly).filter(([key]) => key >= cutoff))
   state.history = state.history.slice(0, 300)
 }
 
@@ -487,7 +488,9 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
   if (!serialized) return createTimerState(now)
   try {
     const data: unknown = JSON.parse(serialized)
-    if (!isRecord(data) || (data.version !== 1 && data.version !== 2)) return createTimerState(now)
+    if (!isRecord(data) || (data.version !== 1 && data.version !== 2 && data.version !== 3)) {
+      return createTimerState(now)
+    }
     const settings = normalizeSettings(data.settings)
     const fallback = createTimerState(now, settings)
     const phase = data.phase === 'focus' || data.phase === 'short' || data.phase === 'long' ? data.phase : 'focus'
@@ -530,9 +533,23 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
         history.push({ id: item.id, type: item.type, completedAt: item.completedAt, duration: item.duration })
       }
     }
+    const hourly: Record<string, HourlyStats> = {}
+    if (data.version === 3 && isRecord(data.hourly)) {
+      const restoreSeries = (value: unknown): number[] => {
+        if (!Array.isArray(value) || value.length !== 24) return Array(24).fill(0)
+        return value.map(item => finiteNumber(item) && item >= 0 ? item : 0)
+      }
+      for (const [key, value] of Object.entries(data.hourly)) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !isRecord(value)) continue
+        hourly[key] = {
+          focusSeconds: restoreSeries(value.focusSeconds),
+          breakSeconds: restoreSeries(value.breakSeconds),
+        }
+      }
+    }
     const state: TimerState = {
       ...fallback,
-      version: 2,
+      version: 3,
       phase,
       running: deferredBreak ? true : typeof data.running === 'boolean' ? data.running : settings.autoStart,
       remaining: finiteNumber(data.remaining) ? Math.max(0.001, Math.min(duration, data.remaining)) : duration,
@@ -542,9 +559,9 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
       postponeUsed,
       completedCycles: boundedNumber(data.completedCycles, 0, 0, 12),
       days,
-      hourly: {},
+      hourly,
       history: history.sort((a, b) => b.completedAt - a.completedAt),
-      lifecycleIntervalIds: data.version === 2
+      lifecycleIntervalIds: data.version !== 1
         ? Array.from(new Set([
           ...(Array.isArray(data.lifecycleIntervalIds) ? data.lifecycleIntervalIds : []),
           data.lastLifecycleIntervalId,
