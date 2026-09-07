@@ -1,0 +1,26 @@
+name: repose_unlock_native
+description: Native Android and iOS runtime boundary for Repose Phone Key.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.10.0
+  flutter: '>=3.38.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  meta: ^1.17.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  pigeon: 27.3.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: ai.repose.mobile.unlock
+        pluginClass: ReposeUnlockNativePlugin

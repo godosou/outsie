@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  repose_unlock_native:
+    path: packages/repose_unlock_native
 
 dev_dependencies:
   flutter_test:
