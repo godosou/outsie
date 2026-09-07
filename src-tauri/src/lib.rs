@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     ffi::{CString, c_char, c_void},
     process::Command,
     sync::{
@@ -10,6 +10,140 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum InactivityReason {
+    ScreenLock,
+    SystemSleep,
+    SessionInactive,
+}
+
+impl InactivityReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ScreenLock => "screen-lock",
+            Self::SystemSleep => "system-sleep",
+            Self::SessionInactive => "session-inactive",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleStarted {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    interval_id: String,
+    reason: String,
+    started_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleInterval {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    interval_id: String,
+    elapsed_seconds: f64,
+    started_at: u64,
+    ended_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleSnapshot {
+    inactive: bool,
+    active_interval: Option<LifecycleStarted>,
+    pending_intervals: Vec<LifecycleInterval>,
+}
+
+#[derive(Default)]
+struct LifecycleGate {
+    reasons: HashSet<InactivityReason>,
+    active_interval: Option<(LifecycleStarted, f64)>,
+    pending_intervals: VecDeque<LifecycleInterval>,
+    next_sequence: u64,
+}
+
+impl LifecycleGate {
+    fn begin(
+        &mut self,
+        reason: InactivityReason,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleStarted> {
+        if !self.reasons.insert(reason) || self.active_interval.is_some() {
+            return None;
+        }
+        self.next_sequence = self.next_sequence.wrapping_add(1);
+        let started = LifecycleStarted {
+            kind: "inactive-start",
+            interval_id: format!(
+                "{}-{}-{}",
+                std::process::id(),
+                continuous_seconds.to_bits(),
+                self.next_sequence
+            ),
+            reason: reason.as_str().into(),
+            started_at: wall_time_ms,
+        };
+        self.active_interval = Some((started.clone(), continuous_seconds));
+        Some(started)
+    }
+
+    fn end(
+        &mut self,
+        reason: InactivityReason,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleInterval> {
+        if !self.reasons.remove(&reason) || !self.reasons.is_empty() {
+            return None;
+        }
+        let (started, started_continuous) = self.active_interval.take()?;
+        let elapsed_seconds = if continuous_seconds.is_finite() && started_continuous.is_finite() {
+            (continuous_seconds - started_continuous).max(0.0)
+        } else {
+            0.0
+        };
+        let completed = LifecycleInterval {
+            kind: "inactive-end",
+            interval_id: started.interval_id,
+            elapsed_seconds,
+            started_at: started.started_at,
+            ended_at: wall_time_ms,
+        };
+        self.pending_intervals.push_back(completed.clone());
+        while self.pending_intervals.len() > 32 {
+            self.pending_intervals.pop_front();
+        }
+        Some(completed)
+    }
+
+    fn acknowledge(&mut self, interval_id: &str) -> bool {
+        let Some(index) = self
+            .pending_intervals
+            .iter()
+            .position(|interval| interval.interval_id == interval_id)
+        else {
+            return false;
+        };
+        self.pending_intervals.remove(index);
+        true
+    }
+
+    fn snapshot(&self) -> LifecycleSnapshot {
+        LifecycleSnapshot {
+            inactive: !self.reasons.is_empty(),
+            active_interval: self.active_interval.as_ref().map(|(started, _)| started.clone()),
+            pending_intervals: self.pending_intervals.iter().cloned().collect(),
+        }
+    }
+
+    fn is_inactive(&self) -> bool {
+        !self.reasons.is_empty()
+    }
+}
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, WebviewUrl,
     WebviewWindowBuilder, WindowEvent,
@@ -111,6 +245,7 @@ impl StrictBreak {
 struct RuntimeState {
     status: TimerStatus,
     preferences: Preferences,
+    lifecycle: LifecycleGate,
     strict_break: Option<StrictBreak>,
     completed_break_id: Option<String>,
     pending_postpone_id: Option<String>,
@@ -125,6 +260,7 @@ impl Default for RuntimeState {
         Self {
             status: TimerStatus::default(),
             preferences: Preferences::default(),
+            lifecycle: LifecycleGate::default(),
             strict_break: None,
             completed_break_id: None,
             pending_postpone_id: None,
@@ -324,6 +460,32 @@ fn set_preferences(shared: State<'_, Arc<SharedState>>, value: Preferences) {
         state.previous_idle = 0.0;
     }
     state.preferences = value;
+}
+
+#[tauri::command]
+fn get_lifecycle_snapshot(shared: State<'_, Arc<SharedState>>) -> LifecycleSnapshot {
+    shared
+        .runtime
+        .lock()
+        .expect("state poisoned")
+        .lifecycle
+        .snapshot()
+}
+
+#[tauri::command]
+fn acknowledge_lifecycle_interval(
+    shared: State<'_, Arc<SharedState>>,
+    interval_id: String,
+) -> bool {
+    if interval_id.is_empty() || interval_id.len() > 200 {
+        return false;
+    }
+    shared
+        .runtime
+        .lock()
+        .expect("state poisoned")
+        .lifecycle
+        .acknowledge(&interval_id)
 }
 
 #[tauri::command]
@@ -556,6 +718,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_status,
             set_preferences,
+            get_lifecycle_snapshot,
+            acknowledge_lifecycle_interval,
             postpone_break,
             notify_user,
             open_security_settings
@@ -599,4 +763,81 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lifecycle_gate_overlapping_lock_and_sleep_form_one_interval() {
+        let mut gate = LifecycleGate::default();
+        let started = gate
+            .begin(InactivityReason::ScreenLock, 10.0, 1_000)
+            .expect("first reason starts an interval");
+        assert!(gate
+            .begin(InactivityReason::SystemSleep, 12.0, 3_000)
+            .is_none());
+        assert!(gate
+            .end(InactivityReason::SystemSleep, 30.0, 21_000)
+            .is_none());
+        let completed = gate
+            .end(InactivityReason::ScreenLock, 35.0, 26_000)
+            .expect("last reason ends the interval");
+        assert_eq!(completed.interval_id, started.interval_id);
+        assert_eq!(completed.elapsed_seconds, 25.0);
+        assert_eq!(completed.started_at, 1_000);
+        assert_eq!(completed.ended_at, 26_000);
+    }
+
+    #[test]
+    fn lifecycle_gate_ignores_duplicate_and_unmatched_notifications() {
+        let mut gate = LifecycleGate::default();
+        assert!(gate
+            .end(InactivityReason::ScreenLock, 1.0, 1_000)
+            .is_none());
+        assert!(gate
+            .begin(InactivityReason::ScreenLock, 2.0, 2_000)
+            .is_some());
+        assert!(gate
+            .begin(InactivityReason::ScreenLock, 3.0, 3_000)
+            .is_none());
+        assert!(gate
+            .end(InactivityReason::ScreenLock, 8.0, 8_000)
+            .is_some());
+        assert!(gate
+            .end(InactivityReason::ScreenLock, 9.0, 9_000)
+            .is_none());
+    }
+
+    #[test]
+    fn lifecycle_gate_replays_pending_interval_until_acknowledged() {
+        let mut gate = LifecycleGate::default();
+        gate.begin(InactivityReason::SessionInactive, 10.0, 1_000);
+        let completed = gate
+            .end(InactivityReason::SessionInactive, 20.0, 11_000)
+            .expect("interval completes");
+        let snapshot = gate.snapshot();
+        assert_eq!(snapshot.pending_intervals.len(), 1);
+        assert_eq!(snapshot.pending_intervals[0].interval_id, completed.interval_id);
+        assert!(!snapshot.inactive);
+        assert!(gate.acknowledge(&completed.interval_id));
+        assert!(gate.snapshot().pending_intervals.is_empty());
+        assert!(!gate.acknowledge(&completed.interval_id));
+    }
+
+    #[test]
+    fn lifecycle_gate_bounds_unacknowledged_intervals() {
+        let mut gate = LifecycleGate::default();
+        for index in 0..40 {
+            let now = index as f64 * 2.0;
+            gate.begin(InactivityReason::ScreenLock, now, index * 2_000);
+            gate.end(
+                InactivityReason::ScreenLock,
+                now + 1.0,
+                index * 2_000 + 1_000,
+            );
+        }
+        assert_eq!(gate.snapshot().pending_intervals.len(), 32);
+    }
 }
