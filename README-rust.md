@@ -24,10 +24,13 @@ npm run package:mac
 - 关闭主窗口后继续驻留顶部菜单栏。
 - Rust 每秒检查全系统键盘和鼠标闲置时间，30 秒后请求 macOS 锁屏。
 - 强制休息为每块显示器创建系统 WKWebView 覆盖页，并通过 AppKit 展示策略禁用应用切换、强制退出面板、隐藏应用和普通退出。
+- 大休息在每块覆盖页中展示同一套离线 3D 拉伸训练：8 个动作每 30 秒自动轮播，支持前后切换，并重点覆盖肩颈和上背。主窗口和覆盖页共享动作与程序化关节动画定义。
 - 小休息可延迟 1 分钟，大休息可延迟 5 分钟；同一次休息只能延迟一次，之后执行完整休息。
 - 延迟和结束由稳定的休息 ID 确认，重复请求不能增加延迟机会。
 - 隐藏窗口时关闭 WKWebView 后台降频，确保菜单栏驻留期间计时仍准确；计时状态每 15 秒落盘一次，并在页面退出时立即保存。
 
 Rust 桌面实现位于 `src-tauri/src/lib.rs`，macOS AppKit/CoreGraphics 桥接位于 `src-tauri/native/macos.m`，前端桥接位于 `src/tauriBridge.ts`。
+
+3D 训练使用本地 Three.js 与程序化软陶人物，不依赖网络或外部模型。`prefers-reduced-motion` 会固定到代表性姿势；WebGL 初始化失败时显示静态人物和文字指导，且不会影响原生休息倒计时。
 
 实现依据：[Tauri 2](https://v2.tauri.app/start/)、[macOS 使用系统 WKWebView](https://v2.tauri.app/reference/webview-versions/)、[macOS App 打包](https://v2.tauri.app/distribute/macos-application-bundle/)。
