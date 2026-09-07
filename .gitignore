@@ -6,3 +6,4 @@ dist/
 artifacts/
 release/
 src-tauri/target/
+/target/macos-auth/

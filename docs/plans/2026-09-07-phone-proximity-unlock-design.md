@@ -77,6 +77,10 @@ system.login.screensaver
 
 没有匹配许可、服务不可用、响应超时或内部错误时，插件不得批准授权，并必须让保留的 `use-login-window-ui` 继续提供系统密码认证。具体返回语义和最大等待时间由兼容性原型验证后固化。
 
+原型 bundle 只暴露 `unlock` mechanism。后续安装器必须通过命名规则
+`ai.repose.unlock` 引用 `ReposeUnlock:unlock,privileged`，不得直接改写
+`system.login.console`；本原型构建和测试阶段不读取或修改 authorizationdb。
+
 ### Unlock Service
 
 服务负责：

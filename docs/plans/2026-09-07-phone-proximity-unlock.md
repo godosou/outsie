@@ -387,9 +387,18 @@ git commit -m "feat: add one-shot unlock permit broker"
 - Create: `native/macos/authorization-plugin/src/ipc_client.c`
 - Create: `native/macos/authorization-plugin/src/ipc_client.h`
 - Create: `native/macos/authorization-plugin/src/deadline.c`
+- Create: `native/macos/authorization-plugin/src/deadline.h`
+- Create: `native/macos/authorization-plugin/src/plugin_test_support.h`
 - Create: `native/macos/authorization-plugin/tests/fake_authorization_engine.c`
+- Create: `native/macos/authorization-plugin/tests/fake_authorization_engine.h`
+- Create: `native/macos/authorization-plugin/tests/ipc_client_test.c`
 - Create: `native/macos/authorization-plugin/tests/plugin_lifecycle_test.c`
+- Create: `native/macos/authorization-plugin/tests/release_api_compile.c`
+- Create: `native/macos/authorization-plugin/tests/test_server.c`
+- Create: `native/macos/authorization-plugin/tests/test_server.h`
 - Create: `native/macos/authorization-plugin/tests/bundle_smoke.c`
+- Create: `native/macos/authorization-plugin/.gitignore`
+- Modify: `.gitignore`
 - Create: `scripts/build-macos-auth-prototype.sh`
 - Create: `scripts/verify-macos-auth-artifacts.sh`
 
@@ -403,6 +412,12 @@ The fake `AuthorizationCallbacks` records `SetResult`, `RequestInterrupt`, and `
 - an event arriving before/after initial `Deny` requests at most one interrupt;
 - deactivation closes the watcher and calls `DidDeactivate`;
 - destroy during a pending event has no use-after-free.
+
+The exactly-once `SetResult` contract applies to valid invocations admitted
+before deactivation starts. An invalid host call that races after deactivation
+or destruction has begun returns `errAuthorizationDenied` without accessing the
+engine callbacks; this preserves the stronger rule that no callback occurs
+after `DidDeactivate` or `MechanismDestroy` returns.
 
 **Step 2: Verify red**
 
@@ -418,11 +433,16 @@ Export only `AuthorizationPluginCreate`. `MechanismInvoke` calls `CONSUME_OR_WAT
 
 Use `SO_NOSIGPIPE`, monotonic deadlines, bounded frames, and explicit ownership for watcher state. Plugin code does not contain BLE, JSON, file writes, UI, or network access.
 
+The bundle mechanism identifier is `unlock`. Task 7 must install it through a
+named authorization rule using `ReposeUnlock:unlock,privileged` (rule name
+`ai.repose.unlock`); Task 6 does not read or modify the authorization database.
+
 **Step 4: Verify harness, sanitizers, and bundle ABI**
 
 ```bash
 make -C native/macos/authorization-plugin test
 make -C native/macos/authorization-plugin test SANITIZE=address,undefined
+make -C native/macos/authorization-plugin test SANITIZE=thread
 ./scripts/build-macos-auth-prototype.sh --configuration debug --arch arm64 --sign ad-hoc
 ./scripts/verify-macos-auth-artifacts.sh target/macos-auth/debug
 ```
@@ -432,7 +452,7 @@ Expected: lifecycle tests pass; bundle has one arm64 executable, valid Info.plis
 **Step 5: Commit**
 
 ```bash
-git add native/macos/authorization-plugin scripts/build-macos-auth-prototype.sh scripts/verify-macos-auth-artifacts.sh
+git add .gitignore docs/plans/2026-09-07-phone-proximity-unlock-design.md docs/plans/2026-09-07-phone-proximity-unlock.md docs/protocol/repose-unlock-ipc-v1.md native/macos/authorization-plugin scripts/build-macos-auth-prototype.sh scripts/verify-macos-auth-artifacts.sh
 git commit -m "feat: add macOS authorization plugin prototype"
 ```
 

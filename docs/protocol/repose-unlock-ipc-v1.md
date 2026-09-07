@@ -40,6 +40,11 @@ A client accepts a reply only when the nonce, UID, and audit session match its r
 
 Unknown operations/statuses, nonzero flags, wrong versions, wrong lengths, truncated or trailing bytes, zero correlation values, and invalid shape combinations cause the connection to close without authorization. Session and peer mismatches also close instead of returning information about another session.
 
+For terminal `CONSUMED` and `DENIED` replies, the server sends exactly one
+84-byte frame and closes its write side; the client must observe that EOF inside
+the original deadline, and rejects any 85th byte. `WATCHING` deliberately keeps
+the stream open for correlated keepalive and ready frames.
+
 After writing exactly one 84-byte request, the client must call `shutdown(fd, SHUT_WR)` while keeping its read half open for the reply and optional events. Within the same initial deadline, the server must observe EOF before it touches the broker. Any byte before EOF—including a delayed trailing byte—or failure to half-close before the deadline is rejected without consuming a permit. Once that required EOF has been observed, it is not treated as a watch disconnect: a write-half close and a full close are indistinguishable through a subsequent read on macOS. After the `WATCHING` reply, the service therefore sends a fully correlated `WATCH_KEEPALIVE` at most once per second while idle. Each keepalive has its own 100 ms absolute write deadline; a closed read half or stalled peer cancels the RAII registration and frees its active-connection slot. A conforming client loops over validated keepalives without treating them as ready or authorization. This rule is also declared in the C header for the Task 6 client.
 
 ## Broker linearization
@@ -54,7 +59,11 @@ Publishing installs the original core `Permit` and takes matching watches under 
 
 The initial peer verification, 12-byte header read, 72-byte payload read, request EOF confirmation, broker operation, and initial response share one absolute `CLOCK_MONOTONIC`-equivalent 100 ms deadline. Partial progress and `EINTR` never renew it. A watch may remain idle, but every keepalive write and the one ready-event write use their own bounded 100 ms absolute deadlines. The initial `WATCHING` reply always precedes either event; if permit readiness races a keepalive, the non-authorizing keepalive may be written first and the ready edge follows without consuming the permit. Premature EOF, timeout, I/O error, cancellation, and thread creation failure all close without permission. Production and tests share the same RAII active-connection limiter of 128; the deadline begins when an accepted connection is dispatched, before a worker starts.
 
-On macOS, peer verification occurs before frame parsing. It reads `LOCAL_PEERTOKEN`, requires effective UID 0 and a valid audit session/process identity, and validates the dynamic code against exactly:
+On macOS, peer verification occurs before frame parsing. The authorization-plugin
+client also verifies with `getpeereid` that the connected service peer has
+effective UID 0 before it writes any request byte. The service reads
+`LOCAL_PEERTOKEN`, requires effective UID 0 and a valid audit session/process
+identity, and validates the dynamic code against exactly:
 
 ```text
 identifier "com.apple.authorizationhost" and anchor apple
