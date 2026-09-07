@@ -13,6 +13,8 @@ enum {
   ReposeSystemDidWake = 4,
   ReposeSessionInactive = 5,
   ReposeSessionActive = 6,
+  ReposeDisplaysDidSleep = 7,
+  ReposeDisplaysDidWake = 8,
 };
 
 static ReposeLifecycleCallback repose_lifecycle_callback = NULL;
@@ -51,6 +53,12 @@ void repose_observe_lifecycle(ReposeLifecycleCallback callback) {
     [repose_lifecycle_observers addObject:[workspace
       addObserverForName:NSWorkspaceDidWakeNotification object:nil queue:main_queue
       usingBlock:^(__unused NSNotification *note) { repose_emit_lifecycle(ReposeSystemDidWake); }]];
+    [repose_lifecycle_observers addObject:[workspace
+      addObserverForName:NSWorkspaceScreensDidSleepNotification object:nil queue:main_queue
+      usingBlock:^(__unused NSNotification *note) { repose_emit_lifecycle(ReposeDisplaysDidSleep); }]];
+    [repose_lifecycle_observers addObject:[workspace
+      addObserverForName:NSWorkspaceScreensDidWakeNotification object:nil queue:main_queue
+      usingBlock:^(__unused NSNotification *note) { repose_emit_lifecycle(ReposeDisplaysDidWake); }]];
     [repose_lifecycle_observers addObject:[workspace
       addObserverForName:NSWorkspaceSessionDidResignActiveNotification object:nil queue:main_queue
       usingBlock:^(__unused NSNotification *note) { repose_emit_lifecycle(ReposeSessionInactive); }]];

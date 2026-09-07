@@ -15,6 +15,7 @@ use std::{
 enum InactivityReason {
     ScreenLock,
     SystemSleep,
+    DisplaySleep,
     SessionInactive,
 }
 
@@ -23,8 +24,32 @@ impl InactivityReason {
         match self {
             Self::ScreenLock => "screen-lock",
             Self::SystemSleep => "system-sleep",
+            Self::DisplaySleep => "display-sleep",
             Self::SessionInactive => "session-inactive",
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeLifecycleAction {
+    Begin(InactivityReason),
+    End(InactivityReason),
+    ResumeAll,
+}
+
+fn decode_native_lifecycle_event(event_code: i32) -> Option<NativeLifecycleAction> {
+    match event_code {
+        1 => Some(NativeLifecycleAction::Begin(InactivityReason::ScreenLock)),
+        2 => Some(NativeLifecycleAction::ResumeAll),
+        3 => Some(NativeLifecycleAction::Begin(InactivityReason::SystemSleep)),
+        4 => Some(NativeLifecycleAction::End(InactivityReason::SystemSleep)),
+        5 => Some(NativeLifecycleAction::Begin(
+            InactivityReason::SessionInactive,
+        )),
+        6 => Some(NativeLifecycleAction::ResumeAll),
+        7 => Some(NativeLifecycleAction::Begin(InactivityReason::DisplaySleep)),
+        8 => Some(NativeLifecycleAction::End(InactivityReason::DisplaySleep)),
+        _ => None,
     }
 }
 
@@ -103,6 +128,26 @@ impl LifecycleGate {
         if !self.reasons.remove(&reason) || !self.reasons.is_empty() {
             return None;
         }
+        self.complete_active(continuous_seconds, wall_time_ms)
+    }
+
+    fn resume_all(
+        &mut self,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleInterval> {
+        if self.reasons.is_empty() {
+            return None;
+        }
+        self.reasons.clear();
+        self.complete_active(continuous_seconds, wall_time_ms)
+    }
+
+    fn complete_active(
+        &mut self,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleInterval> {
         let (started, started_continuous) = self.active_interval.take()?;
         let elapsed_seconds = if continuous_seconds.is_finite() && started_continuous.is_finite() {
             (continuous_seconds - started_continuous).max(0.0)
@@ -332,28 +377,24 @@ extern "C" fn handle_native_lifecycle(event_code: i32) {
     let Some(context) = LIFECYCLE_CONTEXT.get() else {
         return;
     };
-    let (reason, begins) = match event_code {
-        1 => (InactivityReason::ScreenLock, true),
-        2 => (InactivityReason::ScreenLock, false),
-        3 => (InactivityReason::SystemSleep, true),
-        4 => (InactivityReason::SystemSleep, false),
-        5 => (InactivityReason::SessionInactive, true),
-        6 => (InactivityReason::SessionInactive, false),
-        _ => return,
+    let Some(action) = decode_native_lifecycle_event(event_code) else {
+        return;
     };
     let continuous_now = continuous_seconds();
     let wall_now = wall_time_ms();
     let (started, completed, restore_break) = {
         let mut state = context.shared.runtime.lock().expect("state poisoned");
-        let started = if begins {
-            state.lifecycle.begin(reason, continuous_now, wall_now)
-        } else {
-            None
-        };
-        let completed = if begins {
-            None
-        } else {
-            state.lifecycle.end(reason, continuous_now, wall_now)
+        let (started, completed) = match action {
+            NativeLifecycleAction::Begin(reason) => (
+                state.lifecycle.begin(reason, continuous_now, wall_now),
+                None,
+            ),
+            NativeLifecycleAction::End(reason) => {
+                (None, state.lifecycle.end(reason, continuous_now, wall_now))
+            }
+            NativeLifecycleAction::ResumeAll => {
+                (None, state.lifecycle.resume_all(continuous_now, wall_now))
+            }
         };
         let restore_break = completed.is_some()
             && state
@@ -975,6 +1016,62 @@ mod tests {
             );
         }
         assert_eq!(gate.snapshot().pending_intervals.len(), 32);
+    }
+
+    #[test]
+    fn display_sleep_forms_a_rest_interval() {
+        let mut gate = LifecycleGate::default();
+        let started = gate
+            .begin(InactivityReason::DisplaySleep, 10.0, 1_000)
+            .expect("display sleep starts an interval");
+        let completed = gate
+            .end(InactivityReason::DisplaySleep, 40.0, 31_000)
+            .expect("display wake ends the interval");
+        assert_eq!(completed.interval_id, started.interval_id);
+        assert_eq!(completed.elapsed_seconds, 30.0);
+    }
+
+    #[test]
+    fn authoritative_session_resume_clears_stale_inactivity_reasons() {
+        let mut gate = LifecycleGate::default();
+        gate.begin(InactivityReason::SystemSleep, 10.0, 1_000);
+        gate.begin(InactivityReason::DisplaySleep, 11.0, 2_000);
+        gate.begin(InactivityReason::ScreenLock, 12.0, 3_000);
+        gate.begin(InactivityReason::SessionInactive, 13.0, 4_000);
+        assert!(
+            gate.end(InactivityReason::SystemSleep, 20.0, 11_000)
+                .is_none()
+        );
+
+        let completed = gate
+            .resume_all(40.0, 31_000)
+            .expect("unlock proves the user session is active again");
+        assert_eq!(completed.elapsed_seconds, 30.0);
+        assert!(!gate.is_inactive());
+        assert!(
+            gate.end(InactivityReason::DisplaySleep, 41.0, 32_000)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn native_events_cover_display_sleep_and_authoritative_resume() {
+        assert_eq!(
+            decode_native_lifecycle_event(7),
+            Some(NativeLifecycleAction::Begin(InactivityReason::DisplaySleep))
+        );
+        assert_eq!(
+            decode_native_lifecycle_event(8),
+            Some(NativeLifecycleAction::End(InactivityReason::DisplaySleep))
+        );
+        assert_eq!(
+            decode_native_lifecycle_event(2),
+            Some(NativeLifecycleAction::ResumeAll)
+        );
+        assert_eq!(
+            decode_native_lifecycle_event(6),
+            Some(NativeLifecycleAction::ResumeAll)
+        );
     }
 
     #[test]
