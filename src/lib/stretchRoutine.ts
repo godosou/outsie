@@ -66,6 +66,11 @@ function modulo(value: number, length: number) {
   return ((value % length) + length) % length
 }
 
+export function moveStretchOffset(offset: number, direction: 'previous' | 'next') {
+  const safeOffset = Number.isFinite(offset) ? Math.trunc(offset) : 0
+  return modulo(safeOffset + (direction === 'previous' ? -1 : 1), STRETCH_EXERCISES.length)
+}
+
 export function getStretchStep(remaining: number, duration: number, offset = 0) {
   const safeDuration = Number.isFinite(duration) ? Math.max(0, duration) : 0
   const safeRemaining = Number.isFinite(remaining)

@@ -4,6 +4,7 @@ import {
   STRETCH_EXERCISES,
   STRETCH_STEP_SECONDS,
   getStretchStep,
+  moveStretchOffset,
 } from './stretchRoutine.ts'
 
 test('the routine exposes eight unique and safe office stretches', () => {
@@ -43,4 +44,14 @@ test('routine progress is clamped for late or invalid countdown updates', () => 
   assert.equal(late.breakElapsed, 300)
   assert.equal(late.progress, 0)
   assert.equal(late.stepRemaining, 30)
+})
+
+test('manual navigation changes the shown action without advancing the break', () => {
+  const remaining = 270
+  const previousOffset = moveStretchOffset(0, 'previous')
+  const nextOffset = moveStretchOffset(0, 'next')
+  assert.equal(getStretchStep(remaining, 300, previousOffset).index, 0)
+  assert.equal(getStretchStep(remaining, 300, nextOffset).index, 2)
+  assert.equal(getStretchStep(remaining, 300, previousOffset).breakElapsed, 30)
+  assert.equal(getStretchStep(remaining, 300, nextOffset).breakElapsed, 30)
 })
