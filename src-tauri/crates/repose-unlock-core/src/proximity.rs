@@ -21,6 +21,11 @@ impl ProximityPolicy {
         if sample_window == 0 {
             return Err(ProximityPolicyError::EmptySampleWindow);
         }
+        if sample_window < 3 {
+            return Err(ProximityPolicyError::SampleWindowTooSmall {
+                value: sample_window,
+            });
+        }
         if sample_window.is_multiple_of(2) {
             return Err(ProximityPolicyError::EvenSampleWindow {
                 value: sample_window,
@@ -58,6 +63,7 @@ impl ProximityPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProximityPolicyError {
     EmptySampleWindow,
+    SampleWindowTooSmall { value: usize },
     EvenSampleWindow { value: usize },
     ZeroDwell,
     ZeroMaximumSampleGap,
@@ -67,6 +73,10 @@ impl Display for ProximityPolicyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptySampleWindow => write!(formatter, "sample window must not be empty"),
+            Self::SampleWindowTooSmall { value } => write!(
+                formatter,
+                "sample window {value} must contain at least three samples"
+            ),
             Self::EvenSampleWindow { value } => write!(
                 formatter,
                 "sample window {value} must be odd to produce a strict median majority"

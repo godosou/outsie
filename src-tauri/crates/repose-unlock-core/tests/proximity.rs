@@ -1,7 +1,9 @@
 use repose_unlock_core::{
     calibration::{CalibrationPolicy, calibrate},
     domain::MonoMillis,
-    proximity::{ProximityError, ProximityEvent, ProximityFilter, ProximityPolicy},
+    proximity::{
+        ProximityError, ProximityEvent, ProximityFilter, ProximityPolicy, ProximityPolicyError,
+    },
 };
 
 fn calibrated_profile() -> repose_unlock_core::calibration::CalibrationProfile {
@@ -102,6 +104,14 @@ fn validates_proximity_policy_inputs() {
 #[test]
 fn rejects_even_sample_windows_without_a_strict_median_majority() {
     assert!(ProximityPolicy::new(4, MonoMillis::new(100), MonoMillis::new(50)).is_err());
+}
+
+#[test]
+fn rejects_single_sample_windows_without_robust_aggregation() {
+    assert_eq!(
+        ProximityPolicy::new(1, MonoMillis::new(100), MonoMillis::new(50)),
+        Err(ProximityPolicyError::SampleWindowTooSmall { value: 1 })
+    );
 }
 
 #[test]
