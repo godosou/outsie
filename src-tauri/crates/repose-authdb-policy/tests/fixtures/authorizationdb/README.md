@@ -26,3 +26,8 @@ API promises to retain XML whitespace/comments or binary object-table bytes.
 `to_xml_bytes` is an explicit conversion helper and can reject binary-only UID
 values. The later install tooling must separately define `ai.repose.unlock` as a
 fixed named rule backed by the audited plug-in mechanism.
+
+Parser resource limits are 1 MiB encoded input, 64 collection levels, 16,384
+expanded events, and 256 KiB of cumulative expanded scalar/data/key bytes. The
+last two limits explicitly bound binary plist DAG expansion before a `Value`
+tree is allocated.

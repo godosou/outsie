@@ -54,6 +54,14 @@ pub struct ScreenSaverPolicy {
 impl ScreenSaverPolicy {
     pub const SUPPORTED_RIGHT: &'static str = "system.login.screensaver";
     pub const MAX_INPUT_BYTES: usize = 1024 * 1024;
+    /// Maximum number of events after binary shared objects are expanded.
+    ///
+    /// Real screensaver rules are tiny. This generous bound prevents a compact
+    /// binary plist DAG from causing exponential work or allocations.
+    pub const MAX_EXPANDED_EVENTS: usize = 16 * 1024;
+    /// Maximum cumulative bytes across expanded keys, strings, data, and
+    /// fixed-width scalar values.
+    pub const MAX_EXPANDED_SCALAR_BYTES: usize = 256 * 1024;
     const MAX_NESTING_DEPTH: usize = 64;
 
     pub fn parse(input: &[u8]) -> Result<Self, PolicyError> {
@@ -65,7 +73,12 @@ impl ScreenSaverPolicy {
         }
 
         let (encoding, payload) = detect_encoding(input)?;
-        reject_duplicate_dictionary_keys(payload, Self::MAX_NESTING_DEPTH)?;
+        preflight_event_stream(
+            payload,
+            Self::MAX_NESTING_DEPTH,
+            Self::MAX_EXPANDED_EVENTS,
+            Self::MAX_EXPANDED_SCALAR_BYTES,
+        )?;
         let value = Value::from_reader(Cursor::new(payload)).map_err(malformed)?;
         let root = match value {
             Value::Dictionary(root) => root,
@@ -356,6 +369,12 @@ pub enum PolicyError {
     NestingTooDeep {
         maximum: usize,
     },
+    ExpandedEventLimitExceeded {
+        maximum: usize,
+    },
+    ExpandedByteLimitExceeded {
+        maximum: usize,
+    },
     RootNotDictionary {
         actual: &'static str,
     },
@@ -413,6 +432,14 @@ impl fmt::Display for PolicyError {
             Self::NestingTooDeep { maximum } => {
                 write!(formatter, "policy nesting exceeds {maximum} collections")
             }
+            Self::ExpandedEventLimitExceeded { maximum } => write!(
+                formatter,
+                "expanded policy exceeds the {maximum}-event limit"
+            ),
+            Self::ExpandedByteLimitExceeded { maximum } => write!(
+                formatter,
+                "expanded policy exceeds the {maximum}-byte scalar/data limit"
+            ),
             Self::RootNotDictionary { actual } => {
                 write!(
                     formatter,
@@ -507,12 +534,42 @@ enum CollectionFrame {
     },
 }
 
-fn reject_duplicate_dictionary_keys(input: &[u8], maximum_depth: usize) -> Result<(), PolicyError> {
+fn preflight_event_stream(
+    input: &[u8],
+    maximum_depth: usize,
+    maximum_events: usize,
+    maximum_expanded_bytes: usize,
+) -> Result<(), PolicyError> {
     let mut stack: Vec<CollectionFrame> = Vec::new();
     let mut root_values = 0usize;
+    let mut event_count = 0usize;
+    let mut expanded_bytes = 0usize;
 
     for event in Reader::new(Cursor::new(input)) {
         let event = event.map_err(malformed)?;
+        event_count =
+            event_count
+                .checked_add(1)
+                .ok_or(PolicyError::ExpandedEventLimitExceeded {
+                    maximum: maximum_events,
+                })?;
+        if event_count > maximum_events {
+            return Err(PolicyError::ExpandedEventLimitExceeded {
+                maximum: maximum_events,
+            });
+        }
+
+        expanded_bytes = expanded_bytes
+            .checked_add(event_expanded_bytes(&event))
+            .ok_or(PolicyError::ExpandedByteLimitExceeded {
+                maximum: maximum_expanded_bytes,
+            })?;
+        if expanded_bytes > maximum_expanded_bytes {
+            return Err(PolicyError::ExpandedByteLimitExceeded {
+                maximum: maximum_expanded_bytes,
+            });
+        }
+
         match event {
             Event::StartArray(_) => {
                 ensure_collection_can_start(&stack)?;
@@ -591,6 +648,18 @@ fn reject_duplicate_dictionary_keys(input: &[u8], maximum_depth: usize) -> Resul
         ));
     }
     Ok(())
+}
+
+fn event_expanded_bytes(event: &Event<'_>) -> usize {
+    match event {
+        Event::String(value) => value.len(),
+        Event::Data(value) => value.len(),
+        Event::Boolean(_) => 1,
+        Event::Date(_) | Event::Real(_) | Event::Uid(_) => 8,
+        Event::Integer(_) => 16,
+        Event::StartArray(_) | Event::StartDictionary(_) | Event::EndCollection => 0,
+        _ => 0,
+    }
 }
 
 fn ensure_collection_can_start(stack: &[CollectionFrame]) -> Result<(), PolicyError> {
