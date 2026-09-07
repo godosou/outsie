@@ -1013,16 +1013,21 @@ impl PhoneResponseStore for BarrierPhoneStore {
         expected: Option<&DurablePhoneState>,
         replacement: &DurablePhoneState,
     ) -> Result<bool, PhoneStoreError> {
-        self.candidates
-            .lock()
-            .push(*replacement.response().expect("cached response candidate"));
-        self.cas_barrier.wait();
+        let is_confirmation = expected == Some(replacement);
+        if !is_confirmation {
+            self.candidates
+                .lock()
+                .push(*replacement.response().expect("cached response candidate"));
+            self.cas_barrier.wait();
+        }
         let mut state = self.state.lock();
         if Some(&*state) != expected {
             return Ok(false);
         }
         *state = replacement.clone();
-        self.successful_cas.fetch_add(1, Ordering::SeqCst);
+        if !is_confirmation {
+            self.successful_cas.fetch_add(1, Ordering::SeqCst);
+        }
         Ok(true)
     }
 }
@@ -1172,6 +1177,171 @@ fn cas_loser_rejects_winner_with_wrong_device_or_counter() {
             PhoneResponseError::ConcurrentUpdate
         );
     }
+}
+
+fn valid_response_candidate(
+    vectors: &Vectors,
+    issued: &IssuedChallenge,
+    entropy: Vec<u8>,
+) -> [u8; RESPONSE_FRAME_LEN] {
+    let coordinator = PhoneResponseCoordinator::new(MemoryPhoneResponseStore::new());
+    initialize_pairing(
+        &coordinator,
+        vectors.mac_id(),
+        vectors.device_id(),
+        vectors.generation(),
+    );
+    let mut rng = CountingRandom::new(entropy, Arc::new(AtomicUsize::new(0)));
+    let mut signer = CountingPhoneSigner::new(vectors, Arc::new(AtomicUsize::new(0)));
+    coordinator
+        .respond(
+            verified(vectors, issued, vectors.generation()),
+            &mut rng,
+            &mut signer,
+        )
+        .unwrap()
+}
+
+fn two_valid_cached_candidates(
+    vectors: &Vectors,
+    issued: &IssuedChallenge,
+) -> (DurablePhoneState, DurablePhoneState, Vec<u8>) {
+    let first_response = valid_response_candidate(vectors, issued, response_entropy(vectors));
+    let mut second_entropy = vec![0_u8; 31];
+    second_entropy.push(3);
+    let mut second_nonce = vectors.bytes("phone_nonce");
+    second_nonce[0] ^= 0x66;
+    second_entropy.extend(second_nonce);
+    let second_response = valid_response_candidate(vectors, issued, second_entropy.clone());
+    assert_ne!(first_response, second_response);
+    let fingerprint: [u8; 32] = Sha256::digest(issued.frame()).into();
+    let cached = |response| {
+        DurablePhoneState::try_cached(
+            vectors.mac_id(),
+            vectors.device_id(),
+            vectors.generation(),
+            vectors.binding(),
+            1,
+            fingerprint,
+            42,
+            response,
+        )
+        .unwrap()
+    };
+    (
+        cached(first_response),
+        cached(second_response),
+        second_entropy,
+    )
+}
+
+#[derive(Clone)]
+struct StaleCandidateStore {
+    actual: Arc<Mutex<DurablePhoneState>>,
+    first_load: DurablePhoneState,
+    later_load: DurablePhoneState,
+    loads: Arc<AtomicUsize>,
+    cas_calls: Arc<AtomicUsize>,
+}
+
+impl PhoneResponseStore for StaleCandidateStore {
+    fn load(
+        &self,
+        _mac_id: MacId,
+        _device_id: DeviceId,
+    ) -> Result<Option<DurablePhoneState>, PhoneStoreError> {
+        if self.loads.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(Some(self.first_load.clone()))
+        } else {
+            Ok(Some(self.later_load.clone()))
+        }
+    }
+
+    fn compare_and_swap(
+        &self,
+        mac_id: MacId,
+        device_id: DeviceId,
+        expected: Option<&DurablePhoneState>,
+        replacement: &DurablePhoneState,
+    ) -> Result<bool, PhoneStoreError> {
+        self.cas_calls.fetch_add(1, Ordering::SeqCst);
+        if replacement.mac_id() != mac_id || replacement.device_id() != device_id {
+            return Err(PhoneStoreError::Corrupt);
+        }
+        let mut actual = self.actual.lock();
+        if Some(&*actual) != expected {
+            return Ok(false);
+        }
+        *actual = replacement.clone();
+        Ok(true)
+    }
+}
+
+#[test]
+fn stale_load_cannot_release_an_uncommitted_exact_cache_candidate() {
+    let vectors = Vectors::load();
+    let issued = signed_challenge(&vectors, vectors.binding(), 1, vectors.generation(), 41, 0);
+    let (durable_winner, stale_candidate, _) = two_valid_cached_candidates(&vectors, &issued);
+    let actual = Arc::new(Mutex::new(durable_winner.clone()));
+    let cas_calls = Arc::new(AtomicUsize::new(0));
+    let coordinator = PhoneResponseCoordinator::new(StaleCandidateStore {
+        actual: Arc::clone(&actual),
+        first_load: stale_candidate.clone(),
+        later_load: stale_candidate,
+        loads: Arc::new(AtomicUsize::new(0)),
+        cas_calls: Arc::clone(&cas_calls),
+    });
+    let mut rng = CountingRandom::new(Vec::new(), Arc::new(AtomicUsize::new(0)));
+    let mut signer = CountingPhoneSigner::new(&vectors, Arc::new(AtomicUsize::new(0)));
+
+    assert_eq!(
+        coordinator
+            .respond(
+                verified(&vectors, &issued, vectors.generation()),
+                &mut rng,
+                &mut signer,
+            )
+            .unwrap_err(),
+        PhoneResponseError::ConcurrentUpdate
+    );
+    assert_eq!(cas_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(*actual.lock(), durable_winner);
+}
+
+#[test]
+fn cas_loser_cannot_release_a_stale_valid_candidate_instead_of_durable_winner() {
+    let vectors = Vectors::load();
+    let issued = signed_challenge(&vectors, vectors.binding(), 1, vectors.generation(), 41, 0);
+    let (durable_winner, stale_candidate, stale_entropy) =
+        two_valid_cached_candidates(&vectors, &issued);
+    let actual = Arc::new(Mutex::new(durable_winner.clone()));
+    let cas_calls = Arc::new(AtomicUsize::new(0));
+    let coordinator = PhoneResponseCoordinator::new(StaleCandidateStore {
+        actual: Arc::clone(&actual),
+        first_load: DurablePhoneState::ready(
+            vectors.mac_id(),
+            vectors.device_id(),
+            vectors.generation(),
+        ),
+        later_load: stale_candidate,
+        loads: Arc::new(AtomicUsize::new(0)),
+        cas_calls: Arc::clone(&cas_calls),
+    });
+    let mut rng = CountingRandom::new(stale_entropy, Arc::new(AtomicUsize::new(0)));
+    let mut signer = CountingPhoneSigner::new(&vectors, Arc::new(AtomicUsize::new(0)));
+
+    assert_eq!(
+        coordinator
+            .respond(
+                verified(&vectors, &issued, vectors.generation()),
+                &mut rng,
+                &mut signer,
+            )
+            .unwrap_err(),
+        PhoneResponseError::ConcurrentUpdate
+    );
+    assert_eq!(cas_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(*actual.lock(), durable_winner);
 }
 
 const _: fn([u8; RESPONSE_FRAME_LEN]) = |_| {};

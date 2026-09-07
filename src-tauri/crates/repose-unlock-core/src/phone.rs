@@ -2,8 +2,9 @@
 //!
 //! The successful compare-and-swap is the counter/response linearization point.
 //! A production store must make the exact replacement durable before returning
-//! `true`; the coordinator also performs an exact read-back before releasing a
-//! newly generated response.
+//! `true`. Before releasing any loaded cached response, the coordinator performs
+//! an exact expected-to-same-expected CAS against authoritative durable state;
+//! an ordinary load is never sufficient authorization to return bytes.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -232,6 +233,10 @@ pub trait PhoneResponseStore: Send + Sync {
     ///
     /// `Ok(true)` guarantees that the exact replacement, including cached
     /// response bytes, is durable before this method returns.
+    /// When `expected == replacement`, implementations MUST still atomically
+    /// compare against authoritative durable state in the same linearization
+    /// domain as every other CAS. They MUST NOT short-circuit a no-op CAS to
+    /// `true` from a cache or without observing durable current state.
     fn compare_and_swap(
         &self,
         mac_id: MacId,
@@ -398,7 +403,7 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
                 return Err(PhoneResponseError::PairingRotationRequired);
             }
             Some(DurablePhoneState::Ready(current)) => current.counter,
-            Some(DurablePhoneState::Cached(current)) => {
+            Some(current_state @ DurablePhoneState::Cached(current)) => {
                 if current.challenge_fingerprint == fingerprint {
                     if !current.matches_intent(
                         mac_id,
@@ -414,6 +419,9 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
                         phone_identity_public_key,
                     ) {
                         return Err(PhoneResponseError::CorruptSnapshot);
+                    }
+                    if !self.confirm_current(current_state)? {
+                        return Err(PhoneResponseError::ConcurrentUpdate);
                     }
                     return Ok(current.response);
                 }
@@ -466,6 +474,9 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
             .compare_and_swap(mac_id, device_id, expected.as_ref(), &replacement)
             .map_err(PhoneResponseError::Store)?
         {
+            if !self.confirm_current(&replacement)? {
+                return Err(PhoneResponseError::CommitMismatch);
+            }
             return match self
                 .store
                 .load(mac_id, device_id)
@@ -475,30 +486,43 @@ impl<S: PhoneResponseStore> PhoneResponseCoordinator<S> {
                 _ => Err(PhoneResponseError::CommitMismatch),
             };
         }
-        match self
+        let winner = self
             .store
             .load(mac_id, device_id)
-            .map_err(PhoneResponseError::Store)?
-        {
-            Some(DurablePhoneState::Cached(winner))
-                if winner.matches_intent(
-                    mac_id,
-                    device_id,
-                    generation,
-                    binding,
-                    challenge_id,
-                    &fingerprint,
-                    expected_counter,
-                    &mac_nonce,
-                    mac_ephemeral_public_key,
-                    &challenge_frame,
-                    phone_identity_public_key,
-                ) =>
-            {
-                Ok(winner.response)
-            }
-            _ => Err(PhoneResponseError::ConcurrentUpdate),
+            .map_err(PhoneResponseError::Store)?;
+        let Some(winner_state @ DurablePhoneState::Cached(winner_record)) = winner.as_ref() else {
+            return Err(PhoneResponseError::ConcurrentUpdate);
+        };
+        if !winner_record.matches_intent(
+            mac_id,
+            device_id,
+            generation,
+            binding,
+            challenge_id,
+            &fingerprint,
+            expected_counter,
+            &mac_nonce,
+            mac_ephemeral_public_key,
+            &challenge_frame,
+            phone_identity_public_key,
+        ) {
+            return Err(PhoneResponseError::ConcurrentUpdate);
         }
+        if !self.confirm_current(winner_state)? {
+            return Err(PhoneResponseError::ConcurrentUpdate);
+        }
+        Ok(winner_record.response)
+    }
+
+    fn confirm_current(&self, candidate: &DurablePhoneState) -> Result<bool, PhoneResponseError> {
+        self.store
+            .compare_and_swap(
+                candidate.mac_id(),
+                candidate.device_id(),
+                Some(candidate),
+                candidate,
+            )
+            .map_err(PhoneResponseError::Store)
     }
 
     pub fn rotate_pairing(
