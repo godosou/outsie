@@ -3,6 +3,14 @@
   "identifier": "default",
   "description": "Repose main and local break windows",
   "windows": ["main", "break-*"],
-  "permissions": ["core:default", "core:event:default", "core:window:default"]
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "allow-set-status",
+    "allow-set-preferences",
+    "allow-postpone-break",
+    "allow-notify-user",
+    "allow-open-security-settings"
+  ]
 }
-

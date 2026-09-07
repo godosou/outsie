@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-calibration"
+description = "Enables the begin_calibration command without any pre-configured scope."
+commands.allow = ["begin_calibration"]
+
+[[permission]]
+identifier = "deny-begin-calibration"
+description = "Denies the begin_calibration command without any pre-configured scope."
+commands.deny = ["begin_calibration"]

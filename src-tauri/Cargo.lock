@@ -2723,6 +2723,7 @@ version = "0.2.0"
 dependencies = [
  "cc",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

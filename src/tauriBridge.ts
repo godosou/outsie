@@ -5,6 +5,29 @@ type Command = 'toggle-pause' | 'start-short-break' | 'start-long-break' | 'post
 type Status = { running: boolean; phase: string; remaining: number; breakId: string | null; canPostpone: boolean; postponeSeconds: number }
 type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
 
+export type UnlockInvoker = (command: string, args?: Record<string, unknown>) => Promise<unknown>
+
+export interface UnlockDesktopBridge {
+  unlockStatus: () => Promise<unknown>
+  beginPairing: () => Promise<unknown>
+  confirmPairing: (sessionId: string) => Promise<unknown>
+  beginCalibration: (deviceId: string) => Promise<unknown>
+  revokeDevice: (deviceId: string) => Promise<unknown>
+  openUnlockDiagnostics: () => Promise<unknown>
+}
+
+/** The renderer never receives a generic command or raw byte transport surface. */
+export function createUnlockBridge(call: UnlockInvoker = (command, args) => invoke(command, args)): UnlockDesktopBridge {
+  return {
+    unlockStatus: () => call('unlock_status'),
+    beginPairing: () => call('begin_pairing'),
+    confirmPairing: sessionId => call('confirm_pairing', { value: { sessionId } }),
+    beginCalibration: deviceId => call('begin_calibration', { value: { deviceId } }),
+    revokeDevice: deviceId => call('revoke_device', { value: { deviceId } }),
+    openUnlockDiagnostics: () => call('open_unlock_diagnostics'),
+  }
+}
+
 export async function initializeDesktopBridge() {
   if (!isTauri()) return
 
@@ -23,5 +46,6 @@ export async function initializeDesktopBridge() {
     showBreak() { /* set_status creates the native cover after the phase changes. */ },
     postponeBreak() { return invoke<boolean>('postpone_break') },
     openSecuritySettings() { void invoke('open_security_settings') },
+    unlock: createUnlockBridge(),
   }
 }

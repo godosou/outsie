@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-postpone-break"
+description = "Enables the postpone_break command without any pre-configured scope."
+commands.allow = ["postpone_break"]
+
+[[permission]]
+identifier = "deny-postpone-break"
+description = "Denies the postpone_break command without any pre-configured scope."
+commands.deny = ["postpone_break"]

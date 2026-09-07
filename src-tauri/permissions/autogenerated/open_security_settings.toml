@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-open-security-settings"
+description = "Enables the open_security_settings command without any pre-configured scope."
+commands.allow = ["open_security_settings"]
+
+[[permission]]
+identifier = "deny-open-security-settings"
+description = "Denies the open_security_settings command without any pre-configured scope."
+commands.deny = ["open_security_settings"]

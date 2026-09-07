@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "unlock-main",
+  "description": "Phone-key status and bounded domain actions from the main Repose window",
+  "windows": ["main"],
+  "permissions": [
+    "allow-unlock-status",
+    "allow-begin-pairing",
+    "allow-confirm-pairing",
+    "allow-begin-calibration",
+    "allow-revoke-device",
+    "allow-open-unlock-diagnostics"
+  ]
+}

@@ -177,6 +177,138 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the begin_calibration command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-begin-calibration",
+          "markdownDescription": "Enables the begin_calibration command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the begin_pairing command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-begin-pairing",
+          "markdownDescription": "Enables the begin_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the confirm_pairing command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-confirm-pairing",
+          "markdownDescription": "Enables the confirm_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the notify_user command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-notify-user",
+          "markdownDescription": "Enables the notify_user command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_security_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-security-settings",
+          "markdownDescription": "Enables the open_security_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_unlock_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-unlock-diagnostics",
+          "markdownDescription": "Enables the open_unlock_diagnostics command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the postpone_break command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-postpone-break",
+          "markdownDescription": "Enables the postpone_break command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the revoke_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-revoke-device",
+          "markdownDescription": "Enables the revoke_device command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_preferences command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-preferences",
+          "markdownDescription": "Enables the set_preferences command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-status",
+          "markdownDescription": "Enables the set_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unlock_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlock-status",
+          "markdownDescription": "Enables the unlock_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the begin_calibration command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-begin-calibration",
+          "markdownDescription": "Denies the begin_calibration command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the begin_pairing command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-begin-pairing",
+          "markdownDescription": "Denies the begin_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the confirm_pairing command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-confirm-pairing",
+          "markdownDescription": "Denies the confirm_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the notify_user command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-notify-user",
+          "markdownDescription": "Denies the notify_user command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_security_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-security-settings",
+          "markdownDescription": "Denies the open_security_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_unlock_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-unlock-diagnostics",
+          "markdownDescription": "Denies the open_unlock_diagnostics command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the postpone_break command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-postpone-break",
+          "markdownDescription": "Denies the postpone_break command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the revoke_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-revoke-device",
+          "markdownDescription": "Denies the revoke_device command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_preferences command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-preferences",
+          "markdownDescription": "Denies the set_preferences command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-status",
+          "markdownDescription": "Denies the set_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlock_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlock-status",
+          "markdownDescription": "Denies the unlock_status command without any pre-configured scope."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

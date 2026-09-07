@@ -17,6 +17,12 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
 };
 
+pub mod unlock;
+use unlock::{
+    ProductionUnlockCommandService, begin_calibration, begin_pairing, confirm_pairing,
+    open_unlock_diagnostics, revoke_device, unlock_status,
+};
+
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn repose_set_strict(enabled: bool);
@@ -551,14 +557,22 @@ fn handle_menu(app: &AppHandle, id: &str) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared = Arc::new(SharedState::default());
+    let unlock_service = Arc::new(ProductionUnlockCommandService::closed());
     let app = tauri::Builder::default()
         .manage(shared.clone())
+        .manage(unlock_service)
         .invoke_handler(tauri::generate_handler![
             set_status,
             set_preferences,
             postpone_break,
             notify_user,
-            open_security_settings
+            open_security_settings,
+            unlock_status,
+            begin_pairing,
+            confirm_pairing,
+            begin_calibration,
+            revoke_device,
+            open_unlock_diagnostics
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
         .on_tray_icon_event(|app, event| {
