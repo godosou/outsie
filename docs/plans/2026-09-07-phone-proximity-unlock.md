@@ -23,12 +23,17 @@
 ## Known environment gaps
 
 - Android SDK 35 is installed; API 36 platform/build tools are missing.
-- Flutter is installed at 3.38.9 but no FVM is installed.
-- No Android device is currently visible through ADB.
-- The host has only Command Line Tools SDK 15.2, not full Xcode or an iPhoneOS SDK. Xcode 26 requires a newer supported macOS host.
-- There is no Developer ID signing identity or notarization credential.
+- Flutter cache metadata reports 3.38.9; FVM availability was not reverified.
+- ADB device visibility is not verified because its daemon could not start in the restricted
+  inventory environment.
+- Command Line Tools are selected as the active developer directory. Full Xcode presence and an
+  iPhoneOS SDK were not verified; `xcodebuild` is unavailable with the current selection.
+- `security find-identity` reported no valid code-signing identity; notarization credentials were
+  not verified.
 
-These gaps do not block pure Rust, C ABI, Dart, and fixture work. They do block API 36 compilation until the SDK is installed, all iOS builds until the host/Xcode is upgraded, and all true phone/system-unlock acceptance tests until devices are attached.
+These gaps do not block pure Rust, C ABI, Dart, and fixture work. They do block API 36 compilation
+until the SDK is installed, all iOS builds until a supported Xcode/iPhoneOS SDK is selected, and all
+true phone/system-unlock acceptance tests until a device is independently enumerated and authorized.
 
 ### Task 1: Create the isolated Rust workspace and calibration model
 
@@ -569,7 +574,12 @@ git commit -m "feat: add recoverable unlock component installer"
 
 **Step 1: Prepare, but do not automate, the external safety prerequisites**
 
-Require a dedicated/restoreable Mac, known second-admin credentials, verified remote recovery, FileVault recovery key, captured policy hashes, and an offline signed repair tool.
+Complete every item in `native/macos/tests/real-machine-checklist.md` under **Hard stop before any
+installation** before opening any gate: dedicated hardware identity and exact OS/build; rehearsed
+erase/restore; second-admin local login; tested remote recovery; independently verified FileVault
+recovery; tested backup restore; a recovery channel that survives normal power and network removal;
+the checksum-bound policy backup; and a signed offline repair tool and procedure. No subset of the
+Hard stop section is sufficient.
 
 **Step 2: Install a permanently deny-only build on the test Mac**
 

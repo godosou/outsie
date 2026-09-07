@@ -31,11 +31,13 @@ inventory.
 | Prerequisite | Status | Exact condition required to clear it |
 |---|---|---|
 | Dedicated Mac | **NOT VERIFIED** | Assign a Mac used only for this test and record its unique asset/hardware identifier. |
+| Dedicated-host OS/build | **NOT VERIFIED** | On that assigned Mac, record exact `sw_vers` product version and build, and confirm that combination is in the reviewed validation matrix. |
 | Erase/restore path | **NOT VERIFIED** | Perform and document an erase/restore rehearsal, including measured recovery time. |
 | Second administrator | **NOT VERIFIED** | Demonstrate a distinct administrator can log in locally with a password after lock. |
 | Remote recovery | **NOT VERIFIED** | Demonstrate SSH or Screen Sharing recovery from another machine after lock. |
 | FileVault recovery | **NOT VERIFIED** | Independently verify the recovery key offline without recording the secret in this repository. |
 | Backup restore | **NOT VERIFIED** | Complete a current backup and prove restoration on the dedicated Mac. |
+| Power/network-independent recovery | **NOT VERIFIED** | Demonstrate that removing normal power and network access does not remove the documented recovery channel. |
 | Offline repair media | **NOT AVAILABLE** | Provide a signed offline `repose-unlockctl`, verified uninstall/repair instructions, and their hashes. |
 | Authorization backup | **NOT CAPTURED** | On the qualified test Mac only, capture the screensaver right through the narrow adapter into the checksum-bound backup container before mutation. |
 
@@ -82,8 +84,10 @@ launchd behavior on a real installed generation, or power-loss recovery on a Mac
 
 ## Conditions for reopening Task 8
 
-Task 8 may proceed only after all external safety prerequisites above are satisfied on a dedicated
-Mac and every production-gate prerequisite in the checklist has reviewable evidence. In particular:
+Before any production gate can open, every item in the checklist's **Hard stop before any
+installation** section must be checked with reviewable evidence on the dedicated Mac. Every
+production-gate prerequisite in the next checklist section must also be checked. A subset of either
+section is not sufficient. In particular:
 
 1. Provide a notarized package and pin the Developer ID/designated requirements, complete signed
    manifest, component identities/digests, protocol/package generation, OS/architecture bounds, and
@@ -93,9 +97,10 @@ Mac and every production-gate prerequisite in the checklist has reviewable evide
 3. Complete operation-by-syscall fault injection and authoritative launchctl outcome handling.
 4. Establish a dedicated maintenance window and exclusive privileged-writer coordination. The
    Authorization Services read-to-write window has no compare-and-swap guarantee.
-5. Obtain an explicit human go/no-go review after the recovery prerequisites and the production
-   security gate are both complete.
+5. Obtain an explicit human go/no-go review only after all Hard stop evidence and all production
+   security-gate evidence are complete.
 
-Opening the gate still does not itself count as validation. Every real-machine checklist item must
-then be executed, recorded with exact logs/hashes/timings, and reviewed. Any missing evidence or
-password/keychain regression keeps ordinary installation disabled.
+Opening the gate still does not itself count as validation. The remaining installation, fallback,
+scope, fault, power-loss, repair, and uninstall checklist sections must then be executed and recorded
+with exact logs, hashes, and timings. Any missing evidence or password/keychain regression keeps
+ordinary installation disabled.

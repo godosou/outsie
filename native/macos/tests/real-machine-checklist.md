@@ -10,11 +10,11 @@
 ## Current host observation (not validation evidence)
 
 Read-only inventory was recorded on 2026-09-08. It found macOS 14.6.1 (`23G93`) on an Apple M3
-MacBook Pro (`Mac15,3`), Command Line Tools 16.2 without full Xcode, and zero valid code-signing
-identities. FileVault status/recovery, a second administrator, remote recovery, erase/restore, and a
-tested backup restore are all unverified. Flutter 3.38.9 metadata, Android SDK API 35, ADB 35.0.2,
-and Java 17 are present, but the operator-provided realme GT5 Pro / Android 16 target was not
-independently enumerated or tested.
+MacBook Pro (`Mac15,3`), Command Line Tools 16.2 selected, and zero valid code-signing identities.
+Full Xcode presence was not verified. FileVault status/recovery, a second administrator, remote
+recovery, erase/restore, power/network-independent recovery, and a tested backup restore are all
+unverified. Flutter 3.38.9 metadata, Android SDK API 35, ADB 35.0.2, and Java 17 are present, but the
+operator-provided realme GT5 Pro / Android 16 target was not independently enumerated or tested.
 
 This inventory does not satisfy any checkbox. No Authorization Services operation, installation,
 launchd action, lock-screen interaction, password trial, latency measurement, or recovery action was
