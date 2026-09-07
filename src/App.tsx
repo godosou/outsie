@@ -23,7 +23,7 @@ declare global {
   }
 }
 
-const APP_VERSION = '0.1.1'
+const APP_VERSION = '0.2.0'
 
 const exercises: Exercise[] = [
   { id: 'eyes', category: '放松双眼', title: '目光，去远方散个步', subtitle: '暂时离开屏幕，看看窗外的风景。', duration: '短休息', type: 'short', art: 'eyes', color: 'sage', icon: Eye, steps: ['轻轻闭上眼睛，让眼周放松。', '望向窗外或房间远处，让目光自然停留。', '慢慢眨几次眼，感受眼睛重新湿润。'] },
@@ -163,8 +163,8 @@ export default function App() {
   }, [phase, running, remaining, inBreak, breakId, canPostpone, postponeSeconds])
   useEffect(() => window.repose?.onCommand(command => {
     if (command === 'toggle-pause' && !(strictBreak && inBreak)) timer.toggleRunning()
-    if (command === 'start-short-break') beginBreak('short')
-    if (command === 'start-long-break') beginBreak('long')
+    if (command === 'start-short-break') { setActiveExercise(exercises[0]); timer.startBreak('short') }
+    if (command === 'start-long-break') { setActiveExercise(exercises[1]); timer.startBreak('long') }
     if (command === 'strict-break-finished') timer.completeBreak()
     if (command === 'postpone-break') timer.postponeBreak()
     if (command === 'idle-lock-failed') {
@@ -172,7 +172,7 @@ export default function App() {
       setSecurityError(true)
       showToast('安全锁屏未生效：请在系统设置中授予 Repose 辅助功能权限，再重新开启')
     }
-  }))
+  }), [strictBreak, inBreak, timer.toggleRunning, timer.startBreak, timer.completeBreak, timer.postponeBreak])
   useEffect(() => {
     if (previousPhase.current === phase) return
     if (phase !== 'focus') {

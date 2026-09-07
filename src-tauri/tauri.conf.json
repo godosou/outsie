@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Repose Lite",
+  "version": "0.2.0",
+  "identifier": "ai.repose.lite",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:47832",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Repose · 歇一会",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 960,
+        "minHeight": 720,
+        "backgroundColor": "#F8F9F5",
+        "backgroundThrottling": "disabled"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' customprotocol: asset:; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "category": "Healthcare and Fitness",
+    "shortDescription": "给日常，留一点空白。",
+    "macOS": {
+      "minimumSystemVersion": "14.0"
+    }
+  }
+}
