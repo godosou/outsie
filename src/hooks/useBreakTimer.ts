@@ -8,6 +8,7 @@ import {
   changeTimerSettings,
   completeTimerBreak,
   deriveWeeklyStats,
+  getHourlyStats,
   getTodayStats,
   getPostponeSeconds,
   localDateKey,
@@ -160,6 +161,12 @@ export function useBreakTimer() {
     sampleActiveTime(now)
     commit(previous => resetTimerState(previous, now))
   }, [commit, sampleActiveTime])
+  const getStatsForDate = useCallback((timestamp: number) => getTodayStats(stateRef.current, timestamp), [])
+  const getHourlyStatsForDate = useCallback((timestamp: number) => getHourlyStats(stateRef.current, timestamp), [])
+  const getHistoryForDate = useCallback((timestamp: number) => {
+    const key = localDateKey(timestamp)
+    return stateRef.current.history.filter(entry => localDateKey(entry.completedAt) === key)
+  }, [])
 
   const now = Date.now()
   const today = localDateKey(now)
@@ -177,6 +184,9 @@ export function useBreakTimer() {
     history: state.history.filter((entry) => localDateKey(entry.completedAt) === today),
     completedCycles: state.completedCycles,
     weeklyStats: deriveWeeklyStats(state, now),
+    getStatsForDate,
+    getHourlyStatsForDate,
+    getHistoryForDate,
     toggleRunning,
     startBreak,
     completeBreak,
