@@ -517,7 +517,7 @@ struct WorkerFence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TransitionError {
+pub enum TransitionErrorKind {
     NonMonotonicTime {
         previous: MonoMillis,
         current: MonoMillis,
@@ -530,7 +530,7 @@ pub enum TransitionError {
     ChallengeIdExhausted,
 }
 
-impl Display for TransitionError {
+impl Display for TransitionErrorKind {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::NonMonotonicTime { previous, current } => write!(
@@ -550,6 +550,48 @@ impl Display for TransitionError {
             ),
             Self::ChallengeIdExhausted => write!(formatter, "challenge identifier exhausted"),
         }
+    }
+}
+
+impl Error for TransitionErrorKind {}
+
+/// A failed transition together with the unchanged authoritative reducer state.
+///
+/// The error deliberately is not cloneable: callers recover the unique state token
+/// with [`Self::into_state`] or [`Self::into_parts`] before deciding how to proceed.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TransitionError {
+    kind: TransitionErrorKind,
+    state: Box<UnlockState>,
+}
+
+impl TransitionError {
+    fn new(state: UnlockState, kind: TransitionErrorKind) -> Self {
+        Self {
+            kind,
+            state: Box::new(state),
+        }
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> TransitionErrorKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub fn into_state(self) -> UnlockState {
+        *self.state
+    }
+
+    #[must_use]
+    pub fn into_parts(self) -> (UnlockState, TransitionErrorKind) {
+        (*self.state, self.kind)
+    }
+}
+
+impl Display for TransitionError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        self.kind.fmt(formatter)
     }
 }
 
@@ -583,7 +625,9 @@ pub fn transition(
         _ => {}
     }
 
-    ensure_monotonic(&state, now)?;
+    if let Err(kind) = ensure_monotonic(&state, now) {
+        return Err(TransitionError::new(state, kind));
+    }
 
     let metadata = StateMetadata::from_state(&state);
     if let Some(worker_fence) = metadata.worker_fence {
@@ -596,31 +640,44 @@ pub fn transition(
         ));
     }
     let next = match state.state {
-        StateData::Unlocked => inert(StateData::Unlocked, now, metadata),
-        StateData::LockedUnarmed { binding } => transition_unarmed(binding, event, now, metadata),
+        StateData::Unlocked => Ok(inert(StateData::Unlocked, now, metadata)),
+        StateData::LockedUnarmed { binding } => {
+            Ok(transition_unarmed(binding, event, now, metadata))
+        }
         StateData::LockedArmed {
             binding,
             cooldown_until,
-        } => transition_armed(binding, cooldown_until, event, now, metadata)?,
-        StateData::Challenging { request } => {
-            transition_challenging(request, event, now, metadata)?
-        }
+        } => transition_armed(binding, cooldown_until, event, now, metadata),
+        StateData::Challenging { request } => transition_challenging(request, event, now, metadata),
         StateData::Cancelling {
             request,
             cooldown_until,
-        } => transition_cancelling(request, cooldown_until, event, now, metadata),
-        StateData::PermitReady { permit } => transition_permit_ready(permit, event, now, metadata),
-        StateData::Unlocking { binding } => inert(StateData::Unlocking { binding }, now, metadata),
+        } => Ok(transition_cancelling(
+            request,
+            cooldown_until,
+            event,
+            now,
+            metadata,
+        )),
+        StateData::PermitReady { permit } => {
+            Ok(transition_permit_ready(permit, event, now, metadata))
+        }
+        StateData::Unlocking { binding } => {
+            Ok(inert(StateData::Unlocking { binding }, now, metadata))
+        }
     };
 
-    Ok(next)
+    match next {
+        Ok(success) => Ok(success),
+        Err(kind) => Err(TransitionError::new(state, kind)),
+    }
 }
 
-fn ensure_monotonic(state: &UnlockState, now: MonoMillis) -> Result<(), TransitionError> {
+fn ensure_monotonic(state: &UnlockState, now: MonoMillis) -> Result<(), TransitionErrorKind> {
     if let Some(previous) = state.last_observed_at
         && now < previous
     {
-        return Err(TransitionError::NonMonotonicTime {
+        return Err(TransitionErrorKind::NonMonotonicTime {
             previous,
             current: now,
         });
@@ -682,7 +739,7 @@ fn transition_armed(
     event: Event,
     now: MonoMillis,
     mut metadata: StateMetadata,
-) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
+) -> Result<(UnlockState, Vec<Effect>), TransitionErrorKind> {
     match event {
         Event::NearStable { binding }
             if binding == current && cooldown_elapsed(cooldown_until, now) =>
@@ -690,7 +747,7 @@ fn transition_armed(
             let next_id = metadata
                 .last_challenge_id
                 .checked_add(1)
-                .ok_or(TransitionError::ChallengeIdExhausted)?;
+                .ok_or(TransitionErrorKind::ChallengeIdExhausted)?;
             metadata.last_challenge_id = next_id;
             let challenge_id = ChallengeId::new(next_id);
             let deadline = checked_deadline(
@@ -722,7 +779,7 @@ fn transition_challenging(
     event: Event,
     now: MonoMillis,
     metadata: StateMetadata,
-) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
+) -> Result<(UnlockState, Vec<Effect>), TransitionErrorKind> {
     if now >= request.deadline {
         if matching_challenge_termination(event, request) {
             return finish_challenge_with_cooldown(request, now, metadata);
@@ -817,7 +874,7 @@ fn finish_challenge_with_cooldown(
     request: ChallengeRecord,
     now: MonoMillis,
     metadata: StateMetadata,
-) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
+) -> Result<(UnlockState, Vec<Effect>), TransitionErrorKind> {
     let cooldown_until = checked_deadline(
         now,
         metadata.timing_policy.cooldown_ms,
@@ -924,11 +981,11 @@ fn checked_deadline(
     now: MonoMillis,
     duration_ms: u64,
     operation: TimingOperation,
-) -> Result<MonoMillis, TransitionError> {
+) -> Result<MonoMillis, TransitionErrorKind> {
     now.get()
         .checked_add(duration_ms)
         .map(MonoMillis::new)
-        .ok_or(TransitionError::TimeOverflow {
+        .ok_or(TransitionErrorKind::TimeOverflow {
             operation,
             now,
             duration_ms,
@@ -1377,7 +1434,18 @@ mod tests {
         state.last_challenge_id = u64::MAX;
 
         let error = transition(state, Event::NearStable { binding: current }, time(3)).unwrap_err();
-        assert_eq!(error, TransitionError::ChallengeIdExhausted);
+        assert_eq!(error.kind(), TransitionErrorKind::ChallengeIdExhausted);
+        let recovered = error.into_state();
+        assert_eq!(recovered.phase(), UnlockPhase::LockedArmed);
+        assert_eq!(recovered.binding(), Some(current));
+        assert_eq!(recovered.authoritative_binding, Some(current));
+        assert_eq!(recovered.last_challenge_id, u64::MAX);
+        assert_eq!(recovered.last_observed_at, Some(time(2)));
+
+        let error =
+            transition(recovered, Event::NearStable { binding: current }, time(3)).unwrap_err();
+        assert_eq!(error.kind(), TransitionErrorKind::ChallengeIdExhausted);
+        assert_eq!(error.into_state().last_challenge_id, u64::MAX);
     }
 
     #[test]
@@ -1391,19 +1459,38 @@ mod tests {
         state.last_observed_at = Some(time(u64::MAX - 3));
         let now = time(u64::MAX - 2);
 
+        let error = transition(
+            state,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            now,
+        )
+        .unwrap_err();
         assert_eq!(
-            transition(
-                state,
-                Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
-                now,
-            )
-            .unwrap_err(),
-            TransitionError::TimeOverflow {
+            error.kind(),
+            TransitionErrorKind::TimeOverflow {
                 operation: TimingOperation::PermitExpiry,
                 now,
                 duration_ms: policy().permit_ttl_ms(),
             }
         );
+        let recovered = error.into_state();
+        assert_eq!(recovered.phase(), UnlockPhase::Challenging);
+        assert_eq!(recovered.binding(), Some(current));
+        assert_eq!(recovered.authoritative_binding, Some(current));
+        assert_eq!(recovered.challenge_id(), Some(challenge_id));
+        assert_eq!(recovered.last_challenge_id, challenge_id.get());
+        assert_eq!(recovered.last_observed_at, Some(time(u64::MAX - 3)));
+
+        let (permit_ready, effects) = transition(
+            recovered,
+            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            time(u64::MAX - 3),
+        )
+        .unwrap();
+        assert_eq!(permit_ready.phase(), UnlockPhase::PermitReady);
+        assert_eq!(permit_ready.permit_expires_at(), Some(time(u64::MAX)));
+        assert_eq!(effects.len(), 1);
+        assert!(effects[0].is_create_permit());
     }
 
     #[test]

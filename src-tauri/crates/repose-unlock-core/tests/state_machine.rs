@@ -1,7 +1,7 @@
 use repose_unlock_core::domain::{AuditSessionId, ConsoleUid, LockEpoch, MonoMillis};
 use repose_unlock_core::state_machine::{
     Effect, Event, SessionBinding, TimingField, TimingOperation, TimingPolicy, TimingPolicyError,
-    TransitionError, UnlockPhase, UnlockState, transition,
+    TransitionErrorKind, UnlockPhase, UnlockState, transition,
 };
 
 fn time(value: u64) -> MonoMillis {
@@ -305,22 +305,103 @@ fn restart_when_session_is_not_locked_returns_to_unlocked() {
 }
 
 #[test]
-fn non_monotonic_now_is_rejected_for_non_authoritative_events() {
-    let current = binding(7, 41, 501);
-    let (state, _) = transition(
-        UnlockState::unlocked(policy()),
-        Event::SessionLocked { binding: current },
+fn transition_error_returns_the_fenced_authoritative_state_to_the_caller() {
+    let current = binding(8, 41, 501);
+    let replacement = binding(9, 42, 502);
+    let active = challenging(current);
+    let first_id = active.challenge_id().unwrap();
+    let (fenced, effects) = transition(
+        active,
+        Event::ServiceRestarted {
+            locked_binding: Some(replacement),
+        },
         time(10),
     )
     .unwrap();
-    let error = transition(state, Event::FarStable { binding: current }, time(9)).unwrap_err();
+    assert_eq!(fenced.phase(), UnlockPhase::LockedUnarmed);
+    assert_eq!(effects, abort_and_clear());
+
+    let error = transition(
+        fenced,
+        Event::FarStable {
+            binding: replacement,
+        },
+        time(9),
+    )
+    .unwrap_err();
     assert_eq!(
-        error,
-        TransitionError::NonMonotonicTime {
+        error.kind(),
+        TransitionErrorKind::NonMonotonicTime {
             previous: time(10),
             current: time(9),
         }
     );
+    let (recovered, kind) = error.into_parts();
+    assert_eq!(
+        kind,
+        TransitionErrorKind::NonMonotonicTime {
+            previous: time(10),
+            current: time(9),
+        }
+    );
+    assert_eq!(recovered.phase(), UnlockPhase::LockedUnarmed);
+    assert_eq!(recovered.binding(), Some(replacement));
+    assert_eq!(recovered.authoritative_binding(), Some(replacement));
+    assert_eq!(
+        recovered.highest_lock_epoch(),
+        Some(replacement.lock_epoch())
+    );
+    assert_eq!(recovered.last_observed_at(), Some(time(10)));
+
+    let (still_fenced, effects) = transition(
+        recovered,
+        Event::FarStable {
+            binding: replacement,
+        },
+        time(11),
+    )
+    .unwrap();
+    assert!(effects.is_empty());
+    let (still_fenced, effects) = transition(
+        still_fenced,
+        Event::NearStable {
+            binding: replacement,
+        },
+        time(12),
+    )
+    .unwrap();
+    assert!(!effects.iter().any(Effect::is_start_challenge));
+
+    let (retired, effects) = transition(
+        still_fenced,
+        Event::ChallengeTerminated {
+            binding: current,
+            challenge_id: first_id,
+        },
+        time(13),
+    )
+    .unwrap();
+    assert!(effects.is_empty());
+    let (armed, _) = transition(
+        retired,
+        Event::FarStable {
+            binding: replacement,
+        },
+        time(14),
+    )
+    .unwrap();
+    let (next, effects) = transition(
+        armed,
+        Event::NearStable {
+            binding: replacement,
+        },
+        time(15),
+    )
+    .unwrap();
+    assert_eq!(next.phase(), UnlockPhase::Challenging);
+    assert_eq!(next.challenge_id().unwrap().get(), first_id.get() + 1);
+    assert_eq!(effects.len(), 1);
+    assert!(effects[0].is_start_challenge());
 }
 
 #[test]
@@ -592,54 +673,147 @@ fn natural_timeout_cannot_wedge_or_start_again_before_termination_and_cooldown()
 }
 
 #[test]
-fn challenge_and_cooldown_deadline_arithmetic_is_checked() {
+fn challenge_deadline_overflow_returns_armed_state_without_advancing_the_counter() {
     let current = binding(7, 41, 501);
     let near_overflow_now = u64::MAX - 10;
     let (locked, _) = transition(
         UnlockState::unlocked(policy()),
         Event::SessionLocked { binding: current },
-        time(near_overflow_now - 2),
+        time(1),
     )
     .unwrap();
-    let (armed, _) = transition(
-        locked,
-        Event::FarStable { binding: current },
-        time(near_overflow_now - 1),
+    let (armed, _) = transition(locked, Event::FarStable { binding: current }, time(2)).unwrap();
+    let error = transition(
+        armed,
+        Event::NearStable { binding: current },
+        time(near_overflow_now),
     )
-    .unwrap();
+    .unwrap_err();
     assert_eq!(
-        transition(
-            armed,
-            Event::NearStable { binding: current },
-            time(near_overflow_now),
-        )
-        .unwrap_err(),
-        TransitionError::TimeOverflow {
+        error.kind(),
+        TransitionErrorKind::TimeOverflow {
             operation: TimingOperation::ChallengeDeadline,
             now: time(near_overflow_now),
             duration_ms: policy().challenge_ttl_ms(),
         }
     );
+    let recovered = error.into_state();
+    assert_eq!(recovered.phase(), UnlockPhase::LockedArmed);
+    assert_eq!(recovered.binding(), Some(current));
+    assert_eq!(recovered.authoritative_binding(), Some(current));
+    assert_eq!(recovered.last_observed_at(), Some(time(2)));
 
-    let state = challenging(current);
-    let challenge_id = state.challenge_id().unwrap();
+    let (challenging, effects) =
+        transition(recovered, Event::NearStable { binding: current }, time(3)).unwrap();
+    assert_eq!(challenging.challenge_id().unwrap().get(), 1);
+    assert_eq!(effects.len(), 1);
+    assert!(effects[0].is_start_challenge());
+}
+
+#[test]
+fn cooldown_overflow_returns_the_original_challenge_and_blocks_a_second_worker() {
+    let current = binding(7, 41, 501);
     let cooldown_now = u64::MAX - 2;
-    assert_eq!(
-        transition(
-            state,
-            Event::ChallengeFailed {
+
+    for termination_kind in 0..3 {
+        let state = challenging(current);
+        let challenge_id = state.challenge_id().unwrap();
+        let event = match termination_kind {
+            0 => Event::ChallengeFailed {
                 binding: current,
                 challenge_id,
             },
-            time(cooldown_now),
+            1 => Event::ChallengeTimedOut {
+                binding: current,
+                challenge_id,
+            },
+            _ => Event::ChallengeTerminated {
+                binding: current,
+                challenge_id,
+            },
+        };
+        let error = transition(state, event, time(cooldown_now)).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            TransitionErrorKind::TimeOverflow {
+                operation: TimingOperation::CooldownDeadline,
+                now: time(cooldown_now),
+                duration_ms: policy().cooldown_ms(),
+            }
+        );
+        let recovered = error.into_state();
+        assert_eq!(recovered.phase(), UnlockPhase::Challenging);
+        assert_eq!(recovered.challenge_id(), Some(challenge_id));
+        assert_eq!(recovered.authoritative_binding(), Some(current));
+        assert_eq!(recovered.last_observed_at(), Some(time(3)));
+
+        let (still_challenging, effects) =
+            transition(recovered, Event::NearStable { binding: current }, time(4)).unwrap();
+        assert_eq!(still_challenging.phase(), UnlockPhase::Challenging);
+        assert_eq!(still_challenging.challenge_id(), Some(challenge_id));
+        assert!(!effects.iter().any(Effect::is_start_challenge));
+
+        let (retired, effects) = transition(
+            still_challenging,
+            Event::ChallengeTerminated {
+                binding: current,
+                challenge_id,
+            },
+            time(5),
         )
-        .unwrap_err(),
-        TransitionError::TimeOverflow {
+        .unwrap();
+        assert_eq!(retired.phase(), UnlockPhase::LockedArmed);
+        assert_eq!(retired.binding(), Some(current));
+        assert_eq!(retired.cooldown_until(), Some(time(11)));
+        assert!(effects.is_empty());
+    }
+
+    let state = challenging(current);
+    let challenge_id = state.challenge_id().unwrap();
+    let error = transition(state, Event::Tick, time(cooldown_now)).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        TransitionErrorKind::TimeOverflow {
             operation: TimingOperation::CooldownDeadline,
             now: time(cooldown_now),
             duration_ms: policy().cooldown_ms(),
         }
     );
+    let recovered = error.into_state();
+    assert_eq!(recovered.phase(), UnlockPhase::Challenging);
+    assert_eq!(recovered.challenge_id(), Some(challenge_id));
+    assert_eq!(recovered.last_observed_at(), Some(time(3)));
+    let (still_challenging, effects) = transition(recovered, Event::Tick, time(4)).unwrap();
+    assert_eq!(still_challenging.phase(), UnlockPhase::Challenging);
+    assert!(effects.is_empty());
+}
+
+#[test]
+fn authoritative_resets_remain_infallible_after_a_transition_error() {
+    let current = binding(7, 41, 501);
+    let state = challenging(current);
+    let challenge_id = state.challenge_id().unwrap();
+    let error = transition(
+        state,
+        Event::ChallengeFailed {
+            binding: current,
+            challenge_id,
+        },
+        time(u64::MAX - 2),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error.kind(),
+        TransitionErrorKind::TimeOverflow {
+            operation: TimingOperation::CooldownDeadline,
+            ..
+        }
+    ));
+
+    let (reset, effects) = transition(error.into_state(), Event::SessionUnlocked, time(1)).unwrap();
+    assert_eq!(reset.phase(), UnlockPhase::Unlocked);
+    assert_eq!(reset.last_observed_at(), Some(time(1)));
+    assert_eq!(effects, abort_and_clear());
 }
 
 #[test]
