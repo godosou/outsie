@@ -1,8 +1,14 @@
+mod common;
+
 use repose_unlock_core::domain::{AuditSessionId, ConsoleUid, LockEpoch, MonoMillis};
+use repose_unlock_core::permit::{ConsumeError, PermitStore};
+use repose_unlock_core::replay::{DurableReplayGuard, MemoryCounterStore, ReplayPolicy};
 use repose_unlock_core::state_machine::{
     Effect, Event, SessionBinding, TimingField, TimingOperation, TimingPolicy, TimingPolicyError,
     TransitionErrorKind, UnlockPhase, UnlockState, transition,
 };
+
+use common::authenticated;
 
 fn time(value: u64) -> MonoMillis {
     MonoMillis::new(value)
@@ -83,6 +89,46 @@ fn naturally_timed_out_and_retired(binding: SessionBinding) -> UnlockState {
     )
     .unwrap()
     .0
+}
+
+#[test]
+fn only_a_real_one_shot_consumed_permit_can_enter_unlocking_even_after_clock_rollback() {
+    let (challenging, response, vectors) = authenticated();
+    let guard = DurableReplayGuard::new(MemoryCounterStore::new(), ReplayPolicy::default());
+    let committed = guard.commit(response).unwrap();
+    let proof = guard.finalize(committed).unwrap();
+    let (permit_ready, effects) =
+        transition(challenging, Event::ChallengeVerified(proof), time(2_000)).unwrap();
+    let [effect]: [Effect; 1] = effects.try_into().unwrap();
+    let Effect::CreatePermit(permit) = effect else {
+        panic!("expected permit")
+    };
+    let permits = PermitStore::new();
+    permits.install(permit, time(2_000)).unwrap();
+    let consumed = permits
+        .consume(
+            &guard,
+            vectors.binding(),
+            Some(vectors.binding()),
+            time(2_001),
+        )
+        .unwrap();
+    assert_eq!(
+        permits
+            .consume(
+                &guard,
+                vectors.binding(),
+                Some(vectors.binding()),
+                time(2_002),
+            )
+            .unwrap_err(),
+        ConsumeError::Empty
+    );
+
+    let (unlocking, effects) =
+        transition(permit_ready, Event::PermitConsumed(consumed), time(1_999)).unwrap();
+    assert_eq!(unlocking.phase(), UnlockPhase::Unlocking);
+    assert!(effects.is_empty());
 }
 
 #[test]

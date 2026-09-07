@@ -4,7 +4,8 @@ use std::fmt::{self, Debug, Display, Formatter};
 use parking_lot::Mutex;
 
 use crate::domain::MonoMillis;
-use crate::state_machine::{ChallengeId, Permit, SessionBinding};
+use crate::replay::{CounterStore, DurableReplayGuard, GenerationAuthorityError};
+use crate::state_machine::{ChallengeId, Permit, ReplayProvenance, SessionBinding};
 
 pub struct PermitStore {
     inner: Mutex<Inner>,
@@ -64,10 +65,11 @@ impl PermitStore {
         Ok(handle)
     }
 
-    pub fn consume(
+    pub fn consume<S: CounterStore>(
         &self,
+        authority: &DurableReplayGuard<S>,
         request_binding: SessionBinding,
-        authoritative_binding: SessionBinding,
+        authoritative_binding: Option<SessionBinding>,
         now: MonoMillis,
     ) -> Result<ConsumedPermit, ConsumeError> {
         let mut inner = self.inner.lock();
@@ -88,27 +90,35 @@ impl PermitStore {
             inner.permit = None;
             return Err(ConsumeError::Expired);
         }
-        if authoritative_binding != stored.permit.binding() {
+        if authoritative_binding != Some(stored.permit.binding()) {
             inner.permit = None;
             return Err(ConsumeError::AuthoritativeSessionMismatch);
+        }
+        if let Err(error) = authority.validate_permit_authority(&stored.permit) {
+            inner.permit = None;
+            return Err(ConsumeError::Authority(error));
         }
         if request_binding != stored.permit.binding() {
             return Err(ConsumeError::RequestBindingMismatch);
         }
         let stored = inner.permit.take().expect("permit consumed under lock");
-        Ok(ConsumedPermit(stored.permit))
+        Ok(ConsumedPermit::new(stored.permit))
     }
 
     pub fn expire_if(
         &self,
         handle: PermitHandle,
-        authoritative_binding: SessionBinding,
+        authoritative_binding: Option<SessionBinding>,
         now: MonoMillis,
     ) -> Result<ExpireOutcome, ConsumeError> {
         let mut inner = self.inner.lock();
         let Some(stored) = inner.permit.as_ref() else {
             return Ok(ExpireOutcome::Empty);
         };
+        if authoritative_binding != Some(stored.permit.binding()) {
+            inner.permit = None;
+            return Ok(ExpireOutcome::AuthoritativeSessionMismatch);
+        }
         if stored.handle != handle {
             return Ok(ExpireOutcome::StaleHandle);
         }
@@ -122,10 +132,6 @@ impl PermitStore {
         }
         inner.last_observed_at = Some(now);
         let stored = inner.permit.as_ref().expect("matching permit remains");
-        if authoritative_binding != stored.permit.binding() {
-            inner.permit = None;
-            return Ok(ExpireOutcome::AuthoritativeSessionMismatch);
-        }
         if now >= stored.permit.expires_at() {
             inner.permit = None;
             return Ok(ExpireOutcome::Expired);
@@ -174,6 +180,13 @@ pub struct PermitHandle(u64);
 
 /// The linear result of atomically consuming a permit.
 ///
+/// Its tuple constructor is private, so external callers cannot forge it:
+///
+/// ```compile_fail
+/// use repose_unlock_core::permit::ConsumedPermit;
+/// let _ = ConsumedPermit;
+/// ```
+///
 /// ```compile_fail
 /// use repose_unlock_core::permit::ConsumedPermit;
 /// fn assert_clone<T: Clone>() {}
@@ -185,9 +198,14 @@ pub struct PermitHandle(u64);
 /// fn assert_copy<T: Copy>() {}
 /// assert_copy::<ConsumedPermit>();
 /// ```
+#[derive(PartialEq, Eq)]
 pub struct ConsumedPermit(Permit);
 
 impl ConsumedPermit {
+    pub(crate) const fn new(permit: Permit) -> Self {
+        Self(permit)
+    }
+
     #[must_use]
     pub const fn binding(&self) -> SessionBinding {
         self.0.binding()
@@ -196,6 +214,10 @@ impl ConsumedPermit {
     #[must_use]
     pub const fn challenge_id(&self) -> ChallengeId {
         self.0.challenge_id()
+    }
+
+    pub(crate) const fn provenance(&self) -> ReplayProvenance {
+        self.0.provenance()
     }
 }
 
@@ -227,6 +249,7 @@ pub enum ConsumeError {
     Expired,
     AuthoritativeSessionMismatch,
     RequestBindingMismatch,
+    Authority(GenerationAuthorityError),
 }
 
 impl Display for ConsumeError {

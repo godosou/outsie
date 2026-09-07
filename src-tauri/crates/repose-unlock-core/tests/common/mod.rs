@@ -6,11 +6,12 @@ use std::path::PathBuf;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey};
 use repose_unlock_core::domain::{AuditSessionId, ConsoleUid, LockEpoch, MonoMillis};
+use repose_unlock_core::phone::{MemoryPhoneResponseStore, PhoneResponseCoordinator};
 use repose_unlock_core::protocol::crypto::{
     AuthenticatedResponse, CryptoRandom, IdentitySigningError, IssueParameters, IssuedChallenge,
     MacChallengeSigner, MacChallengeSigningRequest, PairedDevice, PairedMac, PhoneResponseSigner,
-    PhoneResponseSigningRequest, RandomError, VerificationContext, build_phone_response,
-    issue_challenge, verify_mac_challenge, verify_response,
+    PhoneResponseSigningRequest, RandomError, VerificationContext, issue_challenge,
+    verify_mac_challenge, verify_response,
 };
 use repose_unlock_core::protocol::messages::{DeviceId, MacId, PairingGeneration, PublicKeyBytes};
 use repose_unlock_core::protocol::wire::{RESPONSE_FRAME_LEN, RESPONSE_SIGNATURE_OFFSET};
@@ -220,12 +221,44 @@ pub fn authenticated() -> (UnlockState, AuthenticatedResponse, Vectors) {
 }
 
 pub fn authenticated_with_counter(counter: u64) -> (UnlockState, AuthenticatedResponse, Vectors) {
-    let (state, issued, vectors) = issued();
+    assert!(counter > 0);
+    let (state, issued, vectors) = if counter == 42 {
+        issued()
+    } else {
+        issued_with_generation_and_floor(PairingGeneration::new(7), counter - 1)
+    };
     let response = response_for_counter(&issued, &vectors, counter, counter as u8);
     let context = VerificationContext::new(vectors.binding(), vectors.pairing());
     let authenticated = verify_response(&issued, &response, &context, ms(5_999))
         .expect("fixture response authenticates");
     (state, authenticated, vectors)
+}
+
+fn issued_with_generation_and_floor(
+    generation: PairingGeneration,
+    counter_floor: u64,
+) -> (UnlockState, IssuedChallenge, Vectors) {
+    let vectors = Vectors::load();
+    let (state, request) = challenge_request(&vectors);
+    let mut entropy = vectors.bytes("mac_ephemeral_private_key_test_only");
+    entropy.extend(vectors.bytes("mac_nonce"));
+    let mut rng = FixedRandom::new(entropy);
+    let mut signer = TestMacSigner::from_vectors(&vectors);
+    let issued = issue_challenge(
+        request,
+        IssueParameters::new(
+            vectors.mac_id(),
+            vectors.device_id(),
+            generation,
+            counter_floor,
+            ms(vectors.u64("issued_at_ms")),
+            PublicKeyBytes::try_new(vectors.array("mac_signing_public_key")).unwrap(),
+        ),
+        &mut rng,
+        &mut signer,
+    )
+    .unwrap();
+    (state, issued, vectors)
 }
 
 pub fn authenticated_with_generation(
@@ -279,7 +312,7 @@ pub fn response_for_counter_and_generation(
     nonce_tweak: u8,
     generation: PairingGeneration,
 ) -> [u8; RESPONSE_FRAME_LEN] {
-    if counter <= vectors.u64("counter_floor") {
+    if counter <= issued.message().counter_floor() {
         let mut structurally_stale: [u8; RESPONSE_FRAME_LEN] =
             vectors.bytes("response_frame").try_into().unwrap();
         structurally_stale[44..52].copy_from_slice(&generation.get().to_be_bytes());
@@ -300,13 +333,13 @@ pub fn response_for_counter_and_generation(
     entropy.extend(phone_nonce);
     let mut rng = FixedRandom::new(entropy);
     let mut signer = TestPhoneSigner::from_vectors(vectors);
-    build_phone_response(
-        authenticated_challenge,
-        counter.checked_sub(1).unwrap(),
-        &mut rng,
-        &mut signer,
-    )
-    .unwrap()
+    let coordinator = PhoneResponseCoordinator::new(MemoryPhoneResponseStore::new());
+    coordinator
+        .rotate_pairing(vectors.mac_id(), vectors.device_id(), generation)
+        .unwrap();
+    coordinator
+        .respond(authenticated_challenge, &mut rng, &mut signer)
+        .unwrap()
 }
 
 pub fn resign_frame(
@@ -326,7 +359,10 @@ pub fn resign_frame(
     frame[RESPONSE_SIGNATURE_OFFSET..].copy_from_slice(signature.to_bytes().as_slice());
 }
 
-pub fn permit_at(reducer_now: u64) -> Permit {
+pub type TestReplayGuard =
+    repose_unlock_core::replay::DurableReplayGuard<repose_unlock_core::replay::MemoryCounterStore>;
+
+pub fn permit_at(reducer_now: u64) -> (Permit, TestReplayGuard) {
     use repose_unlock_core::replay::{DurableReplayGuard, MemoryCounterStore, ReplayPolicy};
 
     let (state, authenticated, _) = authenticated();
@@ -338,7 +374,7 @@ pub fn permit_at(reducer_now: u64) -> Permit {
     let Effect::CreatePermit(permit) = effect else {
         panic!("expected create permit effect");
     };
-    permit
+    (permit, guard)
 }
 
 fn decode_hex(value: &str) -> Vec<u8> {

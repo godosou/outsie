@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use crate::domain::{AuditSessionId, ConsoleUid, LockEpoch, MonoMillis};
+use crate::permit::ConsumedPermit;
+use crate::protocol::messages::{DeviceId, MacId, PairingGeneration};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionBinding {
@@ -248,16 +250,45 @@ impl ChallengeRecord {
 pub struct ChallengeVerified {
     binding: SessionBinding,
     challenge_id: ChallengeId,
+    provenance: ReplayProvenance,
 }
 
 impl ChallengeVerified {
-    #[allow(dead_code)]
-    pub(crate) const fn new(binding: SessionBinding, challenge_id: ChallengeId) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        binding: SessionBinding,
+        challenge_id: ChallengeId,
+        mac_id: MacId,
+        device_id: DeviceId,
+        pairing_generation: PairingGeneration,
+        counter: u64,
+        guard_instance_id: u64,
+    ) -> Self {
         Self {
             binding,
             challenge_id,
+            provenance: ReplayProvenance {
+                mac_id,
+                device_id,
+                pairing_generation,
+                binding,
+                challenge_id,
+                counter,
+                guard_instance_id,
+            },
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReplayProvenance {
+    pub(crate) mac_id: MacId,
+    pub(crate) device_id: DeviceId,
+    pub(crate) pairing_generation: PairingGeneration,
+    pub(crate) binding: SessionBinding,
+    pub(crate) challenge_id: ChallengeId,
+    pub(crate) counter: u64,
+    pub(crate) guard_instance_id: u64,
 }
 
 /// A linear one-shot command authorizing installation in the permit store.
@@ -280,6 +311,7 @@ pub struct Permit {
     binding: SessionBinding,
     challenge_id: ChallengeId,
     expires_at: MonoMillis,
+    provenance: ReplayProvenance,
 }
 
 impl Permit {
@@ -297,6 +329,10 @@ impl Permit {
     pub const fn expires_at(&self) -> MonoMillis {
         self.expires_at
     }
+
+    pub(crate) const fn provenance(&self) -> ReplayProvenance {
+        self.provenance
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,6 +340,7 @@ struct PermitRecord {
     binding: SessionBinding,
     challenge_id: ChallengeId,
     expires_at: MonoMillis,
+    provenance: ReplayProvenance,
 }
 
 impl PermitRecord {
@@ -312,6 +349,7 @@ impl PermitRecord {
             binding: self.binding,
             challenge_id: self.challenge_id,
             expires_at: self.expires_at,
+            provenance: self.provenance,
         }
     }
 }
@@ -386,10 +424,18 @@ pub enum Event {
         binding: SessionBinding,
         challenge_id: ChallengeId,
     },
-    PermitConsumed {
-        binding: SessionBinding,
-        challenge_id: ChallengeId,
-    },
+    /// A permit-consumption event can only be created by the atomic permit store.
+    ///
+    /// ```compile_fail
+    /// use repose_unlock_core::state_machine::{Event, SessionBinding};
+    /// # fn cannot_forge(binding: SessionBinding) {
+    /// let _ = Event::PermitConsumed {
+    ///     binding,
+    ///     challenge_id: unreachable!(),
+    /// };
+    /// # }
+    /// ```
+    PermitConsumed(ConsumedPermit),
     PermitExpired {
         binding: SessionBinding,
         challenge_id: ChallengeId,
@@ -656,7 +702,7 @@ pub enum TimingOperation {
 pub fn transition(
     state: UnlockState,
     event: Event,
-    now: MonoMillis,
+    mut now: MonoMillis,
 ) -> Result<(UnlockState, Vec<Effect>), TransitionError> {
     match event {
         Event::SessionLocked { binding } => {
@@ -674,7 +720,11 @@ pub fn transition(
         _ => {}
     }
 
-    if let Err(kind) = ensure_monotonic(&state, now) {
+    if matches!(&event, Event::PermitConsumed(_)) {
+        if let Some(previous) = state.last_observed_at {
+            now = now.max(previous);
+        }
+    } else if let Err(kind) = ensure_monotonic(&state, now) {
         return Err(TransitionError::new(state, kind));
     }
 
@@ -862,6 +912,7 @@ fn transition_challenging(
                 binding: request.binding,
                 challenge_id: request.challenge_id,
                 expires_at,
+                provenance: proof.provenance,
             };
             Ok(with_effect(
                 StateData::PermitReady { permit },
@@ -996,16 +1047,19 @@ fn transition_permit_ready(
     }
 
     match event {
-        Event::PermitConsumed {
-            binding,
-            challenge_id,
-        } if binding == permit.binding && challenge_id == permit.challenge_id => state(
-            StateData::Unlocking {
-                binding: permit.binding,
-            },
-            now,
-            metadata,
-        ),
+        Event::PermitConsumed(consumed)
+            if consumed.binding() == permit.binding
+                && consumed.challenge_id() == permit.challenge_id
+                && consumed.provenance() == permit.provenance =>
+        {
+            state(
+                StateData::Unlocking {
+                    binding: permit.binding,
+                },
+                now,
+                metadata,
+            )
+        }
         Event::PermitExpired {
             binding,
             challenge_id,
@@ -1197,6 +1251,26 @@ mod tests {
         TimingPolicy::new(20, 3, 6).unwrap()
     }
 
+    fn verified(binding: SessionBinding, challenge_id: ChallengeId) -> ChallengeVerified {
+        verified_for_device(binding, challenge_id, DeviceId::new([2; 16]))
+    }
+
+    fn verified_for_device(
+        binding: SessionBinding,
+        challenge_id: ChallengeId,
+        device_id: DeviceId,
+    ) -> ChallengeVerified {
+        ChallengeVerified::new(
+            binding,
+            challenge_id,
+            MacId::new([1; 16]),
+            device_id,
+            PairingGeneration::new(1),
+            1,
+            1,
+        )
+    }
+
     fn challenging(current: SessionBinding) -> UnlockState {
         let (locked, _) = transition(
             UnlockState::unlocked(policy()),
@@ -1216,11 +1290,18 @@ mod tests {
         let challenge_id = state.challenge_id().unwrap();
         transition(
             state,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             time(4),
         )
         .unwrap()
         .0
+    }
+
+    fn consumed_permit(state: &UnlockState) -> ConsumedPermit {
+        let StateData::PermitReady { permit } = &state.state else {
+            panic!("expected permit-ready state")
+        };
+        ConsumedPermit::new(permit.command())
     }
 
     #[test]
@@ -1231,7 +1312,7 @@ mod tests {
 
         let (next, effects) = transition(
             state,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             time(4),
         )
         .unwrap();
@@ -1262,7 +1343,7 @@ mod tests {
             let challenge_id = state.challenge_id().unwrap();
             let (next, effects) = transition(
                 state,
-                Event::ChallengeVerified(ChallengeVerified::new(stale, challenge_id)),
+                Event::ChallengeVerified(verified(stale, challenge_id)),
                 time(4),
             )
             .unwrap();
@@ -1277,7 +1358,7 @@ mod tests {
 
         let (next, effects) = transition(
             challenging(current),
-            Event::ChallengeVerified(ChallengeVerified::new(current, ChallengeId::new(2))),
+            Event::ChallengeVerified(verified(current, ChallengeId::new(2))),
             time(4),
         )
         .unwrap();
@@ -1295,7 +1376,7 @@ mod tests {
             let challenge_id = state.challenge_id().unwrap();
             let (next, effects) = transition(
                 state,
-                Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+                Event::ChallengeVerified(verified(current, challenge_id)),
                 time(now),
             )
             .unwrap();
@@ -1309,19 +1390,36 @@ mod tests {
     fn consuming_a_live_permit_enters_unlocking() {
         let current = binding(7, 41, 501);
         let state = permit_ready(current);
-        let challenge_id = state.challenge_id().unwrap();
+        let consumed = consumed_permit(&state);
 
-        let (next, effects) = transition(
-            state,
-            Event::PermitConsumed {
-                binding: current,
-                challenge_id,
-            },
-            time(5),
-        )
-        .unwrap();
+        let (next, effects) = transition(state, Event::PermitConsumed(consumed), time(5)).unwrap();
 
         assert_eq!(next.phase(), UnlockPhase::Unlocking);
+        assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn consumed_permit_from_another_protocol_provenance_cannot_unlock() {
+        let current = binding(7, 41, 501);
+        let state = permit_ready(current);
+        let foreign_challenge = challenging(current);
+        let challenge_id = foreign_challenge.challenge_id().unwrap();
+        let foreign_state = transition(
+            foreign_challenge,
+            Event::ChallengeVerified(verified_for_device(
+                current,
+                challenge_id,
+                DeviceId::new([9; 16]),
+            )),
+            time(4),
+        )
+        .unwrap()
+        .0;
+        let consumed = consumed_permit(&foreign_state);
+
+        let (next, effects) = transition(state, Event::PermitConsumed(consumed), time(5)).unwrap();
+
+        assert_eq!(next.phase(), UnlockPhase::PermitReady);
         assert!(effects.is_empty());
     }
 
@@ -1349,17 +1447,9 @@ mod tests {
     fn permit_consumption_at_expiry_fails_closed() {
         let current = binding(7, 41, 501);
         let state = permit_ready(current);
-        let challenge_id = state.challenge_id().unwrap();
+        let consumed = consumed_permit(&state);
 
-        let (next, effects) = transition(
-            state,
-            Event::PermitConsumed {
-                binding: current,
-                challenge_id,
-            },
-            time(7),
-        )
-        .unwrap();
+        let (next, effects) = transition(state, Event::PermitConsumed(consumed), time(7)).unwrap();
 
         assert_eq!(next.phase(), UnlockPhase::LockedArmed);
         assert_eq!(effects, vec![Effect::ClearPermit]);
@@ -1435,7 +1525,7 @@ mod tests {
 
         let (next, effects) = transition(
             reset,
-            Event::ChallengeVerified(ChallengeVerified::new(stale, ChallengeId::new(1))),
+            Event::ChallengeVerified(verified(stale, ChallengeId::new(1))),
             time(6),
         )
         .unwrap();
@@ -1456,7 +1546,7 @@ mod tests {
 
         let (next, effects) = transition(
             cancelling,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             time(5),
         )
         .unwrap();
@@ -1510,7 +1600,7 @@ mod tests {
 
         let error = transition(
             state,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             now,
         )
         .unwrap_err();
@@ -1532,7 +1622,7 @@ mod tests {
 
         let (permit_ready, effects) = transition(
             recovered,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             time(u64::MAX - 3),
         )
         .unwrap();
@@ -1550,7 +1640,7 @@ mod tests {
 
         let (next, effects) = transition(
             state,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             time(23),
         )
         .unwrap();
@@ -1582,7 +1672,7 @@ mod tests {
 
         let (next, effects) = transition(
             second,
-            Event::ChallengeVerified(ChallengeVerified::new(current, first_id)),
+            Event::ChallengeVerified(verified(current, first_id)),
             time(7),
         )
         .unwrap();
@@ -1621,7 +1711,7 @@ mod tests {
 
         let (after_proof, effects) = transition(
             reset,
-            Event::ChallengeVerified(ChallengeVerified::new(current, challenge_id)),
+            Event::ChallengeVerified(verified(current, challenge_id)),
             time(5),
         )
         .unwrap();

@@ -55,12 +55,7 @@ fn generated_public_event(selector: u64, state: &UnlockState) -> Event {
                 binding: selected,
                 challenge_id: id,
             }),
-        7 => state
-            .challenge_id()
-            .map_or(Event::Logout, |id| Event::PermitConsumed {
-                binding: selected,
-                challenge_id: id,
-            }),
+        7 => Event::Tick,
         8 => state
             .challenge_id()
             .map_or(Event::SessionUnlocked, |id| Event::PermitExpired {
@@ -181,10 +176,6 @@ fn changing_any_binding_component_makes_old_challenge_events_inert() {
                 challenge_id: old_id,
             },
             Event::ChallengeTerminated {
-                binding: old,
-                challenge_id: old_id,
-            },
-            Event::PermitConsumed {
                 binding: old,
                 challenge_id: old_id,
             },

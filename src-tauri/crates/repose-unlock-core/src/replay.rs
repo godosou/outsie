@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 
 use crate::protocol::crypto::AuthenticatedResponse;
 use crate::protocol::messages::{DeviceId, MacId, PairingGeneration};
-use crate::state_machine::{ChallengeVerified, SessionBinding};
+use crate::state_machine::{ChallengeVerified, Permit, SessionBinding};
 
 static NEXT_GUARD_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
@@ -432,7 +432,46 @@ impl<S: CounterStore> DurableReplayGuard<S> {
         Ok(ChallengeVerified::new(
             response.binding,
             response.challenge_id,
+            response.mac_id,
+            response.device_id,
+            response.pairing_generation,
+            response.counter,
+            self.instance_id,
         ))
+    }
+
+    pub(crate) fn validate_permit_authority(
+        &self,
+        permit: &Permit,
+    ) -> Result<(), GenerationAuthorityError> {
+        let provenance = permit.provenance();
+        if provenance.guard_instance_id != self.instance_id {
+            return Err(GenerationAuthorityError::WrongGuard);
+        }
+        let current = self
+            .store
+            .load(provenance.device_id)
+            .map_err(GenerationAuthorityError::Store)?;
+        match current {
+            Some(DurableReplayState::Revoked(revoked))
+                if revoked.mac_id == provenance.mac_id
+                    && revoked.device_id == provenance.device_id
+                    && revoked.pairing_generation >= provenance.pairing_generation =>
+            {
+                Err(GenerationAuthorityError::Revoked)
+            }
+            Some(DurableReplayState::Active(active))
+                if active.mac_id == provenance.mac_id
+                    && active.device_id == provenance.device_id
+                    && active.pairing_generation == provenance.pairing_generation
+                    && active.binding == provenance.binding
+                    && active.challenge_id == provenance.challenge_id.get()
+                    && active.counter == provenance.counter =>
+            {
+                Ok(())
+            }
+            _ => Err(GenerationAuthorityError::StateMismatch),
+        }
     }
 
     fn plan_commit(
@@ -590,3 +629,19 @@ impl Display for ReplayError {
 }
 
 impl Error for ReplayError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerationAuthorityError {
+    Store(ReplayStoreError),
+    WrongGuard,
+    Revoked,
+    StateMismatch,
+}
+
+impl Display for GenerationAuthorityError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        write!(formatter, "permit generation authority failed: {self:?}")
+    }
+}
+
+impl Error for GenerationAuthorityError {}

@@ -3,12 +3,12 @@ mod common;
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey};
 use repose_unlock_core::domain::MonoMillis;
+use repose_unlock_core::phone::{MemoryPhoneResponseStore, PhoneResponseCoordinator};
 use repose_unlock_core::protocol::crypto::{
     ChallengeVerificationError, CryptoError, IdentitySigningError, IssueError, IssueParameters,
-    MacChallengeSigner, MacChallengeSigningRequest, PairedDevice, PairedMac, PhoneBuildError,
-    PhoneResponseSigner, PhoneResponseSigningRequest, TestVectorExpectations, VerificationContext,
-    VerificationError, build_phone_response, issue_challenge, verify_mac_challenge,
-    verify_response, verify_test_vector,
+    MacChallengeSigner, MacChallengeSigningRequest, PairedDevice, PairedMac, PhoneResponseSigner,
+    PhoneResponseSigningRequest, TestVectorExpectations, VerificationContext, VerificationError,
+    issue_challenge, verify_mac_challenge, verify_response, verify_test_vector,
 };
 use repose_unlock_core::protocol::messages::{MacId, PublicKeyBytes};
 use repose_unlock_core::protocol::wire::{
@@ -409,7 +409,12 @@ fn recomputed_aead_after_cleartext_mutation_still_fails_old_signature() {
     let mut signer = P256PhoneSigner(
         SigningKey::from_slice(&vectors.bytes("phone_signing_private_key_test_only")).unwrap(),
     );
-    let mut frame = build_phone_response(authenticated_challenge, 41, &mut rng, &mut signer)
+    let coordinator = PhoneResponseCoordinator::new(MemoryPhoneResponseStore::new());
+    coordinator
+        .rotate_pairing(vectors.mac_id(), vectors.device_id(), vectors.generation())
+        .unwrap();
+    let mut frame = coordinator
+        .respond(authenticated_challenge, &mut rng, &mut signer)
         .expect("build independently authenticated mutation");
     frame[RESPONSE_SIGNATURE_OFFSET..]
         .copy_from_slice(&vectors.bytes("response_signature_raw_low_s"));
@@ -740,7 +745,7 @@ fn issuer_uses_only_the_purpose_specific_mac_signer_and_validates_its_output() {
 }
 
 #[test]
-fn reference_phone_builder_requires_a_mac_authenticated_challenge() {
+fn reference_phone_coordinator_requires_a_mac_authenticated_challenge() {
     let (_, issued, vectors) = issued();
     let authenticated_challenge =
         verify_mac_challenge(&fixture_challenge(), &vectors.paired_mac()).unwrap();
@@ -750,24 +755,15 @@ fn reference_phone_builder_requires_a_mac_authenticated_challenge() {
     let mut signer = P256PhoneSigner(
         SigningKey::from_slice(&vectors.bytes("phone_signing_private_key_test_only")).unwrap(),
     );
-    let response = build_phone_response(authenticated_challenge, 41, &mut rng, &mut signer)
+    let coordinator = PhoneResponseCoordinator::new(MemoryPhoneResponseStore::new());
+    coordinator
+        .rotate_pairing(vectors.mac_id(), vectors.device_id(), vectors.generation())
+        .unwrap();
+    let response = coordinator
+        .respond(authenticated_challenge, &mut rng, &mut signer)
         .expect("authenticated challenge builds response");
     assert_eq!(response, vectors.bytes("response_frame").as_slice());
 
     let context = VerificationContext::new(vectors.binding(), vectors.pairing());
     verify_response(&issued, &response, &context, ms(5_999)).unwrap();
-
-    let authenticated_challenge =
-        verify_mac_challenge(&fixture_challenge(), &vectors.paired_mac()).unwrap();
-    let mut no_entropy = FixedRandom::new(Vec::new());
-    assert_eq!(
-        build_phone_response(
-            authenticated_challenge,
-            u64::MAX,
-            &mut no_entropy,
-            &mut signer,
-        )
-        .unwrap_err(),
-        PhoneBuildError::CounterOverflow
-    );
 }

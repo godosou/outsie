@@ -393,6 +393,16 @@ pub struct VerifiedMacChallenge {
 
 impl VerifiedMacChallenge {
     #[must_use]
+    pub(crate) const fn message(&self) -> &Challenge {
+        &self.message
+    }
+
+    #[must_use]
+    pub(crate) const fn frame(&self) -> &[u8; wire::CHALLENGE_FRAME_LEN] {
+        &self.frame
+    }
+
+    #[must_use]
     pub const fn mac_id(&self) -> MacId {
         self.message.mac_id
     }
@@ -618,7 +628,7 @@ impl Error for PhoneBuildError {}
 ///     let _ = build_phone_response(raw, 0, rng, signer);
 /// }
 /// ```
-pub fn build_phone_response<R: CryptoRandom, S: PhoneResponseSigner>(
+pub(crate) fn build_phone_response<R: CryptoRandom, S: PhoneResponseSigner>(
     authenticated_challenge: VerifiedMacChallenge,
     previous_counter: u64,
     rng: &mut R,
