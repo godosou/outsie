@@ -11,8 +11,11 @@
 //! 16,384 expanded plist events, and 256 KiB of cumulative expanded scalar,
 //! key, string, and data bytes. The expansion limits matter for binary plists:
 //! their object graph may reuse one object many times even when the file itself
-//! is small. Preflight completes before the value tree is materialized.
+//! is small. Before the generic plist reader runs, binary input must also use a
+//! contiguous, acyclic layout in which every declared object is reachable from
+//! the root. Preflight completes before the value tree is materialized.
 
+mod binary_layout;
 mod transform;
 
 pub use transform::{PolicyError, PolicySpec, ScreenSaverPolicy};

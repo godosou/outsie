@@ -30,4 +30,7 @@ fixed named rule backed by the audited plug-in mechanism.
 Parser resource limits are 1 MiB encoded input, 64 collection levels, 16,384
 expanded events, and 256 KiB of cumulative expanded scalar/data/key bytes. The
 last two limits explicitly bound binary plist DAG expansion before a `Value`
-tree is allocated.
+tree is allocated. Binary input is additionally required to have a canonical
+contiguous object region and offset table, an acyclic object graph, and no
+unreachable declared objects. Raw object and single-collection counts are
+bounded before the generic plist reader can allocate their reference vectors.

@@ -5,6 +5,8 @@ use plist::{
     stream::{Event, Reader},
 };
 
+use crate::binary_layout::{BinaryLimits, validate_binary_layout};
+
 const PASSWORD_FALLBACK: &str = "use-login-window-ui";
 const REPOSE_V1_CANDIDATE: &str = "ai.repose.unlock";
 
@@ -62,6 +64,12 @@ impl ScreenSaverPolicy {
     /// Maximum cumulative bytes across expanded keys, strings, data, and
     /// fixed-width scalar values.
     pub const MAX_EXPANDED_SCALAR_BYTES: usize = 256 * 1024;
+    /// Maximum number of objects declared by a binary plist.
+    pub const MAX_BINARY_OBJECTS: usize = Self::MAX_EXPANDED_EVENTS;
+    /// Maximum references in one binary array before the generic reader runs.
+    pub const MAX_BINARY_ARRAY_ITEMS: usize = Self::MAX_EXPANDED_EVENTS;
+    /// Maximum key/value pairs in one binary dictionary before the generic reader runs.
+    pub const MAX_BINARY_DICTIONARY_ITEMS: usize = Self::MAX_EXPANDED_EVENTS / 2;
     const MAX_NESTING_DEPTH: usize = 64;
 
     pub fn parse(input: &[u8]) -> Result<Self, PolicyError> {
@@ -73,6 +81,16 @@ impl ScreenSaverPolicy {
         }
 
         let (encoding, payload) = detect_encoding(input)?;
+        if encoding == Encoding::Binary {
+            validate_binary_layout(
+                payload,
+                BinaryLimits {
+                    maximum_objects: Self::MAX_BINARY_OBJECTS,
+                    maximum_array_items: Self::MAX_BINARY_ARRAY_ITEMS,
+                    maximum_dictionary_items: Self::MAX_BINARY_DICTIONARY_ITEMS,
+                },
+            )?;
+        }
         preflight_event_stream(
             payload,
             Self::MAX_NESTING_DEPTH,
@@ -375,6 +393,18 @@ pub enum PolicyError {
     ExpandedByteLimitExceeded {
         maximum: usize,
     },
+    InvalidBinaryLayout {
+        reason: &'static str,
+    },
+    BinaryObjectLimitExceeded {
+        declared: usize,
+        maximum: usize,
+    },
+    BinaryCollectionLimitExceeded {
+        kind: &'static str,
+        declared: usize,
+        maximum: usize,
+    },
     RootNotDictionary {
         actual: &'static str,
     },
@@ -439,6 +469,21 @@ impl fmt::Display for PolicyError {
             Self::ExpandedByteLimitExceeded { maximum } => write!(
                 formatter,
                 "expanded policy exceeds the {maximum}-byte scalar/data limit"
+            ),
+            Self::InvalidBinaryLayout { reason } => {
+                write!(formatter, "invalid canonical binary plist layout: {reason}")
+            }
+            Self::BinaryObjectLimitExceeded { declared, maximum } => write!(
+                formatter,
+                "binary policy declares {declared} objects; maximum is {maximum}"
+            ),
+            Self::BinaryCollectionLimitExceeded {
+                kind,
+                declared,
+                maximum,
+            } => write!(
+                formatter,
+                "binary {kind} declares {declared} items; maximum is {maximum}"
             ),
             Self::RootNotDictionary { actual } => {
                 write!(
