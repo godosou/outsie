@@ -2,7 +2,8 @@ use sha2::{Digest, Sha256};
 
 use crate::protocol::messages::Response;
 use crate::protocol::wire::{
-    CHALLENGE_FRAME_LEN, RESPONSE_PREFIX_LEN, RESPONSE_SIGNED_PREFIX_LEN, encode_response,
+    CHALLENGE_FRAME_LEN, CHALLENGE_SIGNED_PREFIX_LEN, RESPONSE_PREFIX_LEN,
+    RESPONSE_SIGNED_PREFIX_LEN, encode_response,
 };
 
 pub const KDF_CONTEXT_LABEL: &[u8] = b"repose-unlock-v1 kdf-context phone-response";
@@ -14,6 +15,17 @@ pub const PHONE_TO_MAC_NONCE_LABEL: &[u8] = b"repose-unlock-v1 nonce phone-to-ma
 pub const PHONE_TO_MAC_AAD_LABEL: &[u8] = b"repose-unlock-v1 aad phone-to-mac";
 pub const PHONE_TO_MAC_PROOF_LABEL: &[u8] = b"repose-unlock-v1 proof phone-to-mac";
 pub const PHONE_TO_MAC_SIGNATURE_LABEL: &[u8] = b"repose-unlock-v1 signature phone-to-mac";
+pub const MAC_CHALLENGE_SIGNATURE_LABEL: &[u8] =
+    b"repose-unlock-v1 signature mac-to-phone challenge";
+
+pub(crate) fn mac_challenge_signature_hash(
+    challenge_frame: &[u8; CHALLENGE_FRAME_LEN],
+) -> [u8; 32] {
+    hash_parts(&[
+        MAC_CHALLENGE_SIGNATURE_LABEL,
+        &challenge_frame[..CHALLENGE_SIGNED_PREFIX_LEN],
+    ])
+}
 
 pub(crate) fn context_hash(
     challenge_frame: &[u8; CHALLENGE_FRAME_LEN],

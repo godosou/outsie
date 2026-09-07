@@ -3,25 +3,72 @@
 use std::fs;
 use std::path::PathBuf;
 
-use aes_gcm::aead::{AeadInPlace, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce, Tag};
 use p256::ecdsa::signature::hazmat::PrehashSigner;
 use p256::ecdsa::{Signature, SigningKey};
 use repose_unlock_core::domain::{AuditSessionId, ConsoleUid, LockEpoch, MonoMillis};
 use repose_unlock_core::protocol::crypto::{
-    AuthenticatedResponse, CryptoRandom, IssueParameters, IssuedChallenge, PairedDevice,
-    RandomError, VerificationContext, derive_session_material, issue_challenge, response_aad,
-    response_plaintext, signature_transcript_hash, verify_response,
+    AuthenticatedResponse, CryptoRandom, IdentitySigningError, IssueParameters, IssuedChallenge,
+    MacChallengeSigner, MacChallengeSigningRequest, PairedDevice, PairedMac, PhoneResponseSigner,
+    PhoneResponseSigningRequest, RandomError, VerificationContext, build_phone_response,
+    issue_challenge, verify_mac_challenge, verify_response,
 };
 use repose_unlock_core::protocol::messages::{DeviceId, MacId, PairingGeneration, PublicKeyBytes};
-use repose_unlock_core::protocol::wire::{
-    RESPONSE_CIPHERTEXT_OFFSET, RESPONSE_FRAME_LEN, RESPONSE_SIGNATURE_OFFSET, RESPONSE_TAG_OFFSET,
-    decode_response,
-};
+use repose_unlock_core::protocol::wire::{RESPONSE_FRAME_LEN, RESPONSE_SIGNATURE_OFFSET};
 use repose_unlock_core::state_machine::{
     ChallengeRequest, Effect, Event, Permit, SessionBinding, TimingPolicy, UnlockState, transition,
 };
 use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+pub struct TestMacSigner(SigningKey);
+
+impl TestMacSigner {
+    pub fn from_vectors(vectors: &Vectors) -> Self {
+        Self(SigningKey::from_slice(&vectors.bytes("mac_signing_private_key_test_only")).unwrap())
+    }
+}
+
+impl MacChallengeSigner for TestMacSigner {
+    fn sign_challenge(
+        &mut self,
+        request: &MacChallengeSigningRequest<'_>,
+    ) -> Result<[u8; 64], IdentitySigningError> {
+        let signature: Signature = self
+            .0
+            .sign_prehash(request.prehash())
+            .map_err(|_| IdentitySigningError)?;
+        Ok(signature
+            .normalize_s()
+            .unwrap_or(signature)
+            .to_bytes()
+            .into())
+    }
+}
+
+pub struct TestPhoneSigner(SigningKey);
+
+impl TestPhoneSigner {
+    pub fn from_vectors(vectors: &Vectors) -> Self {
+        Self(SigningKey::from_slice(&vectors.bytes("phone_signing_private_key_test_only")).unwrap())
+    }
+}
+
+impl PhoneResponseSigner for TestPhoneSigner {
+    fn sign_response(
+        &mut self,
+        request: &PhoneResponseSigningRequest<'_>,
+    ) -> Result<[u8; 64], IdentitySigningError> {
+        let signature: Signature = self
+            .0
+            .sign_prehash(request.prehash())
+            .map_err(|_| IdentitySigningError)?;
+        Ok(signature
+            .normalize_s()
+            .unwrap_or(signature)
+            .to_bytes()
+            .into())
+    }
+}
 
 pub struct Vectors(Value);
 
@@ -77,6 +124,16 @@ impl Vectors {
                 .expect("valid fixture identity key"),
         )
     }
+
+    pub fn paired_mac(&self) -> PairedMac {
+        PairedMac::new(
+            self.mac_id(),
+            self.device_id(),
+            self.generation(),
+            PublicKeyBytes::try_new(self.array("mac_signing_public_key"))
+                .expect("valid fixture Mac identity key"),
+        )
+    }
 }
 
 pub struct FixedRandom {
@@ -116,6 +173,30 @@ pub fn ms(value: u64) -> MonoMillis {
 
 pub fn issued() -> (UnlockState, IssuedChallenge, Vectors) {
     let vectors = Vectors::load();
+    let (challenging, request) = challenge_request(&vectors);
+
+    let mut entropy = vectors.bytes("mac_ephemeral_private_key_test_only");
+    entropy.extend(vectors.bytes("mac_nonce"));
+    let mut rng = FixedRandom::new(entropy);
+    let mut signer = TestMacSigner::from_vectors(&vectors);
+    let issued = issue_challenge(
+        request,
+        IssueParameters::new(
+            vectors.mac_id(),
+            vectors.device_id(),
+            vectors.generation(),
+            vectors.u64("counter_floor"),
+            ms(vectors.u64("issued_at_ms")),
+            PublicKeyBytes::try_new(vectors.array("mac_signing_public_key")).unwrap(),
+        ),
+        &mut rng,
+        &mut signer,
+    )
+    .expect("issue fixture challenge");
+    (challenging, issued, vectors)
+}
+
+pub fn challenge_request(vectors: &Vectors) -> (UnlockState, ChallengeRequest) {
     let binding = vectors.binding();
     let policy = TimingPolicy::new(vectors.u64("ttl_ms"), 3_000, 1_000).unwrap();
     let (locked, _) = transition(
@@ -131,23 +212,7 @@ pub fn issued() -> (UnlockState, IssuedChallenge, Vectors) {
     let Effect::StartChallenge(request) = effect else {
         panic!("expected start challenge effect");
     };
-
-    let mut entropy = vectors.bytes("mac_ephemeral_private_key_test_only");
-    entropy.extend(vectors.bytes("mac_nonce"));
-    let mut rng = FixedRandom::new(entropy);
-    let issued = issue_challenge(
-        request,
-        IssueParameters::new(
-            vectors.mac_id(),
-            vectors.device_id(),
-            vectors.generation(),
-            vectors.u64("counter_floor"),
-            ms(vectors.u64("issued_at_ms")),
-        ),
-        &mut rng,
-    )
-    .expect("issue fixture challenge");
-    (challenging, issued, vectors)
+    (challenging, request)
 }
 
 pub fn authenticated() -> (UnlockState, AuthenticatedResponse, Vectors) {
@@ -163,34 +228,85 @@ pub fn authenticated_with_counter(counter: u64) -> (UnlockState, AuthenticatedRe
     (state, authenticated, vectors)
 }
 
+pub fn authenticated_with_generation(
+    generation: PairingGeneration,
+) -> (UnlockState, AuthenticatedResponse, Vectors) {
+    let vectors = Vectors::load();
+    let (state, request) = challenge_request(&vectors);
+    let mut entropy = vectors.bytes("mac_ephemeral_private_key_test_only");
+    entropy.extend(vectors.bytes("mac_nonce"));
+    let mut rng = FixedRandom::new(entropy);
+    let mut signer = TestMacSigner::from_vectors(&vectors);
+    let issued = issue_challenge(
+        request,
+        IssueParameters::new(
+            vectors.mac_id(),
+            vectors.device_id(),
+            generation,
+            vectors.u64("counter_floor"),
+            ms(vectors.u64("issued_at_ms")),
+            PublicKeyBytes::try_new(vectors.array("mac_signing_public_key")).unwrap(),
+        ),
+        &mut rng,
+        &mut signer,
+    )
+    .unwrap();
+    let response = response_for_counter_and_generation(&issued, &vectors, 42, 42, generation);
+    let paired = PairedDevice::new(
+        vectors.mac_id(),
+        vectors.device_id(),
+        generation,
+        PublicKeyBytes::try_new(vectors.array("phone_signing_public_key")).unwrap(),
+    );
+    let context = VerificationContext::new(vectors.binding(), paired);
+    let authenticated = verify_response(&issued, &response, &context, ms(5_999)).unwrap();
+    (state, authenticated, vectors)
+}
+
 pub fn response_for_counter(
     issued: &IssuedChallenge,
     vectors: &Vectors,
     counter: u64,
     nonce_tweak: u8,
 ) -> [u8; RESPONSE_FRAME_LEN] {
-    let mut frame: [u8; RESPONSE_FRAME_LEN] = vectors.bytes("response_frame").try_into().unwrap();
-    frame[76..84].copy_from_slice(&counter.to_be_bytes());
-    frame[116] = 0x40 ^ nonce_tweak ^ 42;
+    response_for_counter_and_generation(issued, vectors, counter, nonce_tweak, vectors.generation())
+}
 
-    let response = decode_response(&frame).expect("structural response after clear mutation");
-    let material = derive_session_material(issued, &response).expect("derive fixture material");
-    let aad = response_aad(issued, &response);
-    let plaintext = response_plaintext(issued, &response);
-    let cipher = Aes256Gcm::new_from_slice(material.phone_to_mac_key()).unwrap();
-    let mut ciphertext = plaintext;
-    let tag: Tag = cipher
-        .encrypt_in_place_detached(
-            Nonce::from_slice(material.phone_to_mac_nonce()),
-            &aad,
-            &mut ciphertext,
-        )
-        .unwrap();
-    frame[RESPONSE_CIPHERTEXT_OFFSET..RESPONSE_TAG_OFFSET].copy_from_slice(&ciphertext);
-    frame[RESPONSE_TAG_OFFSET..RESPONSE_SIGNATURE_OFFSET].copy_from_slice(tag.as_slice());
+pub fn response_for_counter_and_generation(
+    issued: &IssuedChallenge,
+    vectors: &Vectors,
+    counter: u64,
+    nonce_tweak: u8,
+    generation: PairingGeneration,
+) -> [u8; RESPONSE_FRAME_LEN] {
+    if counter <= vectors.u64("counter_floor") {
+        let mut structurally_stale: [u8; RESPONSE_FRAME_LEN] =
+            vectors.bytes("response_frame").try_into().unwrap();
+        structurally_stale[44..52].copy_from_slice(&generation.get().to_be_bytes());
+        structurally_stale[76..84].copy_from_slice(&counter.to_be_bytes());
+        return structurally_stale;
+    }
 
-    resign_frame(issued, vectors, &mut frame);
-    frame
+    let paired_mac = PairedMac::new(
+        vectors.mac_id(),
+        vectors.device_id(),
+        generation,
+        PublicKeyBytes::try_new(vectors.array("mac_signing_public_key")).unwrap(),
+    );
+    let authenticated_challenge = verify_mac_challenge(issued.frame(), &paired_mac).unwrap();
+    let mut phone_nonce = vectors.bytes("phone_nonce");
+    phone_nonce[0] = 0x40 ^ nonce_tweak ^ 42;
+    let mut entropy = vectors.bytes("phone_ephemeral_private_key_test_only");
+    entropy.extend(phone_nonce);
+    let mut rng = FixedRandom::new(entropy);
+    let mut signer = TestPhoneSigner::from_vectors(vectors);
+    build_phone_response(
+        authenticated_challenge,
+        counter.checked_sub(1).unwrap(),
+        &mut rng,
+        &mut signer,
+    )
+    .unwrap()
 }
 
 pub fn resign_frame(
@@ -198,8 +314,11 @@ pub fn resign_frame(
     vectors: &Vectors,
     frame: &mut [u8; RESPONSE_FRAME_LEN],
 ) {
-    let response = decode_response(frame).unwrap();
-    let digest = signature_transcript_hash(issued, &response);
+    let mut hasher = Sha256::new();
+    hasher.update(b"repose-unlock-v1 signature phone-to-mac");
+    hasher.update(issued.frame());
+    hasher.update(&frame[..RESPONSE_SIGNATURE_OFFSET]);
+    let digest: [u8; 32] = hasher.finalize().into();
     let signing_key =
         SigningKey::from_slice(&vectors.bytes("phone_signing_private_key_test_only")).unwrap();
     let signature: Signature = signing_key.sign_prehash(&digest).unwrap();
@@ -213,7 +332,7 @@ pub fn permit_at(reducer_now: u64) -> Permit {
     let (state, authenticated, _) = authenticated();
     let guard = DurableReplayGuard::new(MemoryCounterStore::new(), ReplayPolicy::default());
     let committed = guard.commit(authenticated).expect("durable replay commit");
-    let proof = committed.into_challenge_verified();
+    let proof = guard.finalize(committed).expect("finalize durable proof");
     let (_, effects) = transition(state, Event::ChallengeVerified(proof), ms(reducer_now)).unwrap();
     let [effect] = effects.try_into().expect("one permit effect");
     let Effect::CreatePermit(permit) = effect else {

@@ -27,6 +27,7 @@ dependencies = [
  "cfg-if",
  "cipher",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -41,6 +42,7 @@ dependencies = [
  "ctr",
  "ghash",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -2722,6 +2724,7 @@ dependencies = [
 name = "repose-unlock-core"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "hkdf",
  "p256",

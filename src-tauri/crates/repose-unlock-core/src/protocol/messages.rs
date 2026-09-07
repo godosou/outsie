@@ -100,6 +100,7 @@ pub struct Challenge {
     pub(crate) ttl_ms: u32,
     pub(crate) mac_nonce: [u8; NONCE_LEN],
     pub(crate) mac_ephemeral_public_key: PublicKeyBytes,
+    pub(crate) mac_identity_signature: [u8; SIGNATURE_LEN],
 }
 
 impl Challenge {
@@ -146,6 +147,11 @@ impl Challenge {
     #[must_use]
     pub const fn mac_ephemeral_public_key(&self) -> PublicKeyBytes {
         self.mac_ephemeral_public_key
+    }
+
+    #[must_use]
+    pub const fn mac_identity_signature(&self) -> &[u8; SIGNATURE_LEN] {
+        &self.mac_identity_signature
     }
 }
 

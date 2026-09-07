@@ -7,7 +7,8 @@ edition = "2024"
 path = "src/lib.rs"
 
 [dependencies]
-aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
+aes = { version = "0.8", default-features = false, features = ["zeroize"] }
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "zeroize"] }
 hkdf = "0.12"
 p256 = { version = "0.13", default-features = false, features = ["ecdh", "ecdsa"] }
 parking_lot = "0.12"

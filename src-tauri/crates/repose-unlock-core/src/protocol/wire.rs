@@ -11,7 +11,7 @@ use crate::state_machine::{ChallengeId, SessionBinding};
 pub const MAGIC: [u8; 4] = *b"RPUK";
 pub const VERSION: u8 = 1;
 pub const HEADER_LEN: usize = 12;
-pub const CHALLENGE_PAYLOAD_LEN: usize = 173;
+pub const CHALLENGE_PAYLOAD_LEN: usize = 237;
 pub const CHALLENGE_FRAME_LEN: usize = HEADER_LEN + CHALLENGE_PAYLOAD_LEN;
 pub const RESPONSE_PAYLOAD_LEN: usize = 378;
 pub const RESPONSE_FRAME_LEN: usize = HEADER_LEN + RESPONSE_PAYLOAD_LEN;
@@ -19,6 +19,8 @@ pub const MAX_PAYLOAD_LEN: usize = RESPONSE_PAYLOAD_LEN;
 pub const MAX_FRAME_LEN: usize = RESPONSE_FRAME_LEN;
 
 pub const CHALLENGE_MAC_PUBLIC_KEY_OFFSET: usize = 120;
+pub const CHALLENGE_SIGNATURE_OFFSET: usize = 185;
+pub const CHALLENGE_SIGNED_PREFIX_LEN: usize = CHALLENGE_SIGNATURE_OFFSET;
 pub const RESPONSE_MAC_PUBLIC_KEY_OFFSET: usize = 148;
 pub const RESPONSE_PHONE_PUBLIC_KEY_OFFSET: usize = 213;
 pub const RESPONSE_CIPHERTEXT_OFFSET: usize = 278;
@@ -89,6 +91,7 @@ pub fn encode_challenge(challenge: &Challenge) -> [u8; CHALLENGE_FRAME_LEN] {
     frame[84..88].copy_from_slice(&challenge.ttl_ms.to_be_bytes());
     frame[88..120].copy_from_slice(&challenge.mac_nonce);
     frame[120..185].copy_from_slice(challenge.mac_ephemeral_public_key.as_bytes());
+    frame[CHALLENGE_SIGNATURE_OFFSET..].copy_from_slice(&challenge.mac_identity_signature);
     frame
 }
 
@@ -114,6 +117,7 @@ pub fn decode_challenge(frame: &[u8]) -> Result<Challenge, WireError> {
         ttl_ms,
         mac_nonce: read_array(frame, 88),
         mac_ephemeral_public_key: mac_public,
+        mac_identity_signature: read_array(frame, CHALLENGE_SIGNATURE_OFFSET),
     })
 }
 
@@ -232,5 +236,6 @@ const _: () = {
     assert!(NONCE_LEN == 32);
     assert!(PUBLIC_KEY_LEN == 65);
     assert!(SIGNATURE_LEN == 64);
+    assert!(CHALLENGE_SIGNATURE_OFFSET + SIGNATURE_LEN == CHALLENGE_FRAME_LEN);
     assert!(RESPONSE_SIGNATURE_OFFSET + SIGNATURE_LEN == RESPONSE_FRAME_LEN);
 };

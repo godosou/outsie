@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 
 use crate::protocol::crypto::AuthenticatedResponse;
 use crate::protocol::messages::{DeviceId, MacId, PairingGeneration};
-use crate::state_machine::{ChallengeId, ChallengeVerified, SessionBinding};
+use crate::state_machine::{ChallengeVerified, SessionBinding};
 
 static NEXT_GUARD_INSTANCE: AtomicU64 = AtomicU64::new(1);
 
@@ -76,6 +76,68 @@ impl DurableCounterState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DurableRevocation {
+    mac_id: MacId,
+    device_id: DeviceId,
+    pairing_generation: PairingGeneration,
+}
+
+impl DurableRevocation {
+    #[must_use]
+    pub const fn mac_id(self) -> MacId {
+        self.mac_id
+    }
+
+    #[must_use]
+    pub const fn device_id(self) -> DeviceId {
+        self.device_id
+    }
+
+    #[must_use]
+    pub const fn pairing_generation(self) -> PairingGeneration {
+        self.pairing_generation
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurableReplayState {
+    Active(DurableCounterState),
+    Revoked(DurableRevocation),
+}
+
+impl DurableReplayState {
+    #[must_use]
+    pub const fn mac_id(self) -> MacId {
+        match self {
+            Self::Active(value) => value.mac_id,
+            Self::Revoked(value) => value.mac_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn device_id(self) -> DeviceId {
+        match self {
+            Self::Active(value) => value.device_id,
+            Self::Revoked(value) => value.device_id,
+        }
+    }
+
+    #[must_use]
+    pub const fn pairing_generation(self) -> PairingGeneration {
+        match self {
+            Self::Active(value) => value.pairing_generation,
+            Self::Revoked(value) => value.pairing_generation,
+        }
+    }
+}
+
+impl From<DurableCounterState> for DurableReplayState {
+    fn from(value: DurableCounterState) -> Self {
+        Self::Active(value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DurableStateError {
     ZeroCounter,
     DuplicateDevice,
@@ -104,7 +166,7 @@ impl Display for ReplayStoreError {
 impl Error for ReplayStoreError {}
 
 pub trait CounterStore: Send + Sync {
-    fn load(&self, device_id: DeviceId) -> Result<Option<DurableCounterState>, ReplayStoreError>;
+    fn load(&self, device_id: DeviceId) -> Result<Option<DurableReplayState>, ReplayStoreError>;
 
     /// Atomically replace only the exact previously loaded value.
     ///
@@ -112,19 +174,19 @@ pub trait CounterStore: Send + Sync {
     fn compare_and_swap(
         &self,
         device_id: DeviceId,
-        expected: Option<&DurableCounterState>,
-        replacement: &DurableCounterState,
+        expected: Option<&DurableReplayState>,
+        replacement: &DurableReplayState,
     ) -> Result<bool, ReplayStoreError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DurableSnapshot {
-    entries: Vec<DurableCounterState>,
+    entries: Vec<DurableReplayState>,
 }
 
 impl DurableSnapshot {
     #[must_use]
-    pub fn entries(&self) -> &[DurableCounterState] {
+    pub fn entries(&self) -> &[DurableReplayState] {
         &self.entries
     }
 }
@@ -135,7 +197,7 @@ impl DurableSnapshot {
 /// compare-and-swap is durably persisted before it returns `true`.
 #[derive(Clone)]
 pub struct MemoryCounterStore {
-    inner: Arc<Mutex<HashMap<DeviceId, DurableCounterState>>>,
+    inner: Arc<Mutex<HashMap<DeviceId, DurableReplayState>>>,
 }
 
 impl MemoryCounterStore {
@@ -146,14 +208,17 @@ impl MemoryCounterStore {
         }
     }
 
-    pub fn from_entries(
-        entries: impl IntoIterator<Item = DurableCounterState>,
-    ) -> Result<Self, DurableStateError> {
+    pub fn from_entries<I, T>(entries: I) -> Result<Self, DurableStateError>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<DurableReplayState>,
+    {
         let store = Self::new();
         {
             let mut values = store.inner.lock();
             for entry in entries {
-                if values.insert(entry.device_id, entry).is_some() {
+                let entry = entry.into();
+                if values.insert(entry.device_id(), entry).is_some() {
                     return Err(DurableStateError::DuplicateDevice);
                 }
             }
@@ -168,7 +233,7 @@ impl MemoryCounterStore {
     #[must_use]
     pub fn snapshot(&self) -> DurableSnapshot {
         let mut entries: Vec<_> = self.inner.lock().values().copied().collect();
-        entries.sort_by_key(|entry| *entry.device_id.as_bytes());
+        entries.sort_by_key(|entry| *entry.device_id().as_bytes());
         DurableSnapshot { entries }
     }
 }
@@ -180,17 +245,17 @@ impl Default for MemoryCounterStore {
 }
 
 impl CounterStore for MemoryCounterStore {
-    fn load(&self, device_id: DeviceId) -> Result<Option<DurableCounterState>, ReplayStoreError> {
+    fn load(&self, device_id: DeviceId) -> Result<Option<DurableReplayState>, ReplayStoreError> {
         Ok(self.inner.lock().get(&device_id).copied())
     }
 
     fn compare_and_swap(
         &self,
         device_id: DeviceId,
-        expected: Option<&DurableCounterState>,
-        replacement: &DurableCounterState,
+        expected: Option<&DurableReplayState>,
+        replacement: &DurableReplayState,
     ) -> Result<bool, ReplayStoreError> {
-        if replacement.device_id != device_id {
+        if replacement.device_id() != device_id {
             return Err(ReplayStoreError::Corrupt);
         }
         let mut values = self.inner.lock();
@@ -243,14 +308,72 @@ pub struct DurableReplayGuard<S> {
     instance_id: u64,
 }
 
+fn next_guard_instance_id() -> u64 {
+    NEXT_GUARD_INSTANCE
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .expect("durable replay guard instance space exhausted")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevokeOutcome {
+    Revoked,
+    AlreadyRevoked,
+}
+
 impl<S: CounterStore> DurableReplayGuard<S> {
     #[must_use]
     pub fn new(store: S, policy: ReplayPolicy) -> Self {
         Self {
             store,
             policy,
-            instance_id: NEXT_GUARD_INSTANCE.fetch_add(1, Ordering::Relaxed),
+            instance_id: next_guard_instance_id(),
         }
+    }
+
+    pub fn revoke(
+        &self,
+        mac_id: MacId,
+        device_id: DeviceId,
+        pairing_generation: PairingGeneration,
+    ) -> Result<RevokeOutcome, ReplayError> {
+        let expected = self.store.load(device_id).map_err(ReplayError::Store)?;
+        let replacement = DurableReplayState::Revoked(DurableRevocation {
+            mac_id,
+            device_id,
+            pairing_generation,
+        });
+        match expected {
+            None => {}
+            Some(current) if current.mac_id() != mac_id || current.device_id() != device_id => {
+                return Err(ReplayError::CorruptSnapshot);
+            }
+            Some(DurableReplayState::Active(current)) => {
+                if current.pairing_generation > pairing_generation {
+                    return Err(ReplayError::StaleGeneration);
+                }
+                if current.pairing_generation < pairing_generation {
+                    return Err(ReplayError::GenerationRequiresRevocation);
+                }
+            }
+            Some(DurableReplayState::Revoked(current)) => {
+                if current.pairing_generation == pairing_generation {
+                    return Ok(RevokeOutcome::AlreadyRevoked);
+                }
+                if current.pairing_generation > pairing_generation {
+                    return Err(ReplayError::StaleGeneration);
+                }
+            }
+        }
+        if !self
+            .store
+            .compare_and_swap(device_id, expected.as_ref(), &replacement)
+            .map_err(ReplayError::Store)?
+        {
+            return Err(ReplayError::ConcurrentUpdate);
+        }
+        Ok(RevokeOutcome::Revoked)
     }
 
     pub fn commit(
@@ -261,28 +384,99 @@ impl<S: CounterStore> DurableReplayGuard<S> {
             .store
             .load(response.device_id)
             .map_err(ReplayError::Store)?;
-        if let Some(previous) = expected {
-            if previous.mac_id != response.mac_id
-                || previous.device_id != response.device_id
-                || previous.pairing_generation != response.pairing_generation
+        let replacement = self.plan_commit(&response, expected)?;
+        let intent = CommitIntent {
+            guard_instance_id: self.instance_id,
+            expected,
+            replacement,
+            response,
+        };
+        if !self
+            .store
+            .compare_and_swap(
+                intent.replacement.device_id(),
+                intent.expected.as_ref(),
+                &intent.replacement,
+            )
+            .map_err(ReplayError::Store)?
+        {
+            return Err(ReplayError::ConcurrentUpdate);
+        }
+        let receipt = CommitReceipt {
+            guard_instance_id: intent.guard_instance_id,
+            expected: intent.expected,
+            replacement: intent.replacement,
+        };
+        Ok(CommittedResponse {
+            response: intent.response,
+            receipt,
+        })
+    }
+
+    pub fn finalize(&self, committed: CommittedResponse) -> Result<ChallengeVerified, ReplayError> {
+        let CommittedResponse { response, receipt } = committed;
+        if receipt.guard_instance_id != self.instance_id {
+            return Err(ReplayError::WrongGuard);
+        }
+        let recomputed = self.plan_commit(&response, receipt.expected)?;
+        if recomputed != receipt.replacement {
+            return Err(ReplayError::ReceiptMismatch);
+        }
+        let persisted = self
+            .store
+            .load(response.device_id)
+            .map_err(ReplayError::Store)?;
+        if persisted != Some(receipt.replacement) {
+            return Err(ReplayError::ReceiptMismatch);
+        }
+        Ok(ChallengeVerified::new(
+            response.binding,
+            response.challenge_id,
+        ))
+    }
+
+    fn plan_commit(
+        &self,
+        response: &AuthenticatedResponse,
+        expected: Option<DurableReplayState>,
+    ) -> Result<DurableReplayState, ReplayError> {
+        let previous_counter = match expected {
+            None => 0,
+            Some(current)
+                if current.mac_id() != response.mac_id
+                    || current.device_id() != response.device_id =>
             {
                 return Err(ReplayError::CorruptSnapshot);
             }
-            if previous.counter >= response.counter {
-                return Err(ReplayError::NotAdvanced);
+            Some(DurableReplayState::Revoked(previous)) => {
+                if response.pairing_generation <= previous.pairing_generation {
+                    return Err(ReplayError::RevokedGeneration);
+                }
+                0
             }
-            if previous.binding == response.binding
-                && previous.challenge_id == response.challenge_id.get()
-            {
-                return Err(ReplayError::ChallengeAlreadyCommitted);
+            Some(DurableReplayState::Active(previous)) => {
+                if response.pairing_generation > previous.pairing_generation {
+                    return Err(ReplayError::GenerationRequiresRevocation);
+                }
+                if response.pairing_generation < previous.pairing_generation {
+                    return Err(ReplayError::StaleGeneration);
+                }
+                if previous.counter >= response.counter {
+                    return Err(ReplayError::NotAdvanced);
+                }
+                if previous.binding == response.binding
+                    && previous.challenge_id == response.challenge_id.get()
+                {
+                    return Err(ReplayError::ChallengeAlreadyCommitted);
+                }
+                if previous.binding.lock_epoch() == response.binding.lock_epoch()
+                    && previous.challenge_id >= response.challenge_id.get()
+                {
+                    return Err(ReplayError::StaleChallenge);
+                }
+                previous.counter
             }
-            if previous.binding.lock_epoch() == response.binding.lock_epoch()
-                && previous.challenge_id >= response.challenge_id.get()
-            {
-                return Err(ReplayError::StaleChallenge);
-            }
-        }
-        let previous_counter = expected.map_or(0, |value| value.counter);
+        };
         let jump = response
             .counter
             .checked_sub(previous_counter)
@@ -294,62 +488,28 @@ impl<S: CounterStore> DurableReplayGuard<S> {
                 maximum: self.policy.maximum_jump,
             });
         }
-        let replacement = DurableCounterState {
+        Ok(DurableReplayState::Active(DurableCounterState {
             mac_id: response.mac_id,
             device_id: response.device_id,
             pairing_generation: response.pairing_generation,
             binding: response.binding,
             challenge_id: response.challenge_id.get(),
             counter: response.counter,
-        };
-        let intent = CommitIntent {
-            store_instance_id: self.instance_id,
-            expected,
-            replacement,
-            response,
-        };
-        if !self
-            .store
-            .compare_and_swap(
-                intent.replacement.device_id,
-                intent.expected.as_ref(),
-                &intent.replacement,
-            )
-            .map_err(ReplayError::Store)?
-        {
-            return Err(ReplayError::ConcurrentUpdate);
-        }
-        let receipt = CommitReceipt {
-            store_instance_id: intent.store_instance_id,
-            expected: intent.expected,
-            durable: intent.replacement,
-        };
-        debug_assert_eq!(receipt.store_instance_id, self.instance_id);
-        debug_assert_eq!(receipt.expected, intent.expected);
-        debug_assert_eq!(receipt.durable.counter, intent.response.counter);
-        Ok(CommittedResponse {
-            mac_id: intent.response.mac_id,
-            device_id: intent.response.device_id,
-            pairing_generation: intent.response.pairing_generation,
-            binding: intent.response.binding,
-            challenge_id: intent.response.challenge_id,
-            counter: intent.response.counter,
-            store_instance_id: receipt.store_instance_id,
-        })
+        }))
     }
 }
 
 struct CommitIntent {
-    store_instance_id: u64,
-    expected: Option<DurableCounterState>,
-    replacement: DurableCounterState,
+    guard_instance_id: u64,
+    expected: Option<DurableReplayState>,
+    replacement: DurableReplayState,
     response: AuthenticatedResponse,
 }
 
 struct CommitReceipt {
-    store_instance_id: u64,
-    expected: Option<DurableCounterState>,
-    durable: DurableCounterState,
+    guard_instance_id: u64,
+    expected: Option<DurableReplayState>,
+    replacement: DurableReplayState,
 }
 
 /// Opaque evidence of a matching durable compare-and-swap.
@@ -366,45 +526,34 @@ struct CommitReceipt {
 /// assert_copy::<CommittedResponse>();
 /// ```
 pub struct CommittedResponse {
-    mac_id: MacId,
-    device_id: DeviceId,
-    pairing_generation: PairingGeneration,
-    binding: SessionBinding,
-    challenge_id: ChallengeId,
-    counter: u64,
-    store_instance_id: u64,
+    response: AuthenticatedResponse,
+    receipt: CommitReceipt,
 }
 
 impl CommittedResponse {
     #[must_use]
     pub const fn mac_id(&self) -> MacId {
-        self.mac_id
+        self.response.mac_id
     }
 
     #[must_use]
     pub const fn device_id(&self) -> DeviceId {
-        self.device_id
+        self.response.device_id
     }
 
     #[must_use]
     pub const fn pairing_generation(&self) -> PairingGeneration {
-        self.pairing_generation
+        self.response.pairing_generation
     }
 
     #[must_use]
     pub const fn binding(&self) -> SessionBinding {
-        self.binding
+        self.response.binding
     }
 
     #[must_use]
     pub const fn counter(&self) -> u64 {
-        self.counter
-    }
-
-    #[must_use]
-    pub fn into_challenge_verified(self) -> ChallengeVerified {
-        let _store_instance_id = self.store_instance_id;
-        ChallengeVerified::new(self.binding, self.challenge_id)
+        self.response.counter
     }
 }
 
@@ -426,7 +575,12 @@ pub enum ReplayError {
     },
     ChallengeAlreadyCommitted,
     StaleChallenge,
+    RevokedGeneration,
+    GenerationRequiresRevocation,
+    StaleGeneration,
     ConcurrentUpdate,
+    WrongGuard,
+    ReceiptMismatch,
 }
 
 impl Display for ReplayError {
