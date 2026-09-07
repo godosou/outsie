@@ -10,6 +10,7 @@ import {
   createTimerState,
   deriveWeeklyStats,
   getTodayStats,
+  monotonicElapsedSeconds,
   localDateKey,
   normalizeSettings,
   postponeTimerBreak,
@@ -22,6 +23,14 @@ import {
 } from './timer.ts'
 
 const START = new Date(2026, 8, 6, 10, 0, 0).getTime()
+
+test('monotonic samples count only forward active process time', () => {
+  assert.equal(monotonicElapsedSeconds(1_000, 6_500, false), 5.5)
+  assert.equal(monotonicElapsedSeconds(1_000, 6_500, true), 0)
+  assert.equal(monotonicElapsedSeconds(6_500, 1_000, false), 0)
+  assert.equal(monotonicElapsedSeconds(Number.NaN, 6_500, false), 0)
+  assert.equal(monotonicElapsedSeconds(1_000, Number.POSITIVE_INFINITY, false), 0)
+})
 
 test('explicit elapsed advances focus independently of wall-clock jumps', () => {
   let state = createTimerState(START)

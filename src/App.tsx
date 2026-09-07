@@ -5,23 +5,7 @@ import { useBreakTimer } from './hooks/useBreakTimer'
 type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
-type DesktopCommand = 'toggle-pause' | 'start-short-break' | 'start-long-break' | 'idle-lock-failed' | 'strict-break-finished' | 'postpone-break'
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
-declare global {
-  interface Window {
-    repose?: {
-      isDesktop: boolean
-      onCommand: (callback: (command: DesktopCommand) => void) => () => void
-      setStatus: (status: { running: boolean; phase: string; remaining: number; breakId: string | null; canPostpone: boolean; postponeSeconds: number }) => void
-      postponeBreak: () => Promise<boolean>
-      notify: (notification: { title: string; body: string }) => void
-      showBreak: () => void
-      setPreferences: (preferences: DesktopPreferences) => void
-      openSecuritySettings: () => void
-    }
-    webkitAudioContext?: typeof AudioContext
-  }
-}
 
 const APP_VERSION = '0.2.0'
 
@@ -161,11 +145,11 @@ export default function App() {
     document.title = `${time(remaining)} · ${inBreak ? '好好休息' : running ? '专注中' : '已暂停'} — Repose`
     window.repose?.setStatus({ running, phase, remaining, breakId, canPostpone, postponeSeconds })
   }, [phase, running, remaining, inBreak, breakId, canPostpone, postponeSeconds])
-  useEffect(() => window.repose?.onCommand(command => {
+  useEffect(() => window.repose?.onCommand(({ command, breakId: completedBreakId }) => {
     if (command === 'toggle-pause' && !(strictBreak && inBreak)) timer.toggleRunning()
     if (command === 'start-short-break') { setActiveExercise(exercises[0]); timer.startBreak('short') }
     if (command === 'start-long-break') { setActiveExercise(exercises[1]); timer.startBreak('long') }
-    if (command === 'strict-break-finished') timer.completeBreak()
+    if (command === 'strict-break-finished' && completedBreakId) timer.completeBreak(completedBreakId)
     if (command === 'postpone-break') timer.postponeBreak()
     if (command === 'idle-lock-failed') {
       setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: false }))

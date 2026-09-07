@@ -34,6 +34,7 @@ struct LifecycleStarted {
     #[serde(rename = "type")]
     kind: &'static str,
     interval_id: String,
+    sequence: u64,
     reason: String,
     started_at: u64,
 }
@@ -44,6 +45,7 @@ struct LifecycleInterval {
     #[serde(rename = "type")]
     kind: &'static str,
     interval_id: String,
+    sequence: u64,
     elapsed_seconds: f64,
     started_at: u64,
     ended_at: u64,
@@ -84,6 +86,7 @@ impl LifecycleGate {
                 continuous_seconds.to_bits(),
                 self.next_sequence
             ),
+            sequence: self.next_sequence,
             reason: reason.as_str().into(),
             started_at: wall_time_ms,
         };
@@ -109,6 +112,7 @@ impl LifecycleGate {
         let completed = LifecycleInterval {
             kind: "inactive-end",
             interval_id: started.interval_id,
+            sequence: started.sequence,
             elapsed_seconds,
             started_at: started.started_at,
             ended_at: wall_time_ms,
@@ -904,6 +908,7 @@ mod tests {
         let started = gate
             .begin(InactivityReason::ScreenLock, 10.0, 1_000)
             .expect("first reason starts an interval");
+        assert_eq!(started.sequence, 1);
         assert!(
             gate.begin(InactivityReason::SystemSleep, 12.0, 3_000)
                 .is_none()
@@ -916,6 +921,7 @@ mod tests {
             .end(InactivityReason::ScreenLock, 35.0, 26_000)
             .expect("last reason ends the interval");
         assert_eq!(completed.interval_id, started.interval_id);
+        assert_eq!(completed.sequence, started.sequence);
         assert_eq!(completed.elapsed_seconds, 25.0);
         assert_eq!(completed.started_at, 1_000);
         assert_eq!(completed.ended_at, 26_000);
