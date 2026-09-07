@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   DEFAULT_SETTINGS,
+  applyInactivityInterval,
   advanceTimerBy,
+  captureInactivity,
   changeTimerSettings,
   completeTimerBreak,
   createTimerState,
@@ -36,6 +38,154 @@ test('restoring a snapshot never replays closed-app time', () => {
   const restored = restoreTimerState(JSON.stringify(saved), START + 60_000)
   assert.equal(restored.remaining, 1190)
   assert.equal(getTodayStats(restored, START).focusSeconds, 10)
+})
+
+test('a short passive rest records actual break time without consuming focus', () => {
+  const focused = advanceTimerBy(createTimerState(START), 300, START + 300_000)
+  const context = captureInactivity(focused)
+  const rested = applyInactivityInterval(focused, context, {
+    intervalId: 'process-1',
+    elapsedSeconds: 10,
+    startedAt: START + 300_000,
+    endedAt: START + 310_000,
+  })
+  assert.equal(rested.phase, 'focus')
+  assert.equal(rested.remaining, focused.remaining)
+  assert.equal(getTodayStats(rested, START).focusSeconds, 300)
+  assert.equal(getTodayStats(rested, START).breakSeconds, 10)
+  assert.equal(getTodayStats(rested, START).completedBreaks, 0)
+})
+
+test('a passive rest at the short-break threshold completes one break and resets focus', () => {
+  const focused = advanceTimerBy(createTimerState(START), 300, START + 300_000)
+  const rested = applyInactivityInterval(focused, captureInactivity(focused), {
+    intervalId: 'process-short-exact',
+    elapsedSeconds: 20,
+    startedAt: START + 300_000,
+    endedAt: START + 320_000,
+  })
+  assert.equal(rested.phase, 'focus')
+  assert.equal(rested.remaining, 1200)
+  assert.equal(rested.completedCycles, 1)
+  assert.equal(getTodayStats(rested, START).breakSeconds, 20)
+  assert.equal(getTodayStats(rested, START).completedBreaks, 1)
+  assert.equal(rested.history[0].type, 'short')
+  assert.equal(rested.history[0].duration, 20)
+})
+
+test('a long passive rest records its full duration but completes only one break', () => {
+  const focused = createTimerState(START)
+  const rested = applyInactivityInterval(focused, captureInactivity(focused), {
+    intervalId: 'process-short-over',
+    elapsedSeconds: 125,
+    startedAt: START,
+    endedAt: START + 125_000,
+  })
+  assert.equal(getTodayStats(rested, START).breakSeconds, 125)
+  assert.equal(getTodayStats(rested, START).completedBreaks, 1)
+  assert.equal(rested.history.length, 1)
+})
+
+test('the current cadence selects a long passive rest and resets completed cycles', () => {
+  const focused = {
+    ...createTimerState(START, { longEvery: 4, longDuration: 1 }),
+    completedCycles: 4,
+  }
+  const rested = applyInactivityInterval(focused, captureInactivity(focused), {
+    intervalId: 'process-long',
+    elapsedSeconds: 60,
+    startedAt: START,
+    endedAt: START + 60_000,
+  })
+  assert.equal(rested.completedCycles, 0)
+  assert.equal(rested.history[0].type, 'long')
+  assert.equal(rested.history[0].duration, 60)
+  assert.equal(getTodayStats(rested, START).completedBreaks, 1)
+})
+
+test('manual focus pause does not turn lock time into passive rest', () => {
+  const paused = toggleTimer(createTimerState(START), START)
+  const rested = applyInactivityInterval(paused, captureInactivity(paused), {
+    intervalId: 'process-paused',
+    elapsedSeconds: 300,
+    startedAt: START,
+    endedAt: START + 300_000,
+  })
+  assert.equal(rested.remaining, paused.remaining)
+  assert.deepEqual(getTodayStats(rested, START), getTodayStats(paused, START))
+  assert.equal(rested.lastLifecycleIntervalId, 'process-paused')
+})
+
+test('passive rest during a delay completes the original occurrence without a new postpone', () => {
+  const started = startTimerBreak(createTimerState(START, { shortDuration: 30 }), 'short', START)
+  const current = advanceTimerBy(started, 5, START + 5_000)
+  const delayed = postponeTimerBreak(current, START + 5_000)
+  const rested = applyInactivityInterval(delayed, captureInactivity(delayed), {
+    intervalId: 'process-deferred',
+    elapsedSeconds: 30,
+    startedAt: START + 5_000,
+    endedAt: START + 35_000,
+  })
+  assert.equal(rested.phase, 'focus')
+  assert.equal(rested.remaining, 1200)
+  assert.equal(rested.breakId, null)
+  assert.equal(rested.deferredBreak, null)
+  assert.equal(rested.postponeUsed, false)
+  assert.equal(rested.completedCycles, 1)
+  assert.equal(rested.history[0].type, 'short')
+})
+
+test('an active break keeps counting during a shorter inactivity interval', () => {
+  const started = startTimerBreak(createTimerState(START), 'short', START)
+  const ticked = advanceTimerBy(started, 5, START + 5_000)
+  const rested = applyInactivityInterval(ticked, captureInactivity(ticked), {
+    intervalId: 'active-short-partial',
+    elapsedSeconds: 10,
+    startedAt: START + 5_000,
+    endedAt: START + 15_000,
+  })
+  assert.equal(rested.phase, 'short')
+  assert.equal(rested.remaining, 5)
+  assert.equal(getTodayStats(rested, START).breakSeconds, 15)
+  assert.equal(getTodayStats(rested, START).completedBreaks, 0)
+})
+
+test('an active break completes once when inactivity reaches its deadline', () => {
+  const started = startTimerBreak(createTimerState(START), 'short', START)
+  const rested = applyInactivityInterval(started, captureInactivity(started), {
+    intervalId: 'active-short-complete',
+    elapsedSeconds: 100,
+    startedAt: START,
+    endedAt: START + 100_000,
+  })
+  assert.equal(rested.phase, 'focus')
+  assert.equal(rested.remaining, 1200)
+  assert.equal(rested.completedCycles, 1)
+  assert.equal(getTodayStats(rested, START).breakSeconds, 20)
+  assert.equal(getTodayStats(rested, START).completedBreaks, 1)
+  assert.equal(rested.history.length, 1)
+})
+
+test('a duplicate lifecycle interval cannot advance or complete anything twice', () => {
+  const started = startTimerBreak(createTimerState(START), 'short', START)
+  const context = captureInactivity(started)
+  const interval = {
+    intervalId: 'active-duplicate',
+    elapsedSeconds: 20,
+    startedAt: START,
+    endedAt: START + 20_000,
+  }
+  const completed = applyInactivityInterval(started, context, interval)
+  assert.equal(applyInactivityInterval(completed, context, interval), completed)
+})
+
+test('native completion requires the current break identity', () => {
+  const started = startTimerBreak(createTimerState(START), 'short', START)
+  assert.equal(completeTimerBreak(started, 'stale-break', START + 20_000), started)
+  const completed = completeTimerBreak(started, started.breakId!, START + 20_000)
+  assert.equal(completed.phase, 'focus')
+  assert.equal(completed.history.length, 1)
+  assert.equal(completeTimerBreak(completed, started.breakId!, START + 25_000), completed)
 })
 
 function advanceNormally(initial: TimerState, until: number): TimerState {
@@ -246,7 +396,7 @@ test('a pause click at the break boundary does not accidentally start a new focu
 test('native completion credits exactly one full break including seconds already recorded by ticks', () => {
   const started = startTimerBreak(createTimerState(START), 'short', START)
   const ticked = advanceTo(started, START + 5_000)
-  const completed = completeTimerBreak(ticked, START + 20_000)
+  const completed = completeTimerBreak(ticked, ticked.breakId!, START + 20_000)
   assert.equal(completed.phase, 'focus')
   assert.equal(completed.running, true)
   assert.equal(completed.remaining, 1200)
@@ -267,18 +417,18 @@ test('native completion credits exactly one full break including seconds already
 
 test('duplicate native completion and callbacks after a renderer completion are no-ops in focus', () => {
   const started = startTimerBreak(createTimerState(START), 'short', START)
-  const nativeCompleted = completeTimerBreak(started, START + 20_000)
-  assert.equal(completeTimerBreak(nativeCompleted, START + 25_000), nativeCompleted)
+  const nativeCompleted = completeTimerBreak(started, started.breakId!, START + 20_000)
+  assert.equal(completeTimerBreak(nativeCompleted, started.breakId!, START + 25_000), nativeCompleted)
   const rendererCompleted = advanceTo(started, START + 20_000)
-  assert.equal(completeTimerBreak(rendererCompleted, START + 25_000), rendererCompleted)
+  assert.equal(completeTimerBreak(rendererCompleted, started.breakId!, START + 25_000), rendererCompleted)
   const focus = createTimerState(START)
-  assert.equal(completeTimerBreak(focus, START + 25_000), focus)
+  assert.equal(completeTimerBreak(focus, 'missing', START + 25_000), focus)
 })
 
 test('native long-break completion resets the cycle and honors auto-start off', () => {
   const initial = { ...createTimerState(START, { autoStart: false, longDuration: 1 }), completedCycles: 4 }
   const started = startTimerBreak(initial, 'long', START)
-  const completed = completeTimerBreak(started, START + 60_000)
+  const completed = completeTimerBreak(started, started.breakId!, START + 60_000)
   assert.equal(completed.completedCycles, 0)
   assert.equal(completed.running, false)
   assert.equal(completed.history[0].type, 'long')
@@ -288,7 +438,7 @@ test('native long-break completion resets the cycle and honors auto-start off', 
 test('a native completion following renderer suspension credits only the known break duration', () => {
   const started = startTimerBreak(createTimerState(START), 'short', START)
   const ticked = advanceTo(started, START + 5_000)
-  const completed = completeTimerBreak(ticked, START + 8 * 60 * 60 * 1000)
+  const completed = completeTimerBreak(ticked, ticked.breakId!, START + 8 * 60 * 60 * 1000)
   assert.equal(completed.history.length, 1)
   assert.equal(getTodayStats(completed, START).breakSeconds, 20)
   assert.equal(getTodayStats(completed, START).focusSeconds, 0)
@@ -460,8 +610,10 @@ test('skipping an active or deferred occurrence clears its one-time state', () =
 
 test('old v1 states gain an occurrence identity and invalid pending data is discarded', () => {
   const started = startTimerBreak(createTimerState(START), 'short', START)
-  const { breakId: _id, deferredBreak: _pending, postponeUsed: _used, ...old } = started
-  const restored = restoreTimerState(JSON.stringify(old), START)
+  const { breakId: _id, deferredBreak: _pending, postponeUsed: _used, lastLifecycleIntervalId: _interval, ...old } = started
+  const restored = restoreTimerState(JSON.stringify({ ...old, version: 1 }), START)
+  assert.equal(restored.version, 2)
+  assert.equal(restored.lastLifecycleIntervalId, null)
   assert.equal(restored.phase, 'short')
   assert.ok(restored.breakId)
   assert.equal(restored.postponeUsed, false)

@@ -25,7 +25,7 @@ export interface BreakHistoryEntry {
 }
 
 export interface TimerState {
-  version: 1
+  version: 2
   settings: TimerSettings
   phase: TimerPhase
   running: boolean
@@ -38,7 +38,21 @@ export interface TimerState {
   completedCycles: number
   days: Record<string, DailyStats>
   history: BreakHistoryEntry[]
+  lastLifecycleIntervalId: string | null
   updatedAt: number
+}
+
+export interface InactivityContext {
+  phase: TimerPhase
+  running: boolean
+  breakId: string | null
+}
+
+export interface InactivityInterval {
+  intervalId: string
+  elapsedSeconds: number
+  startedAt: number
+  endedAt: number
 }
 
 export interface WeeklyStats extends DailyStats {
@@ -114,7 +128,7 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
   const normalizedSettings = normalizeSettings(settings)
   const duration = getPhaseDuration('focus', normalizedSettings)
   return {
-    version: 1,
+    version: 2,
     settings: normalizedSettings,
     phase: 'focus',
     running: normalizedSettings.autoStart,
@@ -126,6 +140,7 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
     completedCycles: 0,
     days: { [localDateKey(now)]: { ...EMPTY_STATS } },
     history: [],
+    lastLifecycleIntervalId: null,
     updatedAt: now,
   }
 }
@@ -231,6 +246,67 @@ export function advanceTimerBy(original: TimerState, elapsedSeconds: number, now
   return state
 }
 
+export function captureInactivity(state: TimerState): InactivityContext {
+  return { phase: state.phase, running: state.running, breakId: state.breakId }
+}
+
+function getDueBreak(state: TimerState): { type: 'short' | 'long'; duration: number } {
+  if (state.deferredBreak) return state.deferredBreak
+  const type = state.completedCycles >= state.settings.longEvery ? 'long' : 'short'
+  return { type, duration: getPhaseDuration(type, state.settings) }
+}
+
+export function applyInactivityInterval(
+  original: TimerState,
+  context: InactivityContext,
+  interval: InactivityInterval,
+): TimerState {
+  if (!interval.intervalId || interval.intervalId === original.lastLifecycleIntervalId
+    || !finiteNumber(interval.elapsedSeconds) || interval.elapsedSeconds < 0) return original
+  const state: TimerState = {
+    ...original,
+    lastLifecycleIntervalId: interval.intervalId,
+    updatedAt: interval.endedAt,
+  }
+  if (!context.running || interval.elapsedSeconds === 0) return state
+  if (context.phase !== 'focus') {
+    if (original.phase !== context.phase || original.breakId !== context.breakId) return state
+    return {
+      ...advanceTimerBy(original, interval.elapsedSeconds, interval.endedAt),
+      lastLifecycleIntervalId: interval.intervalId,
+    }
+  }
+  if (original.phase !== 'focus') return state
+  state.days = { ...original.days }
+  state.history = [...original.history]
+  recordTime(
+    state.days,
+    'short',
+    interval.endedAt - interval.elapsedSeconds * 1000,
+    interval.endedAt,
+  )
+  const due = getDueBreak(state)
+  if (interval.elapsedSeconds + 0.000001 >= due.duration) {
+    getDay(state.days, interval.endedAt).completedBreaks += 1
+    state.history.unshift({
+      id: `passive-${interval.intervalId}`,
+      type: due.type,
+      completedAt: interval.endedAt,
+      duration: due.duration,
+    })
+    state.completedCycles = due.type === 'long' ? 0 : state.completedCycles + 1
+    state.phase = 'focus'
+    state.running = state.settings.autoStart
+    state.phaseDuration = getPhaseDuration('focus', state.settings)
+    state.remaining = state.phaseDuration
+    state.breakId = null
+    state.deferredBreak = null
+    state.postponeUsed = false
+  }
+  trimRecords(state, interval.endedAt)
+  return state
+}
+
 export function toggleTimer(original: TimerState, now = Date.now(), wasRunning = original.running): TimerState {
   if (original.deferredBreak) return original
   // Preserve the user's pause/resume intent if a phase ended between render and click.
@@ -282,8 +358,12 @@ export function postponeTimerBreak(original: TimerState, now = Date.now()): Time
 }
 
 /** Accept completion from the native strict-break deadline, even if renderer ticks stalled. */
-export function completeTimerBreak(original: TimerState, now = Date.now()): TimerState {
-  if (original.phase === 'focus') return original
+export function completeTimerBreak(
+  original: TimerState,
+  expectedBreakId: string,
+  now = Date.now(),
+): TimerState {
+  if (original.phase === 'focus' || !original.breakId || original.breakId !== expectedBreakId) return original
   const state: TimerState = {
     ...original,
     days: { ...original.days },
@@ -349,7 +429,7 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
   if (!serialized) return createTimerState(now)
   try {
     const data: unknown = JSON.parse(serialized)
-    if (!isRecord(data) || data.version !== 1) return createTimerState(now)
+    if (!isRecord(data) || (data.version !== 1 && data.version !== 2)) return createTimerState(now)
     const settings = normalizeSettings(data.settings)
     const fallback = createTimerState(now, settings)
     const phase = data.phase === 'focus' || data.phase === 'short' || data.phase === 'long' ? data.phase : 'focus'
@@ -394,6 +474,7 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
     }
     const state: TimerState = {
       ...fallback,
+      version: 2,
       phase,
       running: deferredBreak ? true : typeof data.running === 'boolean' ? data.running : settings.autoStart,
       remaining: finiteNumber(data.remaining) ? Math.max(0.001, Math.min(duration, data.remaining)) : duration,
@@ -404,6 +485,9 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
       completedCycles: boundedNumber(data.completedCycles, 0, 0, 12),
       days,
       history: history.sort((a, b) => b.completedAt - a.completedAt),
+      lastLifecycleIntervalId: data.version === 2 && typeof data.lastLifecycleIntervalId === 'string'
+        && data.lastLifecycleIntervalId.length > 0 && data.lastLifecycleIntervalId.length <= 200
+        ? data.lastLifecycleIntervalId : null,
       updatedAt: finiteNumber(data.updatedAt) && data.updatedAt >= 0 ? data.updatedAt : now,
     }
     trimRecords(state, now)
