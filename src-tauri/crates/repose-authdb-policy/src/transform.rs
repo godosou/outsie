@@ -471,7 +471,7 @@ impl fmt::Display for PolicyError {
                 "expanded policy exceeds the {maximum}-byte scalar/data limit"
             ),
             Self::InvalidBinaryLayout { reason } => {
-                write!(formatter, "invalid canonical binary plist layout: {reason}")
+                write!(formatter, "invalid strict binary plist layout: {reason}")
             }
             Self::BinaryObjectLimitExceeded { declared, maximum } => write!(
                 formatter,

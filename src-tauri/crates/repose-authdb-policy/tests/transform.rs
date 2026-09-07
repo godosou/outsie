@@ -6,9 +6,31 @@ const FIXTURES: &str = concat!(
     "/tests/fixtures/authorizationdb"
 );
 
+// Produced on macOS by `/usr/bin/plutil -convert binary1` from a policy whose
+// unknown `vendor` array is `[true, true]`. Apple emits two true objects but
+// references only the first, leaving the duplicate scalar unreferenced.
+const APPLE_PLUTIL_DUPLICATE_SCALAR_HEX: &str = concat!(
+    "62706c6973743030d301020302040555636c6173735472756c655676656e",
+    "646f725f10137573652d6c6f67696e2d77696e646f772d7569a206060909",
+    "080f151a21373a3b00000000000001010000000000000008000000000000",
+    "0000000000000000003c",
+);
+
 fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(format!("{FIXTURES}/{name}"))
         .unwrap_or_else(|error| panic!("failed to read fixture {name}: {error}"))
+}
+
+fn decode_hex_fixture(hex: &str) -> Vec<u8> {
+    assert_eq!(hex.len() % 2, 0);
+    hex.as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = (pair[0] as char).to_digit(16).unwrap();
+            let low = (pair[1] as char).to_digit(16).unwrap();
+            u8::try_from((high << 4) | low).unwrap()
+        })
+        .collect()
 }
 
 fn parse_value(bytes: &[u8]) -> Value {
@@ -183,6 +205,43 @@ fn valid_binary_policy() -> Vec<u8> {
     binary
 }
 
+#[test]
+fn accepts_apple_plutil_binary_with_an_unreferenced_duplicate_scalar() {
+    let binary = decode_hex_fixture(APPLE_PLUTIL_DUPLICATE_SCALAR_HEX);
+
+    assert_eq!(binary.len(), 100);
+    let policy = ScreenSaverPolicy::parse(&binary)
+        .expect("Apple plutil output with an orphan duplicate scalar is valid");
+    assert_eq!(policy.password_fallback_index(), Some(0));
+    let value = parse_value(&policy.to_bytes().unwrap());
+    let vendor = value
+        .as_dictionary()
+        .and_then(|root| root.get("vendor"))
+        .and_then(Value::as_array)
+        .expect("vendor array");
+    assert_eq!(
+        vendor.as_slice(),
+        &[Value::Boolean(true), Value::Boolean(true)]
+    );
+}
+
+#[test]
+fn accepts_nonzero_binary_sort_version_while_reserved_bytes_remain_zero() {
+    let mut binary = valid_binary_policy();
+    let trailer_start = binary.len() - 32;
+    binary[trailer_start + 5] = 1;
+
+    assert!(ScreenSaverPolicy::parse(&binary).is_ok());
+
+    binary[trailer_start + 4] = 1;
+    assert_eq!(
+        ScreenSaverPolicy::parse(&binary).unwrap_err(),
+        PolicyError::InvalidBinaryLayout {
+            reason: "nonzero trailer reserved bytes",
+        }
+    );
+}
+
 fn trailer_offset_table_start(binary: &[u8]) -> usize {
     usize::try_from(u64::from_be_bytes(
         binary[binary.len() - 8..].try_into().unwrap(),
@@ -254,7 +313,7 @@ fn rejects_wide_collections_before_plist_reader_allocates_reference_vectors() {
 }
 
 #[test]
-fn rejects_excessive_unreachable_or_cyclic_binary_objects_before_generic_parsing() {
+fn bounds_objects_accepts_acyclic_orphans_and_rejects_reachable_cycles() {
     let mut excessive_count = valid_binary_policy();
     let trailer_start = excessive_count.len() - 32;
     excessive_count[trailer_start + 8..trailer_start + 16].copy_from_slice(
@@ -270,19 +329,15 @@ fn rejects_excessive_unreachable_or_cyclic_binary_objects_before_generic_parsing
         }
     );
 
-    let unreachable = finish_binary_objects(vec![
+    let orphan = finish_binary_objects(vec![
         vec![0xd2, 1, 2, 2, 3],
         binary_string("class"),
         binary_string("rule"),
         binary_string("use-login-window-ui"),
         vec![0x09],
     ]);
-    assert_eq!(
-        ScreenSaverPolicy::parse(&unreachable).unwrap_err(),
-        PolicyError::InvalidBinaryLayout {
-            reason: "binary object graph contains unreachable objects",
-        }
-    );
+    let policy = ScreenSaverPolicy::parse(&orphan).expect("acyclic orphan is format-valid");
+    assert_eq!(policy.password_fallback_index(), Some(0));
 
     let cyclic = finish_binary_objects(vec![
         vec![0xd3, 1, 2, 4, 2, 3, 5],
@@ -319,6 +374,21 @@ fn rejects_invalid_references_indirect_cycles_and_ambiguous_length_markers() {
         vec![0xa1, 6],
         vec![0xa1, 5],
     ]);
+    let orphan_invalid_reference = finish_binary_objects(vec![
+        vec![0xd2, 1, 2, 2, 3],
+        binary_string("class"),
+        binary_string("rule"),
+        binary_string("use-login-window-ui"),
+        vec![0xa1, 5],
+    ]);
+    let orphan_indirect_cycle = finish_binary_objects(vec![
+        vec![0xd2, 1, 2, 2, 3],
+        binary_string("class"),
+        binary_string("rule"),
+        binary_string("use-login-window-ui"),
+        vec![0xa1, 5],
+        vec![0xa1, 4],
+    ]);
     let ambiguous_length = finish_binary_objects(vec![
         vec![0xd2, 1, 2, 2, 3],
         binary_string("class"),
@@ -329,6 +399,14 @@ fn rejects_invalid_references_indirect_cycles_and_ambiguous_length_markers() {
     for (input, reason) in [
         (invalid_reference, "collection reference is out of range"),
         (indirect_cycle, "binary object graph contains a cycle"),
+        (
+            orphan_invalid_reference,
+            "collection reference is out of range",
+        ),
+        (
+            orphan_indirect_cycle,
+            "binary object graph contains a cycle",
+        ),
         (ambiguous_length, "invalid extended-length integer marker"),
     ] {
         assert_eq!(

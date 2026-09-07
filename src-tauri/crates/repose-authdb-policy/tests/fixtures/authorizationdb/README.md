@@ -30,7 +30,11 @@ fixed named rule backed by the audited plug-in mechanism.
 Parser resource limits are 1 MiB encoded input, 64 collection levels, 16,384
 expanded events, and 256 KiB of cumulative expanded scalar/data/key bytes. The
 last two limits explicitly bound binary plist DAG expansion before a `Value`
-tree is allocated. Binary input is additionally required to have a canonical
-contiguous object region and offset table, an acyclic object graph, and no
-unreachable declared objects. Raw object and single-collection counts are
-bounded before the generic plist reader can allocate their reference vectors.
+tree is allocated. Binary input is additionally required to have a strict
+contiguous object region and offset table, in-range references, and no cycles
+in any object component. Unreferenced acyclic objects remain valid because
+Apple's `/usr/bin/plutil -convert binary1` can emit an unused duplicate scalar;
+the embedded 100-byte regression was produced by that command on macOS from a
+policy with an unknown `vendor = [true, true]` value. Raw object and
+single-collection counts are bounded before the generic plist reader can
+allocate their reference vectors.

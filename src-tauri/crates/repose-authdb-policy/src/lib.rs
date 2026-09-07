@@ -12,8 +12,10 @@
 //! key, string, and data bytes. The expansion limits matter for binary plists:
 //! their object graph may reuse one object many times even when the file itself
 //! is small. Before the generic plist reader runs, binary input must also use a
-//! contiguous, acyclic layout in which every declared object is reachable from
-//! the root. Preflight completes before the value tree is materialized.
+//! strict contiguous layout with in-range references and no cycles in any
+//! object component. Unreferenced acyclic objects are allowed because Apple's
+//! writer emits them for some duplicate scalar values. Preflight completes
+//! before the value tree is materialized.
 
 mod binary_layout;
 mod transform;

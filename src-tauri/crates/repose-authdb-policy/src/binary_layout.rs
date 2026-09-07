@@ -37,7 +37,9 @@ pub(crate) fn validate_binary_layout(
     let trailer = input
         .get(trailer_start..)
         .ok_or_else(|| invalid("missing trailer"))?;
-    if trailer.get(..6) != Some(&[0; 6]) {
+    // The first five bytes are reserved. Byte five is the sort-version field;
+    // Apple's reader ignores it and valid producers may set it.
+    if trailer.get(..5) != Some(&[0; 5]) {
         return Err(invalid("nonzero trailer reserved bytes"));
     }
 
@@ -127,7 +129,7 @@ pub(crate) fn validate_binary_layout(
         .ok_or_else(|| invalid("offset table does not describe every object"))?;
 
     validate_references(input, &metadata, reference_width)?;
-    validate_reachable_acyclic_graph(input, &metadata, root_object, reference_width)
+    validate_acyclic_graph(input, &metadata, root_object, reference_width)
 }
 
 fn parse_object(
@@ -288,15 +290,35 @@ fn validate_references(
     Ok(())
 }
 
-fn validate_reachable_acyclic_graph(
+fn validate_acyclic_graph(
     input: &[u8],
     metadata: &[ObjectMetadata],
     root_object: usize,
     reference_width: usize,
 ) -> Result<(), PolicyError> {
     let mut colors = vec![0u8; metadata.len()];
-    colors[root_object] = 1;
-    let mut stack = vec![(root_object, 0usize)];
+    visit_acyclic_component(input, metadata, &mut colors, root_object, reference_width)?;
+
+    // Apple plutil can emit an unreferenced duplicate scalar. Such objects are
+    // semantically inert but still need a complete raw safety check, including
+    // cycle detection for every disconnected collection component.
+    for object_index in 0..metadata.len() {
+        if colors[object_index] == 0 {
+            visit_acyclic_component(input, metadata, &mut colors, object_index, reference_width)?;
+        }
+    }
+    Ok(())
+}
+
+fn visit_acyclic_component(
+    input: &[u8],
+    metadata: &[ObjectMetadata],
+    colors: &mut [u8],
+    start_object: usize,
+    reference_width: usize,
+) -> Result<(), PolicyError> {
+    colors[start_object] = 1;
+    let mut stack = vec![(start_object, 0usize)];
 
     while let Some(&(object_index, next_reference)) = stack.last() {
         let reference_count = metadata[object_index]
@@ -330,9 +352,6 @@ fn validate_reachable_acyclic_graph(
         }
     }
 
-    if colors.into_iter().any(|color| color == 0) {
-        return Err(invalid("binary object graph contains unreachable objects"));
-    }
     Ok(())
 }
 
