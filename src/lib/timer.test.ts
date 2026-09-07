@@ -9,6 +9,7 @@ import {
   completeTimerBreak,
   createTimerState,
   deriveWeeklyStats,
+  getHourlyStats,
   getTodayStats,
   monotonicElapsedSeconds,
   localDateKey,
@@ -23,6 +24,19 @@ import {
 } from './timer.ts'
 
 const START = new Date(2026, 8, 6, 10, 0, 0).getTime()
+
+test('hourly stats expose 24 immutable-by-copy buckets', () => {
+  const state = createTimerState(START)
+  const hourly = getHourlyStats(state, START)
+  assert.equal(hourly.focusSeconds.length, 24)
+  assert.equal(hourly.breakSeconds.length, 24)
+  assert.deepEqual(hourly.focusSeconds, Array(24).fill(0))
+  assert.deepEqual(hourly.breakSeconds, Array(24).fill(0))
+  hourly.focusSeconds[10] = 99
+  hourly.breakSeconds[10] = 88
+  assert.equal(getHourlyStats(state, START).focusSeconds[10], 0)
+  assert.equal(getHourlyStats(state, START).breakSeconds[10], 0)
+})
 
 test('monotonic samples count only forward active process time', () => {
   assert.equal(monotonicElapsedSeconds(1_000, 6_500, false), 5.5)

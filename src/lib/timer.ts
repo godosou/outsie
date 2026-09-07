@@ -24,6 +24,11 @@ export interface BreakHistoryEntry {
   duration: number
 }
 
+export interface HourlyStats {
+  focusSeconds: number[]
+  breakSeconds: number[]
+}
+
 export interface TimerState {
   version: 2
   settings: TimerSettings
@@ -37,6 +42,7 @@ export interface TimerState {
   postponeUsed: boolean
   completedCycles: number
   days: Record<string, DailyStats>
+  hourly: Record<string, HourlyStats>
   history: BreakHistoryEntry[]
   lifecycleIntervalIds: string[]
   updatedAt: number
@@ -77,6 +83,13 @@ const EMPTY_STATS: Readonly<DailyStats> = Object.freeze({
   completedBreaks: 0,
   skippedBreaks: 0,
 })
+
+function emptyHourlyStats(): HourlyStats {
+  return {
+    focusSeconds: Array(24).fill(0),
+    breakSeconds: Array(24).fill(0),
+  }
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -145,6 +158,7 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
     postponeUsed: false,
     completedCycles: 0,
     days: { [localDateKey(now)]: { ...EMPTY_STATS } },
+    hourly: {},
     history: [],
     lifecycleIntervalIds: [],
     updatedAt: now,
@@ -153,6 +167,14 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
 
 export function getTodayStats(state: TimerState, now = Date.now()): DailyStats {
   return { ...(state.days[localDateKey(now)] ?? EMPTY_STATS) }
+}
+
+export function getHourlyStats(state: TimerState, now = Date.now()): HourlyStats {
+  const stats = state.hourly[localDateKey(now)] ?? emptyHourlyStats()
+  return {
+    focusSeconds: [...stats.focusSeconds],
+    breakSeconds: [...stats.breakSeconds],
+  }
 }
 
 export function deriveWeeklyStats(state: TimerState, now = Date.now()): WeeklyStats[] {
@@ -491,6 +513,7 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
       postponeUsed,
       completedCycles: boundedNumber(data.completedCycles, 0, 0, 12),
       days,
+      hourly: {},
       history: history.sort((a, b) => b.completedAt - a.completedAt),
       lifecycleIntervalIds: data.version === 2
         ? Array.from(new Set([
