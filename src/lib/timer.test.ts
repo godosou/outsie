@@ -405,6 +405,66 @@ test('local storage never replays closed-app time', () => {
   assert.equal(getTodayStats(longGap, START).focusSeconds, 10)
 })
 
+test('version 2 snapshots migrate to version 3 without invented hourly history', () => {
+  const recorded = advanceTimerBy(createTimerState(START), 10, START + 10_000)
+  const { hourly: _hourly, ...legacy } = recorded
+  const restored = restoreTimerState(JSON.stringify({ ...legacy, version: 2 }), START + 20_000)
+  assert.equal(restored.version, 3)
+  assert.equal(getTodayStats(restored, START).focusSeconds, 10)
+  assert.deepEqual(getHourlyStats(restored, START).focusSeconds, Array(24).fill(0))
+})
+
+test('valid version 3 hourly buckets survive local storage restoration', () => {
+  const focusSeconds = Array(24).fill(0)
+  const breakSeconds = Array(24).fill(0)
+  focusSeconds[10] = 125.5
+  breakSeconds[11] = 20
+  const raw = {
+    ...createTimerState(START),
+    version: 3,
+    hourly: { [localDateKey(START)]: { focusSeconds, breakSeconds } },
+  }
+  const restored = restoreTimerState(JSON.stringify(raw), START + 1_000)
+  assert.deepEqual(getHourlyStats(restored, START), { focusSeconds, breakSeconds })
+})
+
+test('restoring hourly data rejects invalid dates and sanitizes malformed buckets', () => {
+  const focusSeconds: unknown[] = [10, -1, '2', null, ...Array(20).fill(0)]
+  const raw = {
+    ...createTimerState(START),
+    version: 3,
+    hourly: {
+      [localDateKey(START)]: { focusSeconds, breakSeconds: Array(23).fill(5) },
+      'not-a-date': { focusSeconds: Array(24).fill(10), breakSeconds: Array(24).fill(10) },
+    },
+  }
+  const restored = restoreTimerState(JSON.stringify(raw), START + 1_000)
+  const hourly = getHourlyStats(restored, START)
+  assert.equal(hourly.focusSeconds[0], 10)
+  assert.deepEqual(hourly.focusSeconds.slice(1), Array(23).fill(0))
+  assert.deepEqual(hourly.breakSeconds, Array(24).fill(0))
+  assert.deepEqual(Object.keys(restored.hourly), [localDateKey(START)])
+})
+
+test('restoring trims hourly buckets outside the 35-day retention window', () => {
+  const old = new Date(START)
+  old.setDate(old.getDate() - 40)
+  const currentFocus = Array(24).fill(0)
+  currentFocus[10] = 12
+  const oldFocus = Array(24).fill(7)
+  const raw = {
+    ...createTimerState(START),
+    version: 3,
+    hourly: {
+      [localDateKey(old.getTime())]: { focusSeconds: oldFocus, breakSeconds: Array(24).fill(0) },
+      [localDateKey(START)]: { focusSeconds: currentFocus, breakSeconds: Array(24).fill(0) },
+    },
+  }
+  const restored = restoreTimerState(JSON.stringify(raw), START)
+  assert.deepEqual(Object.keys(restored.hourly), [localDateKey(START)])
+  assert.equal(getHourlyStats(restored, START).focusSeconds[10], 12)
+})
+
 test('corrupt or unknown storage safely produces a usable default state', () => {
   for (const raw of ['not json', '{}', 'null', '[]', '{"version":2}']) {
     const state = restoreTimerState(raw, START)
@@ -698,7 +758,7 @@ test('old v1 states gain an occurrence identity and invalid pending data is disc
   const started = startTimerBreak(createTimerState(START), 'short', START)
   const { breakId: _id, deferredBreak: _pending, postponeUsed: _used, lifecycleIntervalIds: _intervals, ...old } = started
   const restored = restoreTimerState(JSON.stringify({ ...old, version: 1 }), START)
-  assert.equal(restored.version, 2)
+  assert.equal(restored.version, 3)
   assert.deepEqual(restored.lifecycleIntervalIds, [])
   assert.equal(restored.phase, 'short')
   assert.ok(restored.breakId)
