@@ -1,5 +1,6 @@
 use repose_unlock_core::calibration::{
-    CalibrationError, CalibrationPolicy, SampleGroup, calibrate,
+    CalibrationError, CalibrationPolicy, CalibrationProfile, CalibrationProfileError,
+    CalibrationProfileField, SampleGroup, calibrate,
 };
 
 #[test]
@@ -19,10 +20,10 @@ fn isolated_outliers_do_not_expand_the_unlock_boundary() {
 
     let profile = calibrate(&near, &far, &CalibrationPolicy::prototype()).unwrap();
 
-    assert!(profile.near_threshold_dbm > profile.far_threshold_dbm);
-    assert!(profile.near_threshold_dbm - profile.far_threshold_dbm >= 8);
-    assert_eq!(profile.near_threshold_dbm, -49);
-    assert_eq!(profile.far_threshold_dbm, -73);
+    assert!(profile.near_threshold_dbm() > profile.far_threshold_dbm());
+    assert!(profile.near_threshold_dbm() - profile.far_threshold_dbm() >= 8);
+    assert_eq!(profile.near_threshold_dbm(), -49);
+    assert_eq!(profile.far_threshold_dbm(), -73);
 }
 
 #[test]
@@ -36,6 +37,23 @@ fn rejects_insufficient_samples_from_either_group() {
         error,
         CalibrationError::InsufficientSamples {
             group: SampleGroup::Far,
+            required: 8,
+            actual: 3,
+        }
+    );
+}
+
+#[test]
+fn rejects_insufficient_near_samples() {
+    let too_few = [-48, -49, -47];
+    let enough = [-74, -75, -73, -74, -75, -73, -74, -75];
+
+    let error = calibrate(&too_few, &enough, &CalibrationPolicy::prototype()).unwrap_err();
+
+    assert_eq!(
+        error,
+        CalibrationError::InsufficientSamples {
+            group: SampleGroup::Near,
             required: 8,
             actual: 3,
         }
@@ -96,4 +114,69 @@ fn policy_constructor_rejects_invalid_values() {
     assert!(CalibrationPolicy::new(8, 25, 101, 8).is_err());
     assert!(CalibrationPolicy::new(8, 75, 25, 8).is_err());
     assert!(CalibrationPolicy::new(8, 25, 75, 0).is_err());
+}
+
+#[test]
+fn accepts_exactly_the_configured_minimum_separation() {
+    let near = [-55; 8];
+    let far = [-63; 8];
+
+    let profile = calibrate(&near, &far, &CalibrationPolicy::prototype()).unwrap();
+
+    assert_eq!(
+        profile.near_threshold_dbm() - profile.far_threshold_dbm(),
+        8
+    );
+}
+
+#[test]
+fn profile_factory_preserves_validated_values_for_persistence() {
+    let profile = CalibrationProfile::new(-48, -74, -49, -73, 8).unwrap();
+
+    assert_eq!(profile.near_median_dbm(), -48);
+    assert_eq!(profile.far_median_dbm(), -74);
+    assert_eq!(profile.near_threshold_dbm(), -49);
+    assert_eq!(profile.far_threshold_dbm(), -73);
+    assert_eq!(profile.minimum_separation_db(), 8);
+}
+
+#[test]
+fn profile_factory_rejects_out_of_range_rssi() {
+    assert_eq!(
+        CalibrationProfile::new(-48, -74, 0, -73, 8),
+        Err(CalibrationProfileError::InvalidRssi {
+            field: CalibrationProfileField::NearThreshold,
+            value: 0,
+        })
+    );
+}
+
+#[test]
+fn profile_factory_rejects_unordered_thresholds() {
+    assert_eq!(
+        CalibrationProfile::new(-48, -74, -73, -73, 8),
+        Err(CalibrationProfileError::ThresholdsOutOfOrder {
+            near_threshold_dbm: -73,
+            far_threshold_dbm: -73,
+        })
+    );
+}
+
+#[test]
+fn profile_factory_rejects_insufficient_threshold_separation() {
+    assert_eq!(
+        CalibrationProfile::new(-48, -74, -65, -72, 8),
+        Err(CalibrationProfileError::InsufficientSeparation {
+            required_db: 8,
+            observed_db: 7,
+        })
+    );
+}
+
+#[test]
+fn profile_factory_rejects_non_positive_minimum_separation() {
+    assert_eq!(
+        CalibrationProfile::new(-48, -74, -49, -73, 0),
+        Err(CalibrationProfileError::MinimumSeparationNotPositive { value: 0 })
+    );
 }

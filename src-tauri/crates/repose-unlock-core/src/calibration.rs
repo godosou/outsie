@@ -121,10 +121,145 @@ impl Error for CalibrationPolicyError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CalibrationProfile {
-    pub near_median_dbm: i16,
-    pub far_median_dbm: i16,
-    pub near_threshold_dbm: i16,
-    pub far_threshold_dbm: i16,
+    near_median_dbm: i16,
+    far_median_dbm: i16,
+    near_threshold_dbm: i16,
+    far_threshold_dbm: i16,
+    minimum_separation_db: i16,
+}
+
+impl CalibrationProfile {
+    pub fn new(
+        near_median_dbm: i16,
+        far_median_dbm: i16,
+        near_threshold_dbm: i16,
+        far_threshold_dbm: i16,
+        minimum_separation_db: i16,
+    ) -> Result<Self, CalibrationProfileError> {
+        if minimum_separation_db <= 0 {
+            return Err(CalibrationProfileError::MinimumSeparationNotPositive {
+                value: minimum_separation_db,
+            });
+        }
+
+        validate_profile_rssi(CalibrationProfileField::NearMedian, near_median_dbm)?;
+        validate_profile_rssi(CalibrationProfileField::FarMedian, far_median_dbm)?;
+        validate_profile_rssi(CalibrationProfileField::NearThreshold, near_threshold_dbm)?;
+        validate_profile_rssi(CalibrationProfileField::FarThreshold, far_threshold_dbm)?;
+
+        if near_threshold_dbm <= far_threshold_dbm {
+            return Err(CalibrationProfileError::ThresholdsOutOfOrder {
+                near_threshold_dbm,
+                far_threshold_dbm,
+            });
+        }
+        let observed_db = near_threshold_dbm - far_threshold_dbm;
+        if observed_db < minimum_separation_db {
+            return Err(CalibrationProfileError::InsufficientSeparation {
+                required_db: minimum_separation_db,
+                observed_db,
+            });
+        }
+
+        Ok(Self {
+            near_median_dbm,
+            far_median_dbm,
+            near_threshold_dbm,
+            far_threshold_dbm,
+            minimum_separation_db,
+        })
+    }
+
+    #[must_use]
+    pub const fn near_median_dbm(self) -> i16 {
+        self.near_median_dbm
+    }
+
+    #[must_use]
+    pub const fn far_median_dbm(self) -> i16 {
+        self.far_median_dbm
+    }
+
+    #[must_use]
+    pub const fn near_threshold_dbm(self) -> i16 {
+        self.near_threshold_dbm
+    }
+
+    #[must_use]
+    pub const fn far_threshold_dbm(self) -> i16 {
+        self.far_threshold_dbm
+    }
+
+    #[must_use]
+    pub const fn minimum_separation_db(self) -> i16 {
+        self.minimum_separation_db
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalibrationProfileField {
+    NearMedian,
+    FarMedian,
+    NearThreshold,
+    FarThreshold,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalibrationProfileError {
+    InvalidRssi {
+        field: CalibrationProfileField,
+        value: i16,
+    },
+    MinimumSeparationNotPositive {
+        value: i16,
+    },
+    ThresholdsOutOfOrder {
+        near_threshold_dbm: i16,
+        far_threshold_dbm: i16,
+    },
+    InsufficientSeparation {
+        required_db: i16,
+        observed_db: i16,
+    },
+}
+
+impl Display for CalibrationProfileError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidRssi { field, value } => {
+                write!(formatter, "{field:?} has invalid RSSI {value}")
+            }
+            Self::MinimumSeparationNotPositive { value } => write!(
+                formatter,
+                "profile minimum separation must be positive, received {value} dB"
+            ),
+            Self::ThresholdsOutOfOrder {
+                near_threshold_dbm,
+                far_threshold_dbm,
+            } => write!(
+                formatter,
+                "near threshold {near_threshold_dbm} must exceed far threshold {far_threshold_dbm}"
+            ),
+            Self::InsufficientSeparation {
+                required_db,
+                observed_db,
+            } => write!(
+                formatter,
+                "profile threshold separation is {observed_db} dB; at least {required_db} dB is required"
+            ),
+        }
+    }
+}
+
+impl Error for CalibrationProfileError {}
+
+fn validate_profile_rssi(
+    field: CalibrationProfileField,
+    value: i16,
+) -> Result<(), CalibrationProfileError> {
+    RssiDbm::try_new(value)
+        .map(|_| ())
+        .map_err(|_| CalibrationProfileError::InvalidRssi { field, value })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +285,7 @@ pub enum CalibrationError {
         required_db: i16,
         observed_db: i16,
     },
+    InvalidProfile(CalibrationProfileError),
 }
 
 impl Display for CalibrationError {
@@ -181,6 +317,9 @@ impl Display for CalibrationError {
                 formatter,
                 "calibration separation is {observed_db} dB; at least {required_db} dB is required"
             ),
+            Self::InvalidProfile(error) => {
+                write!(formatter, "invalid calibration profile: {error}")
+            }
         }
     }
 }
@@ -212,12 +351,14 @@ pub fn calibrate(
         });
     }
 
-    Ok(CalibrationProfile {
-        near_median_dbm: median(&near),
-        far_median_dbm: median(&far),
+    CalibrationProfile::new(
+        median(&near),
+        median(&far),
         near_threshold_dbm,
         far_threshold_dbm,
-    })
+        policy.minimum_separation_db,
+    )
+    .map_err(CalibrationError::InvalidProfile)
 }
 
 fn ensure_sample_count(

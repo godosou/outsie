@@ -9,19 +9,33 @@ use crate::domain::{MonoMillis, RssiDbm};
 pub struct ProximityPolicy {
     sample_window: usize,
     dwell: MonoMillis,
+    maximum_sample_gap: MonoMillis,
 }
 
 impl ProximityPolicy {
-    pub fn new(sample_window: usize, dwell: MonoMillis) -> Result<Self, ProximityPolicyError> {
+    pub fn new(
+        sample_window: usize,
+        dwell: MonoMillis,
+        maximum_sample_gap: MonoMillis,
+    ) -> Result<Self, ProximityPolicyError> {
         if sample_window == 0 {
             return Err(ProximityPolicyError::EmptySampleWindow);
+        }
+        if sample_window.is_multiple_of(2) {
+            return Err(ProximityPolicyError::EvenSampleWindow {
+                value: sample_window,
+            });
         }
         if dwell.get() == 0 {
             return Err(ProximityPolicyError::ZeroDwell);
         }
+        if maximum_sample_gap.get() == 0 {
+            return Err(ProximityPolicyError::ZeroMaximumSampleGap);
+        }
         Ok(Self {
             sample_window,
             dwell,
+            maximum_sample_gap,
         })
     }
 
@@ -34,19 +48,31 @@ impl ProximityPolicy {
     pub const fn dwell(self) -> MonoMillis {
         self.dwell
     }
+
+    #[must_use]
+    pub const fn maximum_sample_gap(self) -> MonoMillis {
+        self.maximum_sample_gap
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProximityPolicyError {
     EmptySampleWindow,
+    EvenSampleWindow { value: usize },
     ZeroDwell,
+    ZeroMaximumSampleGap,
 }
 
 impl Display for ProximityPolicyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptySampleWindow => write!(formatter, "sample window must not be empty"),
+            Self::EvenSampleWindow { value } => write!(
+                formatter,
+                "sample window {value} must be odd to produce a strict median majority"
+            ),
             Self::ZeroDwell => write!(formatter, "dwell must be positive"),
+            Self::ZeroMaximumSampleGap => write!(formatter, "maximum sample gap must be positive"),
         }
     }
 }
@@ -73,10 +99,6 @@ struct PendingState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProximityError {
-    InvalidProfile {
-        near_threshold_dbm: i16,
-        far_threshold_dbm: i16,
-    },
     InvalidRssi {
         value: i16,
     },
@@ -89,13 +111,6 @@ pub enum ProximityError {
 impl Display for ProximityError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidProfile {
-                near_threshold_dbm,
-                far_threshold_dbm,
-            } => write!(
-                formatter,
-                "near threshold {near_threshold_dbm} must exceed far threshold {far_threshold_dbm}"
-            ),
             Self::InvalidRssi { value } => write!(formatter, "invalid RSSI {value}"),
             Self::NonMonotonicTime { previous, current } => write!(
                 formatter,
@@ -124,13 +139,6 @@ impl ProximityFilter {
         profile: CalibrationProfile,
         policy: ProximityPolicy,
     ) -> Result<Self, ProximityError> {
-        if profile.near_threshold_dbm <= profile.far_threshold_dbm {
-            return Err(ProximityError::InvalidProfile {
-                near_threshold_dbm: profile.near_threshold_dbm,
-                far_threshold_dbm: profile.far_threshold_dbm,
-            });
-        }
-
         Ok(Self {
             profile,
             policy,
@@ -146,17 +154,27 @@ impl ProximityFilter {
         sample: i16,
         now: MonoMillis,
     ) -> Result<Option<ProximityEvent>, ProximityError> {
-        let sample = RssiDbm::try_new(sample)
-            .map_err(|error| ProximityError::InvalidRssi { value: error.value })?;
-        if let Some(previous) = self.last_now
-            && now < previous
-        {
-            return Err(ProximityError::NonMonotonicTime {
-                previous,
-                current: now,
-            });
+        if let Some(previous) = self.last_now {
+            if now < previous {
+                self.clear_continuity();
+                return Err(ProximityError::NonMonotonicTime {
+                    previous,
+                    current: now,
+                });
+            }
+            if now.get() - previous.get() > self.policy.maximum_sample_gap.get() {
+                self.clear_continuity();
+            }
         }
         self.last_now = Some(now);
+
+        let sample = match RssiDbm::try_new(sample) {
+            Ok(sample) => sample,
+            Err(error) => {
+                self.clear_continuity();
+                return Err(ProximityError::InvalidRssi { value: error.value });
+            }
+        };
 
         if self.samples.len() == self.policy.sample_window {
             self.samples.pop_front();
@@ -201,12 +219,18 @@ impl ProximityFilter {
         let mut sorted: Vec<_> = self.samples.iter().copied().collect();
         sorted.sort_unstable();
         let median = sorted[(sorted.len() - 1) / 2];
-        if median >= self.profile.near_threshold_dbm {
+        if median >= self.profile.near_threshold_dbm() {
             Some(ProximityState::Near)
-        } else if median <= self.profile.far_threshold_dbm {
+        } else if median <= self.profile.far_threshold_dbm() {
             Some(ProximityState::Far)
         } else {
             None
         }
+    }
+
+    fn clear_continuity(&mut self) {
+        self.samples.clear();
+        self.pending = None;
+        self.stable = None;
     }
 }
