@@ -38,6 +38,47 @@ test('hourly stats expose 24 immutable-by-copy buckets', () => {
   assert.equal(getHourlyStats(state, START).breakSeconds[10], 0)
 })
 
+test('trusted focus time splits across local hour boundaries', () => {
+  const at = new Date(2026, 8, 6, 10, 59, 50).getTime()
+  const state = advanceTimerBy(createTimerState(at), 20, at + 20_000)
+  const hourly = getHourlyStats(state, at)
+  assert.equal(hourly.focusSeconds[10], 10)
+  assert.equal(hourly.focusSeconds[11], 10)
+})
+
+test('hourly focus time splits across local midnight', () => {
+  const beforeMidnight = new Date(2026, 8, 6, 23, 59, 50).getTime()
+  const afterMidnight = beforeMidnight + 20_000
+  const state = advanceTimerBy(createTimerState(beforeMidnight), 20, afterMidnight)
+  assert.equal(getHourlyStats(state, beforeMidnight).focusSeconds[23], 10)
+  assert.equal(getHourlyStats(state, afterMidnight).focusSeconds[0], 10)
+})
+
+test('passive rest splits into the matching local hour buckets', () => {
+  const at = new Date(2026, 8, 6, 10, 59, 55).getTime()
+  const focused = createTimerState(at)
+  const state = applyInactivityInterval(focused, captureInactivity(focused), {
+    intervalId: 'hourly-passive-rest',
+    elapsedSeconds: 10,
+    startedAt: at,
+    endedAt: at + 10_000,
+  })
+  const hourly = getHourlyStats(state, at)
+  assert.equal(hourly.breakSeconds[10], 5)
+  assert.equal(hourly.breakSeconds[11], 5)
+  assert.equal(hourly.focusSeconds[10], 0)
+  assert.equal(hourly.focusSeconds[11], 0)
+})
+
+test('hourly recording preserves earlier timer snapshots', () => {
+  const initial = createTimerState(START)
+  const first = advanceTimerBy(initial, 5, START + 5_000)
+  const second = advanceTimerBy(first, 5, START + 10_000)
+  assert.equal(getHourlyStats(initial, START).focusSeconds[10], 0)
+  assert.equal(getHourlyStats(first, START).focusSeconds[10], 5)
+  assert.equal(getHourlyStats(second, START).focusSeconds[10], 10)
+})
+
 test('monotonic samples count only forward active process time', () => {
   assert.equal(monotonicElapsedSeconds(1_000, 6_500, false), 5.5)
   assert.equal(monotonicElapsedSeconds(1_000, 6_500, true), 0)

@@ -199,17 +199,42 @@ function getDay(days: Record<string, DailyStats>, timestamp: number): DailyStats
   return stats
 }
 
-/** Split elapsed time at local midnight, including daylight-saving boundaries. */
-function recordTime(days: Record<string, DailyStats>, phase: TimerPhase, from: number, to: number) {
+function getHour(hourly: Record<string, HourlyStats>, timestamp: number): HourlyStats {
+  const key = localDateKey(timestamp)
+  const existing = hourly[key] ?? emptyHourlyStats()
+  const stats = {
+    focusSeconds: [...existing.focusSeconds],
+    breakSeconds: [...existing.breakSeconds],
+  }
+  hourly[key] = stats
+  return stats
+}
+
+/** Split trusted elapsed time at local hour boundaries, including midnight. */
+function recordTime(
+  days: Record<string, DailyStats>,
+  hourly: Record<string, HourlyStats>,
+  phase: TimerPhase,
+  from: number,
+  to: number,
+) {
   let cursor = from
   while (cursor < to) {
-    const nextMidnight = new Date(cursor)
-    nextMidnight.setHours(24, 0, 0, 0)
-    const end = Math.min(to, nextMidnight.getTime())
+    const nextHour = new Date(cursor)
+    nextHour.setMinutes(0, 0, 0)
+    nextHour.setHours(nextHour.getHours() + 1)
+    const end = Math.min(to, nextHour.getTime())
+    const hour = new Date(cursor).getHours()
     const stats = getDay(days, cursor)
+    const hourlyStats = getHour(hourly, cursor)
     const seconds = (end - cursor) / 1000
-    if (phase === 'focus') stats.focusSeconds += seconds
-    else stats.breakSeconds += seconds
+    if (phase === 'focus') {
+      stats.focusSeconds += seconds
+      hourlyStats.focusSeconds[hour] += seconds
+    } else {
+      stats.breakSeconds += seconds
+      hourlyStats.breakSeconds[hour] += seconds
+    }
     cursor = end
   }
 }
@@ -263,11 +288,12 @@ export function advanceTimerBy(original: TimerState, elapsedSeconds: number, now
   const state: TimerState = {
     ...original,
     days: { ...original.days },
+    hourly: { ...original.hourly },
     history: [...original.history],
     updatedAt: now,
   }
   const elapsed = Math.min(elapsedSeconds, state.remaining)
-  recordTime(state.days, state.phase, now - elapsed * 1000, now)
+  recordTime(state.days, state.hourly, state.phase, now - elapsed * 1000, now)
   state.remaining = Math.max(0, state.remaining - elapsed)
   if (state.remaining <= 0.000001) transition(state, now)
   trimRecords(state, now)
@@ -307,9 +333,11 @@ export function applyInactivityInterval(
   }
   if (original.phase !== 'focus') return state
   state.days = { ...original.days }
+  state.hourly = { ...original.hourly }
   state.history = [...original.history]
   recordTime(
     state.days,
+    state.hourly,
     'short',
     interval.endedAt - interval.elapsedSeconds * 1000,
     interval.endedAt,
@@ -396,12 +424,13 @@ export function completeTimerBreak(
   const state: TimerState = {
     ...original,
     days: { ...original.days },
+    hourly: { ...original.hourly },
     history: [...original.history],
     updatedAt: now,
   }
   // The native deadline proves this break finished. Credit its outstanding duration,
   // not an unbounded wall-clock gap, and retain any seconds already recorded by ticks.
-  recordTime(state.days, state.phase, now - state.remaining * 1000, now)
+  recordTime(state.days, state.hourly, state.phase, now - state.remaining * 1000, now)
   transition(state, now)
   trimRecords(state, now)
   return state
