@@ -11,7 +11,9 @@ val mobileAppProjectPath = project.path
 
 gradle.taskGraph.whenReady {
     val releaseTaskRequested = allTasks.any { task ->
-        task.project.path == mobileAppProjectPath && task.name.contains("Release")
+        task.project.path == mobileAppProjectPath &&
+            task.name.contains("Release") &&
+            !task.name.contains("clean", ignoreCase = true)
     }
     if (releaseTaskRequested) {
         throw GradleException(releaseGateError)

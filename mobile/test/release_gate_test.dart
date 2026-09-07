@@ -13,6 +13,11 @@ void main() {
 
       expect(gradle, contains('gradle.taskGraph.whenReady'));
       expect(gradle, contains('task.name.contains("Release")'));
+      expect(
+        gradle,
+        contains('!task.name.contains("clean", ignoreCase = true)'),
+        reason: 'clean builds must not be mistaken for release publication',
+      );
       expect(gradle, contains('throw GradleException(releaseGateError)'));
       expect(gradle, contains(gateMessage));
       expect(gradle, isNot(contains('task.name.contains("Debug")')));
