@@ -9,6 +9,8 @@ members = [
   ".",
   "crates/repose-authdb-policy",
   "crates/repose-unlock-core",
+  "crates/repose-unlock-ipc",
+  "crates/repose-unlock-service",
 ]
 resolver = "3"
 

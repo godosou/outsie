@@ -2744,6 +2744,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "repose-unlock-ipc"
+version = "0.1.0"
+dependencies = [
+ "repose-unlock-core",
+]
+
+[[package]]
+name = "repose-unlock-service"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "libc",
+ "p256",
+ "parking_lot",
+ "repose-unlock-core",
+ "repose-unlock-ipc",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

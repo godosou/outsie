@@ -376,7 +376,7 @@ impl Error for ChallengeVerificationError {}
 /// Opaque phone-side evidence that a Challenge came from the paired Mac.
 ///
 /// This value is intentionally neither `Clone` nor `Debug`, and it is the only
-/// accepted input to [`build_phone_response`].
+/// accepted input to `build_phone_response`.
 ///
 /// ```compile_fail
 /// use repose_unlock_core::protocol::crypto::VerifiedMacChallenge;
