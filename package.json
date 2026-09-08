@@ -1,6 +1,6 @@
 {
   "name": "repose",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "productName": "Repose",
@@ -13,7 +13,8 @@
     "test": "node --import tsx --test src/lib/*.test.ts",
     "desktop": "tauri dev",
     "desktop:dev": "tauri dev",
-    "package:mac": "tauri build --bundles app"
+    "package:mac": "tauri build --bundles app",
+    "package:mac:release": "node scripts/package-tauri-mac.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",
