@@ -3,6 +3,10 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { ArrowDown, ArrowUp, Check, Keyboard, Plus, RotateCcw, Smartphone, Square, Trash2 } from 'lucide-react'
 import { createConsoleBridge, consoleConnectionLabel, consoleBluetoothHint, formatConsoleSequence, formatConsoleStep, MODIFIERS, MODIFIER_LABELS, moveConsoleStep, recordConsoleKey, validateConsoleConfig, type ConsoleAction, type ConsoleApp, type ConsoleConfig, type ConsoleStatus, type ConsoleStep, type WorkConsoleBridge } from '../lib/workConsole'
 
+import { ConsoleAppPicker } from './ConsoleAppPicker'
+import { appendConsoleImport, parseConsoleImport, MAX_IMPORT_BYTES, CONSOLE_AI_PROMPT } from '../lib/consoleImport'
+import codexPresets from '../lib/codexPresets.json'
+
 const nativeBridge = isTauri() ? createConsoleBridge(invoke) : undefined
 const blankStep = (): ConsoleStep => ({ key: 'Enter', modifiers: [], delayMs: 0 })
 const id = () => crypto.randomUUID()
@@ -15,6 +19,9 @@ export function WorkConsolePanel({ bridge = nativeBridge, onOpenPairing }: { bri
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [picker, setPicker] = useState<'new' | 'replace' | null>(null)
+  const [showAI, setShowAI] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [recording, setRecording] = useState(false)
   const recorder = useRef<HTMLDivElement>(null)
   const recordedSteps = useRef<ConsoleStep[]>([])
@@ -131,11 +138,32 @@ export function WorkConsolePanel({ bridge = nativeBridge, onOpenPairing }: { bri
     </section>
 
     {config && selectedApp && <section className="panel wc-panel">
-      <div className="wc-heading"><div><h2>App 快捷操作</h2><p>手机切换 App 后，显示该 App 的操作。按钮顺序可在手机拖动调整。</p></div><button className="wc-button" disabled={busy || recording || config.apps.length >= 16} onClick={() => { const app: ConsoleApp = { id: id(), name: '新 App', bundleId: '', actions: [] }; setDraft({ ...config, apps: [...config.apps, app] }); setAppId(app.id); setActionId('') }}><Plus size={14} />添加 App</button></div>
+      <div className="wc-heading"><div><h2>App 快捷操作</h2><p>手机切换 App 后，显示该 App 的操作。按钮顺序可在手机拖动调整。</p></div><button className="wc-button" disabled={busy || recording || config.apps.length >= 16} onClick={() => setPicker('new')}><Plus size={14} />添加 App</button></div>
       <div className="wc-app-tabs" role="tablist" aria-label="配置 App">{config.apps.map(app => <button key={app.id} role="tab" aria-selected={selectedApp.id === app.id} className={selectedApp.id === app.id ? 'selected' : ''} disabled={busy || recording} onClick={() => { setAppId(app.id); setActionId('') }}>{app.name || '未命名 App'}</button>)}</div>
-      <fieldset disabled={busy || recording} className="wc-app-settings"><label>App 名称<input value={selectedApp.name} maxLength={64} onChange={event => updateApp(app => ({ ...app, name: event.target.value }))} /></label><label>App Bundle ID<input value={selectedApp.bundleId} placeholder="com.apple.Terminal" onChange={event => updateApp(app => ({ ...app, bundleId: event.target.value }))} /></label><button className="wc-button danger" aria-label={`删除 App ${selectedApp.name}`} disabled={config.apps.length <= 1} onClick={() => { setDraft({ ...config, apps: config.apps.filter(app => app.id !== selectedApp.id) }); setAppId(''); setActionId('') }}><Trash2 size={15} /></button></fieldset>
-      <p className="wc-hint">tmux 默认在 Terminal 中运行；使用 iTerm 时可改为 com.googlecode.iterm2。按键由 Mac 当前键盘布局解析；输入法合成文字不会录制。</p>
-      <div className="wc-workspace"><div className="wc-actions"><div className="wc-action-grid">{selectedApp.actions.map(action => <button key={action.id} className={`wc-action ${selectedAction?.id === action.id ? 'selected' : ''} ${action.kind === 'sequence' ? 'sequence' : ''}`} disabled={busy || recording} onClick={() => setActionId(action.id)}><span className="wc-action-icon">{action.icon}</span><strong>{action.name || '未命名操作'}</strong><small>{action.kind === 'sequence' ? `${action.steps.length} 步键盘序列` : action.steps[0] ? formatConsoleStep(action.steps[0]) : '未配置按键'}</small></button>)}</div><button className="wc-button wc-add" disabled={busy || recording || selectedApp.actions.length >= 12} onClick={() => { const action: ConsoleAction = { id: id(), name: '新操作', icon: '⌘', kind: 'hotkey', steps: [blankStep()] }; updateApp(app => ({ ...app, actions: [...app.actions, action] })); setActionId(action.id) }}><Plus size={15} />添加操作 · {selectedApp.actions.length}/12</button></div>
+      <div className="wc-import-controls"><button className="wc-button" disabled={busy || recording} onClick={() => fileInput.current?.click()}>导入配置文件</button><button className="wc-button" disabled={recording} onClick={() => setShowAI(!showAI)}>让 AI 生成配置</button><span className="wc-hint">支持 .json；导入为新增 App 草稿，检查并选择本机 App 后保存。</span></div>
+      <input ref={fileInput} type="file" accept=".json,application/json" aria-label="导入 JSON 配置文件" hidden disabled={busy || recording} onChange={async event => {
+        const file = event.target.files?.[0]; event.target.value = ''
+        if (!file || busyRef.current) return
+        busyRef.current = true; setBusy(true); setError('')
+        try {
+          if (file.size > MAX_IMPORT_BYTES) throw new Error('配置文件不能超过 192 KiB。')
+          const apps = parseConsoleImport(await file.text())
+          if (!mounted.current) return
+          setDraft(appendConsoleImport(config, apps)); setAppId(apps[0].id); setActionId('')
+          setNotice(`已导入 ${apps.length} 个 App、${apps.reduce((sum, app) => sum + app.actions.length, 0)} 个操作到草稿。请逐个选择本机 App，检查后保存。`)
+        } catch (reason) { if (mounted.current) setError(String(reason)) }
+        finally { busyRef.current = false; if (mounted.current) setBusy(false) }
+      }} />
+      {showAI && <div className="wc-ai-help"><h3>把这段说明交给 AI</h3><p>替换 App 名称和需求，让 AI 生成 .json 文件，再点「导入配置文件」。快捷键可继续编辑，也支持录制和等待步骤。</p><textarea aria-label="AI 配置生成说明" readOnly value={CONSOLE_AI_PROMPT} rows={9} /><button className="wc-button" onClick={async () => { try { await navigator.clipboard.writeText(CONSOLE_AI_PROMPT); setNotice('生成说明已复制。') } catch { setError('无法自动复制，请选中上方说明并复制。') } }}>复制生成说明</button></div>}
+      <fieldset disabled={busy || recording} className="wc-app-settings"><label>手机上显示的名称<input value={selectedApp.name} maxLength={64} onChange={event => updateApp(app => ({ ...app, name: event.target.value }))} /></label><div className="wc-target-app"><span>控制的本机 App</span><strong>{selectedApp.appPath?.split('/').pop()?.replace(/\.app$/i, '') || (selectedApp.bundleId ? selectedApp.id === 'tmux' ? 'Terminal（默认）' : `${selectedApp.name}（默认）` : '尚未选择')}</strong><button className="wc-button" onClick={() => setPicker('replace')}>{selectedApp.bundleId ? '更换 App' : '选择 App'}</button></div><button className="wc-button danger" aria-label={`删除 App ${selectedApp.name}`} disabled={config.apps.length <= 1} onClick={() => { setDraft({ ...config, apps: config.apps.filter(app => app.id !== selectedApp.id) }); setAppId(''); setActionId('') }}><Trash2 size={15} /></button></fieldset>
+      <p className="wc-hint">tmux 请选择运行它的终端，如 Terminal、iTerm 或 Ghostty。按键由 Mac 当前键盘布局解析；输入法合成文字不会录制。</p>
+      {(selectedApp.id === 'codex' || selectedApp.bundleId === 'com.openai.codex') && <div className="wc-preset-help"><p className="wc-hint">Codex 预置覆盖官方 macOS 有默认按键的功能，每个功能选用一个按键组合。部分操作需要先聚焦终端、输入框或浏览器；若在 Codex 改过快捷键，请在此同步修改。搜索历史对话需先在 Codex 分配快捷键；Appshot 的双 Command 暂不支持。</p><button className="wc-button" disabled={busy || recording} onClick={() => { const missing = (codexPresets as ConsoleAction[]).filter(preset => !selectedApp.actions.some(action => action.id === preset.id)); if (selectedApp.actions.length + missing.length > 96) { setError('补齐后超过 96 个操作，请先删除不需要的操作。'); return } updateApp(app => ({ ...app, actions: [...app.actions, ...structuredClone(missing)] })); setNotice(`已补充 ${missing.length} 个默认操作，请保存。已有操作保留。`) }}>补齐 Codex 默认操作</button></div>}
+      {picker && <ConsoleAppPicker bridge={bridge} onClose={() => setPicker(null)} onChoose={chosen => {
+        if (picker === 'new') { const app: ConsoleApp = { id: id(), name: chosen.name, bundleId: chosen.bundleId, appPath: chosen.path, actions: chosen.bundleId === 'com.openai.codex' ? structuredClone(codexPresets) as ConsoleAction[] : [] }; setDraft({ ...config, apps: [...config.apps, app] }); setAppId(app.id); setActionId('') }
+        else updateApp(app => ({ ...app, bundleId: chosen.bundleId, appPath: chosen.path }))
+        setPicker(null)
+      }} />}
+      <div className="wc-workspace"><div className="wc-actions"><div className="wc-action-grid">{selectedApp.actions.map(action => <button key={action.id} className={`wc-action ${selectedAction?.id === action.id ? 'selected' : ''} ${action.kind === 'sequence' ? 'sequence' : ''}`} disabled={busy || recording} onClick={() => setActionId(action.id)}><span className="wc-action-icon">{action.icon}</span><strong>{action.name || '未命名操作'}</strong><small>{action.kind === 'sequence' ? `${action.steps.length} 步键盘序列` : action.steps[0] ? formatConsoleStep(action.steps[0]) : '未配置按键'}</small></button>)}</div><button className="wc-button wc-add" disabled={busy || recording || selectedApp.actions.length >= 96} onClick={() => { const action: ConsoleAction = { id: id(), name: '新操作', icon: '⌘', kind: 'hotkey', steps: [blankStep()] }; updateApp(app => ({ ...app, actions: [...app.actions, action] })); setActionId(action.id) }}><Plus size={15} />添加操作 · {selectedApp.actions.length}/96</button></div>
         {selectedAction ? <div className="wc-editor"><fieldset disabled={busy || recording}>
           <div className="wc-fields"><label className="wc-icon-field">图标<input value={selectedAction.icon} maxLength={16} onChange={event => updateAction(action => ({ ...action, icon: event.target.value }))} /></label><label>按钮名称<input value={selectedAction.name} maxLength={64} onChange={event => updateAction(action => ({ ...action, name: event.target.value }))} /></label></div>
           <label>操作类型<select value={selectedAction.kind} onChange={event => updateAction(action => ({ ...action, kind: event.target.value as ConsoleAction['kind'], steps: event.target.value === 'hotkey' ? action.steps.slice(0, 1) : action.steps }))}><option value="hotkey">单个快捷键</option><option value="sequence">键盘序列</option></select></label>

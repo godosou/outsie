@@ -26,16 +26,23 @@ fn main() {
         fn trusted(&self, _: bool) -> bool {
             true
         }
-        fn activate(&self, bundle: &str, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String> {
+        fn activate(
+            &self,
+            app: &repose_lib::work_console::ConsoleApp,
+            valid: &(dyn Fn() -> bool + Sync),
+        ) -> Result<(), String> {
             if !valid() {
                 return Err("cancelled".into());
             }
-            self.events.lock().unwrap().push(json!({"activate":bundle}));
+            self.events
+                .lock()
+                .unwrap()
+                .push(json!({"activate":app.bundle_id}));
             Ok(())
         }
         fn send(
             &self,
-            _: &str,
+            _: &repose_lib::work_console::ConsoleApp,
             step: &Step,
             valid: &(dyn Fn() -> bool + Sync),
         ) -> Result<(), String> {

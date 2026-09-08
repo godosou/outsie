@@ -2,6 +2,19 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "work-console-main",
   "description": "Configure and authorize phone App controls from the main window only",
-  "windows": ["main"],
-  "permissions": ["allow-console-status", "allow-console-save", "allow-console-reset", "allow-console-start", "allow-console-stop", "allow-console-run", "allow-console-cancel", "allow-console-accessibility"]
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-console-status",
+    "allow-console-save",
+    "allow-console-reset",
+    "allow-console-start",
+    "allow-console-stop",
+    "allow-console-run",
+    "allow-console-cancel",
+    "allow-console-accessibility",
+    "allow-console-list-apps",
+    "allow-console-pick-app"
+  ]
 }

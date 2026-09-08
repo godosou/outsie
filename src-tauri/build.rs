@@ -11,6 +11,7 @@ fn main() {
             .flag("-fobjc-arc")
             .compile("repose_macos");
         println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
         println!("cargo:rustc-link-lib=framework=Carbon");
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
         println!("cargo:rustc-link-lib=framework=CoreGraphics");
@@ -18,6 +19,8 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreBluetooth");
     }
     const COMMANDS: &[&str] = &[
+        "console_list_apps",
+        "console_pick_app",
         "console_status",
         "console_save",
         "console_reset",

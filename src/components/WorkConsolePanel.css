@@ -3,3 +3,22 @@
 .wc-sequence-summary{margin-top:16px;padding:13px 15px;border-radius:9px;background:var(--sage);overflow-wrap:anywhere}.wc-sequence-summary p{font-size:11px;margin-bottom:8px}.wc-sequence-summary strong{font-size:12px;font-weight:600;line-height:1.9;color:var(--green)}
 
 .wc-paired-devices{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;font-size:11px;color:var(--subtle)}
+
+.wc-import-controls { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:16px 0; }
+.wc-ai-help { padding:18px; border:1px solid var(--line, #ddd); border-radius:16px; margin:12px 0; }
+.wc-ai-help textarea { width:100%; resize:vertical; padding:12px; margin:8px 0; font:12px/1.7 monospace; border:1px solid #c9c9c9; border-radius:8px; }
+.wc-target-app { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.wc-target-app>span { width:100%; font-size:12px; }
+.wc-app-picker { width:min(580px, 90vw); max-height:85vh; padding:24px; color:var(--text, #252525); background:var(--surface, #fffdf9); border:1px solid #ddd; border-radius:20px; box-shadow:0 24px 80px #0003; }
+.wc-app-picker::backdrop { background:#20252066; }
+.wc-app-picker h2 { margin:0; font-size:20px; }
+.wc-app-picker p { font-size:13px; }
+.wc-app-picker input { width:100%; padding:12px; border:1px solid #bbb; border-radius:10px; margin:12px 0; }
+.wc-installed-apps { max-height:46vh; overflow:auto; margin-bottom:14px; }
+.wc-installed-app { display:flex; align-items:center; gap:12px; text-align:left; border:0; background:transparent; width:100%; padding:10px; border-radius:10px; color:inherit; cursor:pointer; }
+.wc-installed-app:hover,.wc-installed-app:focus-visible { background:#8caa8c22; }
+.wc-installed-app img,.wc-app-placeholder { width:40px; height:40px; flex-shrink:0; }
+.wc-installed-app strong,.wc-installed-app small { display:block; }
+.wc-installed-app small { color:#777; font-size:11px; overflow-wrap:anywhere; margin-top:4px; }
+.wc-preset-help { margin:12px 0; }
+.wc-action-grid { max-height:560px; overflow:auto; }

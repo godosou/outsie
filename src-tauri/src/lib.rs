@@ -204,6 +204,7 @@ use tauri::{
 };
 
 pub mod build_unlock_backend;
+mod console_apps;
 pub mod console_ble_wire;
 pub mod console_bluetooth;
 pub mod debug_bluetooth_pairing;
@@ -212,6 +213,7 @@ pub mod debug_pairing_material;
 pub mod macos_bluetooth_pairing;
 pub mod unlock;
 pub mod work_console;
+use console_apps::*;
 use unlock::{
     ProductionUnlockCommandService, begin_calibration, begin_pairing, confirm_pairing,
     open_unlock_diagnostics, revoke_device, unlock_status,
@@ -899,6 +901,8 @@ pub fn run() {
         .manage(shared.clone())
         .manage(unlock_service)
         .invoke_handler(tauri::generate_handler![
+            console_list_apps,
+            console_pick_app,
             console_status,
             console_save,
             console_reset,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -84,6 +85,18 @@ class FakeTransport implements ConsoleTransport {
 }
 
 void main() {
+  test('full Codex preset and 96-button layouts decode without truncation', () {
+    final presets = jsonDecode(File('../src/lib/codexPresets.json').readAsStringSync()) as List;
+    final payload = statusJson();
+    final app = (payload['config'] as Map)['apps'][0] as Map<String, dynamic>;
+    app['actions'] = presets;
+    expect(ConsoleStatus.fromJson(payload).apps.single.actions.length, 77);
+    app['actions'] = List.generate(96, (i) => {...presets.first as Map<String, dynamic>, 'id': 'a$i'});
+    expect(ConsoleStatus.fromJson(payload).apps.single.actions.length, 96);
+    (app['actions'] as List).add({...presets.first as Map<String, dynamic>, 'id': 'overflow'});
+    expect(() => ConsoleStatus.fromJson(payload), throwsFormatException);
+  });
+
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = ConsoleClient.bluetoothChannel;
   final messenger =

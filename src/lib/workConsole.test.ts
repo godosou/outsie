@@ -66,6 +66,7 @@ async function mountTest(run: (renderer: ReactTestRenderer, context: { tick(): v
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { addEventListener: () => {}, removeEventListener: () => {} } })
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   const bridge: WorkConsoleBridge = {
+    listApps: async () => [{ name: "Terminal", bundleId: "com.apple.Terminal", path: "/System/Applications/Utilities/Terminal.app" }, { name: "Safari", bundleId: "com.apple.Safari", path: "/Applications/Safari.app" }], pickApp: async () => null,
     status: async () => { const next = pendingStatus; pendingStatus = null; return next ?? current },
     save: async draft => { saved.push(draft); current = { ...current, config: { ...draft, revision: current.config.revision + 1 } }; return current },
     reset: async () => current, start: async () => ({ ...current, enabled: true }),
@@ -228,5 +229,39 @@ test('Bluetooth controls start without network arguments and reuse the Phone Key
     assert.match(textOf(renderer.root), /手机钥匙/)
     assert.match(textOf(renderer.root), /蓝牙/)
     assert.doesNotMatch(textOf(renderer.root), /局域网|IP|二维码/)
+  })
+})
+
+test('App picker searches installed names and changing the target preserves macros until saved', async () => {
+  await mountTest(async (renderer, context) => {
+    const root = renderer.root
+    assert.ok(!textOf(root).includes('App Bundle ID'))
+    await act(async () => button(root, '更换 App').props.onClick())
+    assert.ok(root.findByType('dialog'))
+    await act(async () => root.findByProps({ 'aria-label': '搜索已安装 App' }).props.onChange({ target: { value: 'safari' } }))
+    assert.equal(root.findAllByProps({ className: 'wc-installed-app' }).length, 1)
+    await act(async () => root.findByProps({ className: 'wc-installed-app' }).props.onClick())
+    assert.equal(context.saved.length, 0)
+    await act(async () => button(root, '保存配置').props.onClick())
+    assert.equal(context.saved[0].apps[0].bundleId, 'com.apple.Safari')
+    assert.equal(context.saved[0].apps[0].appPath, '/Applications/Safari.app')
+    assert.deepEqual(context.saved[0].apps[0].actions, config.apps[0].actions)
+  })
+})
+
+test('file import previews new profiles, preserves existing ones, and requires App selection before saving', async () => {
+  await mountTest(async (renderer, context) => {
+    const root = renderer.root
+    const value = JSON.stringify({ schemaVersion: 1, apps: [{ name: '浏览器', actions: [{ name: '新标签', kind: 'hotkey', steps: [{ key: 't', modifiers: ['meta'], delayMs: 0 }] }] }] })
+    await act(async () => root.findByProps({ 'aria-label': '导入 JSON 配置文件' }).props.onChange({ target: { files: [{ size: value.length, text: async () => value }], value: 'file.json' } }))
+    assert.equal(context.saved.length, 0)
+    assert.equal(button(root, '保存配置').props.disabled, true)
+    assert.match(textOf(root), /请选择本机 App|选择本机 App/)
+    await act(async () => button(root, '选择 App').props.onClick())
+    await act(async () => root.findAllByProps({ className: 'wc-installed-app' })[1].props.onClick())
+    await act(async () => button(root, '保存配置').props.onClick())
+    assert.equal(context.saved[0].apps.length, 2)
+    assert.deepEqual(context.saved[0].apps[0], config.apps[0])
+    assert.equal(context.saved[0].apps[1].bundleId, 'com.apple.Safari')
   })
 })

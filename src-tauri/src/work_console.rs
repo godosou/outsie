@@ -31,6 +31,8 @@ pub struct ConsoleApp {
     pub id: String,
     pub name: String,
     pub bundle_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_path: Option<String>,
     pub actions: Vec<Action>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -93,6 +95,7 @@ pub fn defaults() -> Config {
                 id: "tmux".into(),
                 name: "tmux".into(),
                 bundle_id: "com.apple.Terminal".into(),
+                app_path: None,
                 actions: vec![
                     tmux("split-horizontal", "左右分屏", "◫", "%"),
                     tmux("split-vertical", "上下分屏", "⊟", "\""),
@@ -117,16 +120,15 @@ pub fn defaults() -> Config {
                 id: "codex".into(),
                 name: "Codex".into(),
                 bundle_id: "com.openai.codex".into(),
-                actions: vec![
-                    action("new-task", "新建任务", "+", vec![step("n", &["meta"], 0)]),
-                    action("find", "查找", "⌕", vec![step("f", &["meta"], 0)]),
-                    action("paste", "粘贴", "▣", vec![step("v", &["meta"], 0)]),
-                ],
+                app_path: None,
+                actions: serde_json::from_str(include_str!("../../src/lib/codexPresets.json"))
+                    .expect("valid Codex presets"),
             },
             ConsoleApp {
                 id: "feishu".into(),
                 name: "飞书".into(),
                 bundle_id: "com.electron.lark".into(),
+                app_path: None,
                 actions: vec![
                     action("search", "搜索", "⌕", vec![step("k", &["meta"], 0)]),
                     action("find", "当前页面查找", "⌘", vec![step("f", &["meta"], 0)]),
@@ -136,6 +138,35 @@ pub fn defaults() -> Config {
         ],
     }
 }
+// Upgrade only the untouched original three-button preset. Custom profiles stay intact.
+fn upgrade_legacy_codex(mut config: Config) -> Config {
+    let legacy = vec![
+        action("new-task", "新建任务", "+", vec![step("n", &["meta"], 0)]),
+        action("find", "查找", "⌕", vec![step("f", &["meta"], 0)]),
+        action("paste", "粘贴", "▣", vec![step("v", &["meta"], 0)]),
+    ];
+    for app in &mut config.apps {
+        if app.id == "codex"
+            && app.actions.len() == legacy.len()
+            && app.actions.iter().all(|current| {
+                legacy
+                    .iter()
+                    .any(|old| serde_json::to_value(current).ok() == serde_json::to_value(old).ok())
+            })
+        {
+            let presets: Vec<Action> =
+                serde_json::from_str(include_str!("../../src/lib/codexPresets.json"))
+                    .expect("valid Codex presets");
+            for preset in presets {
+                if !app.actions.iter().any(|old| old.id == preset.id) {
+                    app.actions.push(preset);
+                }
+            }
+        }
+    }
+    config
+}
+
 fn text_valid(value: &str, max: usize) -> bool {
     !value.is_empty() && value.chars().count() <= max && !value.chars().any(char::is_control)
 }
@@ -184,7 +215,10 @@ impl Config {
                     .bundle_id
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || ".-_".contains(c))
-                || app.actions.len() > 12
+                || app.app_path.as_ref().is_some_and(|path| {
+                    !text_valid(path, 4096) || !path.starts_with('/') || !path.ends_with(".app")
+                })
+                || app.actions.len() > 96
             {
                 return Err("App 配置无效".into());
             }
@@ -221,10 +255,10 @@ impl Config {
 
 pub trait Keyboard: Send + Sync {
     fn trusted(&self, prompt: bool) -> bool;
-    fn activate(&self, bundle: &str, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String>;
+    fn activate(&self, app: &ConsoleApp, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String>;
     fn send(
         &self,
-        bundle: &str,
+        app: &ConsoleApp,
         step: &Step,
         valid: &(dyn Fn() -> bool + Sync),
     ) -> Result<(), String>;
@@ -246,11 +280,13 @@ unsafe extern "C" {
     fn repose_console_trusted(prompt: bool) -> bool;
     fn repose_console_activate(
         bundle: *const std::ffi::c_char,
+        path: *const std::ffi::c_char,
         valid: extern "C" fn(*mut std::ffi::c_void) -> bool,
         context: *mut std::ffi::c_void,
     ) -> i32;
     fn repose_console_key(
         bundle: *const std::ffi::c_char,
+        path: *const std::ffi::c_char,
         key: *const std::ffi::c_char,
         flags: u32,
         valid: extern "C" fn(*mut std::ffi::c_void) -> bool,
@@ -269,38 +305,45 @@ impl Keyboard for MacKeyboard {
             false
         }
     }
-    fn activate(&self, bundle: &str, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String> {
+    fn activate(&self, app: &ConsoleApp, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
-            let bundle = std::ffi::CString::new(bundle).map_err(|_| "App 标识无效")?;
+            let bundle =
+                std::ffi::CString::new(app.bundle_id.as_str()).map_err(|_| "App 标识无效")?;
+            let path = std::ffi::CString::new(app.app_path.as_deref().unwrap_or(""))
+                .map_err(|_| "App 位置无效")?;
             let mut guard = ExecutionGuard { valid };
             match unsafe {
                 repose_console_activate(
                     bundle.as_ptr(),
+                    path.as_ptr(),
                     execution_valid,
                     (&mut guard as *mut ExecutionGuard).cast(),
                 )
             } {
                 0 => Ok(()),
-                1 => Err("找不到目标 App，请检查 bundle ID".into()),
+                1 => Err("找不到所选 App，请在工作台重新选择".into()),
                 _ => Err("无法激活目标 App，控制已停止".into()),
             }
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (bundle, valid);
+            let _ = (app, valid);
             Err("仅支持 macOS".into())
         }
     }
     fn send(
         &self,
-        bundle: &str,
+        app: &ConsoleApp,
         step: &Step,
         valid: &(dyn Fn() -> bool + Sync),
     ) -> Result<(), String> {
         #[cfg(target_os = "macos")]
         {
-            let bundle = std::ffi::CString::new(bundle).map_err(|_| "App 标识无效")?;
+            let bundle =
+                std::ffi::CString::new(app.bundle_id.as_str()).map_err(|_| "App 标识无效")?;
+            let path = std::ffi::CString::new(app.app_path.as_deref().unwrap_or(""))
+                .map_err(|_| "App 位置无效")?;
             let key = std::ffi::CString::new(step.key.as_str()).map_err(|_| "按键无效")?;
             let flags = step.modifiers.iter().fold(0, |v, m| {
                 v | match m.as_str() {
@@ -315,6 +358,7 @@ impl Keyboard for MacKeyboard {
             match unsafe {
                 repose_console_key(
                     bundle.as_ptr(),
+                    path.as_ptr(),
                     key.as_ptr(),
                     flags,
                     execution_valid,
@@ -329,7 +373,7 @@ impl Keyboard for MacKeyboard {
         }
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (bundle, step, valid);
+            let _ = (app, step, valid);
             Err("仅支持 macOS".into())
         }
     }
@@ -380,7 +424,7 @@ impl WorkConsole {
             .map(|_| "配置文件损坏，已载入预置；保存后替换原配置".into());
         Arc::new(Self {
             state: Mutex::new(State {
-                config: loaded.unwrap_or_else(|_| defaults()),
+                config: upgrade_legacy_codex(loaded.unwrap_or_else(|_| defaults())),
                 enabled: false,
                 heartbeat: None,
                 epoch: 0,
@@ -466,7 +510,7 @@ impl WorkConsole {
                 .iter_mut()
                 .find(|a| a.id == app_id)
                 .ok_or("找不到 App")?;
-            *app = preset;
+            app.actions = preset.actions;
             self.save_locked(&mut s, config)?;
         }
         Ok(self.status())
@@ -741,7 +785,7 @@ impl WorkConsole {
                 service.check_run(id)?;
                 service
                     .keyboard
-                    .activate(&app.bundle_id, &|| service.check_run(id).is_ok())?;
+                    .activate(&app, &|| service.check_run(id).is_ok())?;
                 service.check_run(id)?;
                 {
                     service.state.lock().unwrap().active_app_id = Some(app.id.clone());
@@ -759,7 +803,7 @@ impl WorkConsole {
                     service.check_run(id)?;
                     service
                         .keyboard
-                        .send(&app.bundle_id, step, &|| service.check_run(id).is_ok())?;
+                        .send(&app, step, &|| service.check_run(id).is_ok())?;
                 }
                 Ok::<(), String>(())
             })();
@@ -850,7 +894,11 @@ mod tests {
         fn trusted(&self, _: bool) -> bool {
             true
         }
-        fn activate(&self, _: &str, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String> {
+        fn activate(
+            &self,
+            _: &ConsoleApp,
+            valid: &(dyn Fn() -> bool + Sync),
+        ) -> Result<(), String> {
             if !valid() {
                 return Err("cancelled".into());
             }
@@ -859,7 +907,7 @@ mod tests {
         }
         fn send(
             &self,
-            _: &str,
+            _: &ConsoleApp,
             step: &Step,
             valid: &(dyn Fn() -> bool + Sync),
         ) -> Result<(), String> {
@@ -900,6 +948,55 @@ mod tests {
             assert!(Instant::now() < limit, "worker timed out");
             thread::sleep(Duration::from_millis(5));
         }
+    }
+    #[test]
+    fn selected_app_path_persists_and_reset_only_changes_actions() {
+        let (service, keys, _) = setup();
+        let mut config = defaults();
+        config.apps[0].app_path = Some("/Applications/iTerm.app".into());
+        config.apps[0].bundle_id = "com.googlecode.iterm2".into();
+        config.apps[0].name = "我的终端".into();
+        service.save(config).unwrap();
+        service.reset("tmux", 1).unwrap();
+        let restored = WorkConsole::new(service.path.clone(), keys, Arc::new(|| false));
+        let app = &restored.status().config.apps[0];
+        assert_eq!(app.app_path.as_deref(), Some("/Applications/iTerm.app"));
+        assert_eq!(app.bundle_id, "com.googlecode.iterm2");
+        assert_eq!(app.name, "我的终端");
+        std::fs::remove_file(&service.path).unwrap();
+    }
+    #[test]
+    fn legacy_defaults_expand_without_overwriting_custom_shortcuts() {
+        let mut config = defaults();
+        assert_eq!(config.apps[1].actions.len(), 77);
+        config.apps[1].actions = vec![
+            action("new-task", "新建任务", "+", vec![step("n", &["meta"], 0)]),
+            action("find", "查找", "⌕", vec![step("f", &["meta"], 0)]),
+            action("paste", "粘贴", "▣", vec![step("v", &["meta"], 0)]),
+        ];
+        assert_eq!(
+            upgrade_legacy_codex(config.clone()).apps[1].actions.len(),
+            77
+        );
+        config.apps[1].actions[0].steps[0].key = "x".into();
+        let upgraded = upgrade_legacy_codex(config);
+        assert_eq!(upgraded.apps[1].actions.len(), 3);
+        assert_eq!(upgraded.apps[1].actions[0].steps[0].key, "x");
+    }
+    #[test]
+    fn app_path_and_expanded_action_limits_are_checked() {
+        let mut config = defaults();
+        config.apps[0].app_path = Some("relative.app".into());
+        assert!(config.validate().is_err());
+        config.apps[0].app_path = None;
+        config.apps[0].actions = (0..96)
+            .map(|i| action(&format!("a{i}"), "Action", "+", vec![step("a", &[], 0)]))
+            .collect();
+        assert!(config.validate().is_ok());
+        config.apps[0]
+            .actions
+            .push(action("overflow", "Action", "+", vec![step("a", &[], 0)]));
+        assert!(config.validate().is_err());
     }
     #[test]
     fn presets_and_serialization_are_valid() {
@@ -1029,6 +1126,7 @@ mod tests {
                     id: format!("app{i}"),
                     name: "App".into(),
                     bundle_id: "com.apple.Terminal".into(),
+                    app_path: None,
                     actions: (0..12)
                         .map(|j| Action {
                             id: format!("a{j}"),
@@ -1060,7 +1158,11 @@ mod tests {
             fn trusted(&self, _: bool) -> bool {
                 true
             }
-            fn activate(&self, _: &str, valid: &(dyn Fn() -> bool + Sync)) -> Result<(), String> {
+            fn activate(
+                &self,
+                _: &ConsoleApp,
+                valid: &(dyn Fn() -> bool + Sync),
+            ) -> Result<(), String> {
                 if valid() {
                     Ok(())
                 } else {
@@ -1069,7 +1171,7 @@ mod tests {
             }
             fn send(
                 &self,
-                _: &str,
+                _: &ConsoleApp,
                 _: &Step,
                 valid: &(dyn Fn() -> bool + Sync),
             ) -> Result<(), String> {

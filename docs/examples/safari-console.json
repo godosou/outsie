@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "name": "Safari",
+      "actions": [
+        {
+          "name": "新建标签",
+          "icon": "+",
+          "kind": "hotkey",
+          "steps": [
+            {
+              "key": "t",
+              "modifiers": [
+                "meta"
+              ],
+              "delayMs": 0
+            }
+          ]
+        },
+        {
+          "name": "查找后关闭（等待 2 秒）",
+          "icon": "⌕",
+          "kind": "sequence",
+          "steps": [
+            {
+              "key": "f",
+              "modifiers": [
+                "meta"
+              ],
+              "delayMs": 0
+            },
+            {
+              "key": "Escape",
+              "modifiers": [],
+              "delayMs": 2000
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

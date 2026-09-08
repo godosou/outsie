@@ -1,7 +1,7 @@
 export type ConsoleModifier = 'meta' | 'ctrl' | 'alt' | 'shift'
 export type ConsoleStep = { key: string; modifiers: ConsoleModifier[]; delayMs: number }
 export type ConsoleAction = { id: string; name: string; icon: string; kind: 'hotkey' | 'sequence'; steps: ConsoleStep[] }
-export type ConsoleApp = { id: string; name: string; bundleId: string; actions: ConsoleAction[] }
+export type ConsoleApp = { id: string; name: string; bundleId: string; appPath?: string; actions: ConsoleAction[] }
 export type ConsoleConfig = { revision: number; apps: ConsoleApp[] }
 export type ConsoleStatus = { config: ConsoleConfig; enabled: boolean; connected: boolean; running: boolean; activeAppId: string | null; lastError: string | null; accessibility: boolean; blocked: boolean; transport?: 'bluetooth'; pairedDevices?: { id: string; name: string }[]; bluetoothReady?: boolean; bluetoothState?: 'unknown' | 'ready' | 'poweredOff' | 'unauthorized' | 'unsupported' | 'failed' | 'starting' }
 export function consoleConnectionLabel(status: ConsoleStatus | null): string {
@@ -28,7 +28,11 @@ export function consoleBluetoothHint(status: ConsoleStatus): string | null {
   }
 }
 
+export type InstalledConsoleApp = { name: string; bundleId: string; path: string; icon?: string | null }
+
 export interface WorkConsoleBridge {
+  listApps(): Promise<InstalledConsoleApp[]>
+  pickApp(): Promise<InstalledConsoleApp | null>
   status(): Promise<ConsoleStatus>
   save(config: ConsoleConfig): Promise<ConsoleStatus>
   reset(appId: string, revision: number): Promise<ConsoleStatus>
@@ -76,8 +80,8 @@ export function validateConsoleConfig(config: ConsoleConfig): string | null {
   if (new Set(config.apps.map(app => app.id)).size !== config.apps.length) return 'App ID 重复，请重新加载配置。'
   for (const app of config.apps) {
     if (!app.name.trim() || Array.from(app.name).length > 64) return 'App 名称需要 1–64 个字符。'
-    if (!/^[A-Za-z0-9][A-Za-z0-9.-]+$/.test(app.bundleId)) return `${app.name} 需要有效的 App Bundle ID。`
-    if (app.actions.length > 12) return '每个 App 最多 12 个操作。'
+    if (!/^[A-Za-z0-9._-]+$/.test(app.bundleId) || !app.bundleId.includes('.')) return `请为「${app.name}」选择本机 App。`
+    if (app.actions.length > 96) return '每个 App 最多 96 个操作。'
     if (new Set(app.actions.map(action => action.id)).size !== app.actions.length) return '操作 ID 重复，请重新加载配置。'
     for (const action of app.actions) {
       if (!action.name.trim() || Array.from(action.name).length > 64) return '操作名称需要 1–64 个字符。'
@@ -103,6 +107,8 @@ export function moveConsoleStep(steps: ConsoleStep[], index: number, offset: -1 
 
 export function createConsoleBridge(invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>): WorkConsoleBridge {
   return {
+    listApps: () => invoke('console_list_apps'),
+    pickApp: () => invoke('console_pick_app'),
     status: () => invoke('console_status'),
     save: config => invoke('console_save', { config }),
     reset: (appId, revision) => invoke('console_reset', { appId, revision }),

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-console-pick-app"
+description = "Enables the console_pick_app command without any pre-configured scope."
+commands.allow = ["console_pick_app"]
+
+[[permission]]
+identifier = "deny-console-pick-app"
+description = "Denies the console_pick_app command without any pre-configured scope."
+commands.deny = ["console_pick_app"]

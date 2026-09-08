@@ -1,0 +1,1187 @@
+[
+  {
+    "id": "new-task",
+    "name": "新建任务",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "n",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "find",
+    "name": "任务内查找",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "f",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "command-menu",
+    "name": "命令菜单",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "p",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "settings",
+    "name": "设置",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": ",",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "shortcuts",
+    "name": "快捷键设置",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "/",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "open-folder",
+    "name": "打开文件夹",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "o",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "back",
+    "name": "后退",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "[",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "forward",
+    "name": "前进",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "]",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "font-up",
+    "name": "增大字体",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "+",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "font-down",
+    "name": "减小字体",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "-",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "font-reset",
+    "name": "还原字体",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "0",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "sidebar",
+    "name": "侧边栏",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "b",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "bottom-panel",
+    "name": "底部面板",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "j",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "terminal",
+    "name": "终端",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "`",
+        "modifiers": [
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "clear-terminal",
+    "name": "清空终端（先聚焦终端）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "l",
+        "modifiers": [
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "clear-unread",
+    "name": "清除未读标记",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "Escape",
+        "modifiers": [
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "undo",
+    "name": "撤销",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "z",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "redo",
+    "name": "重做",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "z",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "close-tab",
+    "name": "关闭当前标签或窗口",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "w",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "fullscreen",
+    "name": "全屏",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "f",
+        "modifiers": [
+          "meta",
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "quit",
+    "name": "退出 App",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "q",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "standalone",
+    "name": "新建独立任务",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "o",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "archive",
+    "name": "归档任务",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "a",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "unread",
+    "name": "标为未读",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "u",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "pin",
+    "name": "置顶 / 取消置顶",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "p",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "rename",
+    "name": "重命名任务",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "r",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "side-chat",
+    "name": "侧边对话",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "s",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "find-next",
+    "name": "下个查找结果",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "g",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "find-prev",
+    "name": "上个查找结果",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "g",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "prev-task",
+    "name": "上个任务或标签",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "Tab",
+        "modifiers": [
+          "ctrl",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "next-task",
+    "name": "下个任务或标签",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "Tab",
+        "modifiers": [
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "needs-attention",
+    "name": "下个待处理任务",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "a",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "model",
+    "name": "选择模型",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "m",
+        "modifiers": [
+          "ctrl",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "project",
+    "name": "选择项目",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "o",
+        "modifiers": [
+          "meta",
+          "alt",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "voice",
+    "name": "语音对话（功能可用时）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "v",
+        "modifiers": [
+          "ctrl",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "dictation",
+    "name": "语音输入（功能可用时）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "d",
+        "modifiers": [
+          "ctrl",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "restore-prompt",
+    "name": "恢复上次输入（输入框为空）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "ArrowUp",
+        "modifiers": [],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "approve",
+    "name": "批准请求（审批框打开时）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "Enter",
+        "modifiers": [],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "decline",
+    "name": "拒绝请求（审批框打开时）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "Escape",
+        "modifiers": [],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "activity",
+    "name": "活动视图（功能可用时）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "u",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "environment",
+    "name": "运行项目主操作（已配置时）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "d",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "files",
+    "name": "搜索文件",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "p",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "file-tree",
+    "name": "文件树",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "e",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "review-tab",
+    "name": "打开审查标签",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "g",
+        "modifiers": [
+          "ctrl",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "review-panel",
+    "name": "审查面板",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "b",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "browser-tab",
+    "name": "新建浏览器标签",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "t",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "browser-panel",
+    "name": "浏览器面板",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "b",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "location",
+    "name": "跳转行 / 浏览器地址栏",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "l",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "browser-back",
+    "name": "浏览器后退（先聚焦浏览器）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "ArrowLeft",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "browser-forward",
+    "name": "浏览器前进（先聚焦浏览器）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "ArrowRight",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "reload",
+    "name": "刷新网页（先聚焦浏览器）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "r",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "reload-clean",
+    "name": "强制刷新（先聚焦浏览器）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "r",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "copy-url",
+    "name": "复制网址（先聚焦浏览器）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "c",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "comment",
+    "name": "浏览 / 批注（浏览器内）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": ".",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "copy-path",
+    "name": "复制对话路径",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "c",
+        "modifiers": [
+          "meta",
+          "alt",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "copy-link",
+    "name": "复制任务链接",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "l",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "copy-id",
+    "name": "复制会话 ID",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "c",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "copy-cwd",
+    "name": "复制工作目录（工作区内）",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "c",
+        "modifiers": [
+          "meta",
+          "shift"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "paste",
+    "name": "粘贴",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "v",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "recent-1",
+    "name": "最近任务 1",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "1",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "recent-2",
+    "name": "最近任务 2",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "2",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "recent-3",
+    "name": "最近任务 3",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "3",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "recent-4",
+    "name": "最近任务 4",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "4",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "recent-5",
+    "name": "最近任务 5",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "5",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "recent-6",
+    "name": "最近任务 6",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "6",
+        "modifiers": [
+          "meta",
+          "alt"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-1",
+    "name": "跳转任务 1",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "1",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-2",
+    "name": "跳转任务 2",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "2",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-3",
+    "name": "跳转任务 3",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "3",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-4",
+    "name": "跳转任务 4",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "4",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-5",
+    "name": "跳转任务 5",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "5",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-6",
+    "name": "跳转任务 6",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "6",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-7",
+    "name": "跳转任务 7",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "7",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-8",
+    "name": "跳转任务 8",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "8",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "task-9",
+    "name": "跳转任务 9",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "9",
+        "modifiers": [
+          "meta"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "mode-1",
+    "name": "切换界面模式 1",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "1",
+        "modifiers": [
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "mode-2",
+    "name": "切换界面模式 2",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "2",
+        "modifiers": [
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  },
+  {
+    "id": "mode-3",
+    "name": "切换界面模式 3",
+    "icon": "⌘",
+    "kind": "hotkey",
+    "steps": [
+      {
+        "key": "3",
+        "modifiers": [
+          "ctrl"
+        ],
+        "delayMs": 0
+      }
+    ]
+  }
+]

@@ -2,6 +2,9 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <Carbon/Carbon.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 static void onMainSync(dispatch_block_t block) {
   if ([NSThread isMainThread]) block(); else dispatch_sync(dispatch_get_main_queue(), block);
@@ -17,23 +20,46 @@ bool repose_console_trusted(bool prompt) {
   return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt: @(prompt)});
 }
 
+static NSURL *consoleCanonicalURL(NSURL *url) {
+  return url.URLByResolvingSymlinksInPath.URLByStandardizingPath;
+}
+
+static BOOL consoleMatchesTarget(NSRunningApplication *target, NSString *identifier, NSURL *chosenURL) {
+  return [target.bundleIdentifier isEqualToString:identifier] &&
+    (!chosenURL || [consoleCanonicalURL(target.bundleURL) isEqual:chosenURL]);
+}
+
+static NSURL *consoleChosenURL(const char *path, NSString *identifier) {
+  if (!path || !path[0]) return nil;
+  NSString *value = [NSString stringWithUTF8String:path];
+  if (!value.isAbsolutePath || ![value.pathExtension.lowercaseString isEqual:@"app"]) return nil;
+  NSURL *url = consoleCanonicalURL([NSURL fileURLWithPath:value]);
+  NSBundle *bundle = [NSBundle bundleWithURL:url];
+  return [bundle.bundleIdentifier isEqualToString:identifier] && [bundle.infoDictionary[@"CFBundlePackageType"] isEqual:@"APPL"] ? url : nil;
+}
+
 // Called only on the execution worker, never from the UI thread.
 typedef bool (*ReposeConsoleGuard)(void *context);
 
-int repose_console_activate(const char *bundle, ReposeConsoleGuard valid, void *context) {
+int repose_console_activate(const char *bundle, const char *path, ReposeConsoleGuard valid, void *context) {
   NSString *identifier = [NSString stringWithUTF8String:bundle];
+  NSURL *chosenURL = consoleChosenURL(path, identifier);
+  if (path && path[0] && !chosenURL) return 1;
   __block int result = 2;
   onMainSync(^{
     if (!valid(context) || !sessionAvailable()) return;
     NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
-    NSURL *url = [workspace URLForApplicationWithBundleIdentifier:identifier];
+    NSURL *url = chosenURL ?: [workspace URLForApplicationWithBundleIdentifier:identifier];
     if (!url) { result = 1; return; }
-    NSRunningApplication *target = [[NSRunningApplication runningApplicationsWithBundleIdentifier:identifier] firstObject];
+    NSRunningApplication *target = nil;
+    for (NSRunningApplication *candidate in [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier]) {
+      if (consoleMatchesTarget(candidate, identifier, chosenURL)) { target = candidate; break; }
+    }
     if (!target) {
       NSError *error = nil;
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-      target = [workspace launchApplicationAtURL:url options:NSWorkspaceLaunchWithoutActivation configuration:@{} error:&error];
+      target = [workspace launchApplicationAtURL:url options:(NSWorkspaceLaunchWithoutActivation | (chosenURL ? NSWorkspaceLaunchNewInstance : 0)) configuration:@{} error:&error];
 #pragma clang diagnostic pop
       if (!target || error) return;
     }
@@ -44,7 +70,7 @@ int repose_console_activate(const char *bundle, ReposeConsoleGuard valid, void *
   for (int attempt=0; attempt<60; attempt++) {
     if (!valid(context)) return 2;
     __block bool front = false;
-    onMainSync(^{ front = sessionAvailable() && [[[NSWorkspace sharedWorkspace] frontmostApplication].bundleIdentifier isEqualToString:identifier]; });
+    onMainSync(^{ front = sessionAvailable() && consoleMatchesTarget([[NSWorkspace sharedWorkspace] frontmostApplication], identifier, chosenURL); });
     if (front) return 0;
     [NSThread sleepForTimeInterval:0.025];
   }
@@ -81,14 +107,16 @@ static int printableCode(NSString *key, bool *shift) {
   CFRelease(source);return result;
 }
 
-int repose_console_key(const char *bundle,const char *keyValue,unsigned int modifiers, ReposeConsoleGuard valid, void *context) {
+int repose_console_key(const char *bundle,const char *path,const char *keyValue,unsigned int modifiers, ReposeConsoleGuard valid, void *context) {
   if (!repose_console_trusted(false)) return 1;
   NSString *identifier=[NSString stringWithUTF8String:bundle];
+  NSURL *chosenURL = consoleChosenURL(path, identifier);
+  if (path && path[0] && !chosenURL) return 2;
   NSString *key=[NSString stringWithUTF8String:keyValue];
   __block int result=2;
   onMainSync(^{
     NSRunningApplication *target=[[NSWorkspace sharedWorkspace] frontmostApplication];
-    if (!valid(context) || !sessionAvailable() || ![target.bundleIdentifier isEqualToString:identifier]) return;
+    if (!valid(context) || !sessionAvailable() || !consoleMatchesTarget(target, identifier, chosenURL)) return;
     bool shifted=(modifiers&8)!=0;
     int code=namedCode(key);
     if (code<0) code=printableCode(key,&shifted);
@@ -110,3 +138,90 @@ int repose_console_key(const char *bundle,const char *keyValue,unsigned int modi
   });
   return result;
 }
+
+// Metadata discovery never loads executable code from an application bundle.
+static NSDictionary *consoleAppRecord(NSURL *input, BOOL withIcon) {
+  NSURL *url = consoleCanonicalURL(input);
+  if (![url.pathExtension.lowercaseString isEqual:@"app"]) return nil;
+  NSBundle *bundle = [NSBundle bundleWithURL:url];
+  NSString *identifier = bundle.bundleIdentifier;
+  if (!identifier.length || ![bundle.infoDictionary[@"CFBundlePackageType"] isEqual:@"APPL"]) return nil;
+  NSString *name = [[NSFileManager defaultManager] displayNameAtPath:url.path];
+  if ([name.pathExtension.lowercaseString isEqual:@"app"]) name = name.stringByDeletingPathExtension;
+  NSMutableDictionary *record = [@{@"name":name ?: url.lastPathComponent, @"bundleId":identifier, @"path":url.path} mutableCopy];
+  if (withIcon) onMainSync(^{
+    NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:url.path];
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL pixelsWide:48 pixelsHigh:48 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace bytesPerRow:0 bitsPerPixel:0];
+    [NSGraphicsContext saveGraphicsState];
+    NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
+    [icon drawInRect:NSMakeRect(0, 0, 48, 48) fromRect:NSZeroRect operation:NSCompositingOperationCopy fraction:1];
+    [NSGraphicsContext restoreGraphicsState];
+    NSData *png = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+    if (png) record[@"icon"] = [@"data:image/png;base64," stringByAppendingString:[png base64EncodedStringWithOptions:0]];
+  });
+  return record;
+}
+
+static char *consoleJSON(id object) {
+  NSData *data = [NSJSONSerialization dataWithJSONObject:object options:0 error:nil];
+  return data ? strndup(data.bytes, data.length) : NULL;
+}
+
+char *repose_console_list_apps(const char *configured) {
+  @autoreleasepool {
+    NSMutableDictionary<NSString *, NSDictionary *> *records = [NSMutableDictionary dictionary];
+    void (^add)(NSURL *) = ^(NSURL *url) {
+      if (!url || records.count >= 1024) return;
+      NSDictionary *record = consoleAppRecord(url, NO);
+      if (record) records[record[@"path"]] = record;
+    };
+    NSArray *saved = [NSJSONSerialization JSONObjectWithData:[[NSString stringWithUTF8String:configured ?: "[]"] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    for (NSDictionary *app in saved) {
+      if ([app[@"appPath"] isKindOfClass:NSString.class]) add([NSURL fileURLWithPath:app[@"appPath"]]);
+      NSString *identifier = app[@"bundleId"];
+      if ([identifier isKindOfClass:NSString.class]) onMainSync(^{ add([[NSWorkspace sharedWorkspace] URLForApplicationWithBundleIdentifier:identifier]); });
+    }
+    for (NSString *root in @[@"/Applications", [NSHomeDirectory() stringByAppendingPathComponent:@"Applications"], @"/System/Applications", @"/System/Library/CoreServices/Applications"]) {
+      NSDirectoryEnumerator *enumerator = [[NSFileManager defaultManager] enumeratorAtURL:[NSURL fileURLWithPath:root] includingPropertiesForKeys:@[NSURLIsPackageKey] options:(NSDirectoryEnumerationSkipsHiddenFiles | NSDirectoryEnumerationSkipsPackageDescendants) errorHandler:^BOOL(__unused NSURL *url, __unused NSError *error) { return YES; }];
+      NSUInteger visited = 0;
+      for (NSURL *url in enumerator) {
+        if (++visited > 10000 || records.count >= 1024) break;
+        if (enumerator.level > 3) { [enumerator skipDescendants]; continue; }
+        if ([url.pathExtension.lowercaseString isEqual:@"app"]) { add(url); [enumerator skipDescendants]; }
+      }
+    }
+    NSArray *ordered = [records.allValues sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+      NSComparisonResult name = [a[@"name"] localizedStandardCompare:b[@"name"]];
+      return name == NSOrderedSame ? [a[@"path"] compare:b[@"path"]] : name;
+    }];
+    NSMutableArray *result = [NSMutableArray array];
+    for (NSDictionary *entry in ordered) {
+      NSDictionary *full = consoleAppRecord([NSURL fileURLWithPath:entry[@"path"]], YES);
+      if (full) [result addObject:full];
+    }
+    return consoleJSON(result);
+  }
+}
+
+char *repose_console_pick_app(void) {
+  __block NSDictionary *selection = @{@"app":NSNull.null};
+  onMainSync(^{
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.title = @"选择要配置的 App";
+    panel.message = @"选择 Mac 上的应用程序，Repose 会自动识别它。";
+    panel.prompt = @"选择 App";
+    panel.directoryURL = [NSURL fileURLWithPath:@"/Applications"];
+    panel.allowedContentTypes = @[UTTypeApplicationBundle];
+    panel.canChooseFiles = YES;
+    panel.canChooseDirectories = NO;
+    panel.treatsFilePackagesAsDirectories = NO;
+    panel.allowsMultipleSelection = NO;
+    if ([panel runModal] == NSModalResponseOK) {
+      NSDictionary *app = consoleAppRecord(panel.URL, YES);
+      selection = app ? @{@"app":app} : @{@"error":@"请选择有效的 Mac 应用程序。"};
+    }
+  });
+  return consoleJSON(selection);
+}
+
+void repose_console_free_json(char *value) { free(value); }

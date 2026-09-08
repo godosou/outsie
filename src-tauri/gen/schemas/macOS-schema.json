@@ -213,6 +213,18 @@
           "markdownDescription": "Enables the console_cancel command without any pre-configured scope."
         },
         {
+          "description": "Enables the console_list_apps command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-list-apps",
+          "markdownDescription": "Enables the console_list_apps command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_pick_app command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-pick-app",
+          "markdownDescription": "Enables the console_pick_app command without any pre-configured scope."
+        },
+        {
           "description": "Enables the console_reset command without any pre-configured scope.",
           "type": "string",
           "const": "allow-console-reset",
@@ -337,6 +349,18 @@
           "type": "string",
           "const": "deny-console-cancel",
           "markdownDescription": "Denies the console_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_list_apps command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-list-apps",
+          "markdownDescription": "Denies the console_list_apps command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_pick_app command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-pick-app",
+          "markdownDescription": "Denies the console_pick_app command without any pre-configured scope."
         },
         {
           "description": "Denies the console_reset command without any pre-configured scope.",

@@ -45,7 +45,7 @@ class ConsoleApp {
   ConsoleApp.fromJson(Map<String, dynamic> json)
     : id = _string(json, 'id'),
       name = _string(json, 'name'),
-      actions = _list(json['actions'], 12, ConsoleAction.fromJson) {
+      actions = _list(json['actions'], 96, ConsoleAction.fromJson) {
     if (actions.map((a) => a.id).toSet().length != actions.length) {
       throw const FormatException('Duplicate action');
     }

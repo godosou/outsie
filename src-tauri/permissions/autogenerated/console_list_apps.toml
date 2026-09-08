@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-console-list-apps"
+description = "Enables the console_list_apps command without any pre-configured scope."
+commands.allow = ["console_list_apps"]
+
+[[permission]]
+identifier = "deny-console-list-apps"
+description = "Denies the console_list_apps command without any pre-configured scope."
+commands.deny = ["console_list_apps"]
