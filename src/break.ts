@@ -9,6 +9,8 @@ import {
 import './break.css'
 import './stretch-anatomy.css'
 import { getShortBreakVoice } from './lib/reposeVoice.ts'
+import { getEyeCareTip } from './lib/eyeCareTips.ts'
+import './eye-care.css'
 
 type BreakStatus = {
   phase: string
@@ -24,8 +26,13 @@ const element = <T extends HTMLElement>(id: string) => document.getElementById(i
 const shortGuide = element<HTMLElement>('short-guide')
 const shortTitle = element<HTMLElement>('short-title')
 const shortDescription = element<HTMLElement>('short-description')
+const eyeCareTitle = element<HTMLElement>('eye-care-title')
+const eyeCareBody = element<HTMLElement>('eye-care-body')
 const longGuide = element<HTMLElement>('long-guide')
 const countdown = element<HTMLElement>('countdown')
+const breakStatus = element<HTMLElement>('break-status')
+const longSidebar = element<HTMLElement>('long-sidebar')
+const breakMain = breakStatus.parentElement!
 const totalLabel = element<HTMLElement>('total-label')
 const progress = element<HTMLElement>('progress')
 const hint = element<HTMLElement>('hint')
@@ -85,6 +92,8 @@ function renderStatus(status: BreakStatus) {
   const duration = Math.max(1, status.duration)
   const long = status.phase.toLowerCase().includes('long')
   document.body.dataset.breakType = long ? 'long' : 'short'
+  const statusParent = long ? longSidebar : breakMain
+  if (breakStatus.parentElement !== statusParent) statusParent.append(breakStatus)
   countdown.textContent = formatTime(seconds)
   countdown.setAttribute('aria-label', `休息剩余 ${formatTime(seconds)}`)
   progress.style.width = `${Math.min(100, Math.max(0, (1 - seconds / duration) * 100))}%`
@@ -97,6 +106,9 @@ function renderStatus(status: BreakStatus) {
     const voice = getShortBreakVoice(status.canPostpone ? 'enter' : 'return', status.breakId)
     shortTitle.textContent = voice.title
     shortDescription.textContent = voice.body
+    const tip = getEyeCareTip(status.breakId)
+    eyeCareTitle.textContent = tip.title
+    eyeCareBody.textContent = tip.body
   }
 
   if (long) {
@@ -125,9 +137,9 @@ function renderStatus(status: BreakStatus) {
   kind.textContent = `强制${long ? '大' : '小'}休息 · ${available ? '可延迟一次' : '倒计时结束后恢复'}`
   if (preview) {
     postpone.hidden = true
-    postponeNote.textContent = '动作预览 · 可随时关闭此窗口'
-    kind.textContent = '拉伸动作预览'
-    hint.textContent = '动作以舒适为准；如有疼痛或眩晕，请立即停止。'
+    postponeNote.textContent = '休息预览 · 可随时关闭此窗口'
+    kind.textContent = long ? '拉伸动作预览' : '短休息预览'
+    hint.textContent = long ? '动作以舒适为准；如有疼痛或眩晕，请立即停止。' : '读完这一条，就把目光交给远处吧。'
   }
 }
 

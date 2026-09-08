@@ -32,8 +32,8 @@ export function BreakDemo({ lang }: DemoProps) {
         </div>
         <span className="demo-footnote">
           {t(
-            '休息示意 · 时间可按你的习惯调整',
-            'Break preview · Adjust the timing to your rhythm',
+            '浏览器示意 · Mac 应用已包含护眼知识',
+            'Browser illustration · Eye-care tips are included in the Mac app',
           )}
         </span>
       </figcaption>
@@ -43,6 +43,10 @@ export function BreakDemo({ lang }: DemoProps) {
       >
         <Eye size={30} strokeWidth={1.5} aria-hidden="true" />
         <p>{t('抬头，看看远处。', 'Look up. Look further.')}</p>
+        <div className="rest-eye-tip">
+          <b>{t('护眼小知识 · 看远处，让对焦歇一会', 'Eye-care tip · Give near focus a break')}</b>
+          <span>{t('每近距离用眼约 20 分钟，看向约 6 米外至少 20 秒。', 'Every 20 minutes, look about 20 feet away for at least 20 seconds.')}</span>
+        </div>
         <strong className="rest-time">00:20</strong>
         <span>{t('这 20 秒，留给自己。', 'These 20 seconds are yours.')}</span>
       </div>
@@ -60,8 +64,8 @@ export function StretchDemo({ lang }: DemoProps) {
           width={720}
           height={640}
           alt={t(
-            '现有 3D 引导中的下巴微收动作示范',
-            'Chin-tuck movement from the existing 3D guide',
+            'Mac 应用中的离线 3D 下巴微收示范',
+            'Offline chin-tuck guide from the Mac app',
           )}
           unoptimized
         />
@@ -78,13 +82,13 @@ export function StretchDemo({ lang }: DemoProps) {
           )}
         </p>
         <div className="stretch-duration">
-          <strong>30</strong>
-          <span>{t('秒 / 一个动作', 'sec / one movement')}</span>
+          <strong>05:00</strong>
+          <span>{t('大休息剩余 · 每 30 秒换动作', 'break remaining · a new movement every 30 sec')}</span>
         </div>
         <span className="demo-footnote">
           {t(
-            '现有 3D 动作 · 首页简化展示',
-            'Existing 3D movement · Simplified preview',
+            '浏览器静态示意 · Mac 应用内为实时 3D 跟练',
+            'Static browser illustration · Live 3D guidance in the Mac app',
           )}
         </span>
       </figcaption>

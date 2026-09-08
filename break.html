@@ -16,6 +16,12 @@
         <p class="eyebrow">REPOSE HAS ENTERED THE CHAT</p>
         <h1 id="short-title">电脑没意见，眼睛有。</h1>
         <p id="short-description">离开屏幕二十秒。消息我已经替它转达了。</p>
+        <aside class="eye-care-tip" aria-label="护眼小知识">
+          <span class="eye-care-label">护眼小知识 · 每次休息一条</span>
+          <h3 id="eye-care-title"></h3>
+          <p id="eye-care-body"></p>
+          <small>参考：美国国立卫生研究院 NIH · 读完就看远处吧</small>
+        </aside>
       </section>
       <section id="long-guide" class="long-guide" aria-label="大休息拉伸训练" hidden>
         <div id="stretch-visual" class="stretch-visual">
@@ -24,6 +30,7 @@
           <span class="stretch-region-legend"><i></i>拉伸区域示意 · 非精确肌肉解剖</span>
           <span class="three-badge">✦&nbsp; 3D 动作示范</span>
         </div>
+        <div id="long-sidebar" class="long-sidebar">
         <div class="stretch-copy">
           <div class="action-topline"><span id="action-focus">肩颈与上背</span><span id="action-index">1 / 8</span></div>
           <p class="eyebrow">MOVE SLOWLY, BREATHE EASILY</p>
@@ -38,8 +45,9 @@
             <button id="next-action" type="button" aria-label="下一个拉伸动作">›</button>
           </nav>
         </div>
+        </div>
       </section>
-      <section class="break-status">
+      <section id="break-status" class="break-status">
         <span id="total-label">本次休息剩余</span>
         <div id="countdown" class="countdown" role="timer">00:20</div>
         <div class="progress"><span id="progress"></span></div>

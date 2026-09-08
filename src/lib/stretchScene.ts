@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import humanUrl from '../assets/stretch-human.json?url'
-import { getStretchPose, type JointName } from './stretchPoses.ts'
+import { getStretchPose, STRETCH_JOINT_MAP as JOINT_MAP, type JointName } from './stretchPoses.ts'
 import type { StretchExerciseId } from './stretchRoutine.ts'
 import { advanceStretchPlayback } from './stretchPlayback.ts'
+import { getStretchFraming } from './stretchFraming.ts'
 
 export type StretchScene = {
   ready: Promise<void>
@@ -15,15 +16,7 @@ type HumanAsset = {
   positions: number[]; indices: number[]; skinIndices: number[]; skinWeights: number[]
   bones: { name: string; parent: string | null; position: [number, number, number] }[]
 }
-const JOINT_MAP: Record<JointName, string> = {
-  root: 'root', torso: 'spine04', chest: 'spine01', neck: 'neck01', head: 'head',
-  leftClavicle: 'clavicle.R', rightClavicle: 'clavicle.L',
-  leftShoulder: 'upperarm01.R', rightShoulder: 'upperarm01.L',
-  leftElbow: 'lowerarm01.R', rightElbow: 'lowerarm01.L',
-  leftWrist: 'wrist.R', rightWrist: 'wrist.L',
-  leftHip: 'upperleg01.R', rightHip: 'upperleg01.L',
-  leftKnee: 'lowerleg01.R', rightKnee: 'lowerleg01.L',
-}
+
 
 // Approximate surface regions, not segmented anatomical muscles.
 function regionWeight(id: StretchExerciseId, x: number, y: number, z: number) {
@@ -172,12 +165,8 @@ export function createStretchScene(container: HTMLElement, initialId: StretchExe
       rig.joints.head.position.z += pose.headRetraction * 0.55
       rig.joints.root.position.copy(rig.rootRest).add(new THREE.Vector3(...pose.rootPosition))
     }
-    const back = exerciseId === 'upper-back-rotation' || exerciseId === 'upper-trapezius' || exerciseId === 'shoulder-rolls'
-    const yaw = back ? 2.8 : exerciseId === 'chin-tuck' ? 1.2 : exerciseId === 'wrist-forearm' ? 0.9 : exerciseId === 'chest-opener' ? 0.65 : 0.12
-    const fullBody = exerciseId === 'standing-side-bend'
-    const viewHeight = fullBody ? 6.25 : 3.35
-    const targetY = fullBody ? 2.75 : 3.05
     const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight)
+    const { yaw, viewHeight, targetY } = getStretchFraming(exerciseId, aspect)
     camera.left = -viewHeight * aspect / 2
     camera.right = viewHeight * aspect / 2
     camera.top = viewHeight / 2

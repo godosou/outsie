@@ -6,6 +6,7 @@ import { initializeDesktopBridge } from './tauriBridge'
 import './styles.css'
 import './stretch-anatomy.css'
 import './activity-chart.css'
+import './eye-care.css'
 
 function render() {
   ReactDOM.createRoot(document.getElementById('root')!).render(

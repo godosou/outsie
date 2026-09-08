@@ -21,6 +21,16 @@ export const JOINT_NAMES = [
 ] as const
 
 export type JointName = (typeof JOINT_NAMES)[number]
+export const STRETCH_JOINT_MAP: Record<JointName, string> = {
+  root: 'root', torso: 'spine04', chest: 'spine01', neck: 'neck01', head: 'head',
+  leftClavicle: 'clavicle.R', rightClavicle: 'clavicle.L',
+  leftShoulder: 'upperarm01.R', rightShoulder: 'upperarm01.L',
+  leftElbow: 'lowerarm01.R', rightElbow: 'lowerarm01.L',
+  leftWrist: 'wrist.R', rightWrist: 'wrist.L',
+  leftHip: 'upperleg01.R', rightHip: 'upperleg01.L',
+  leftKnee: 'lowerleg01.R', rightKnee: 'lowerleg01.L',
+}
+
 export type Rotation = readonly [number, number, number]
 export type StretchPose = {
   joints: Record<JointName, Rotation>
@@ -54,51 +64,52 @@ const poseFactories: Record<StretchExerciseId, PoseFactory> = {
     context.joints.head = rotation(0.025 * context.pulse)
   },
   'neck-side-stretch': ({ joints, wave }) => {
-    joints.neck = rotation(0, 0, wave * 0.15)
-    joints.head = rotation(0.02, 0, wave * 0.38)
+    joints.neck = rotation(0, 0, wave * 0.1)
+    joints.head = rotation(0, 0, wave * 0.26)
     joints.leftShoulder = rotation(0, 0, -Math.max(0, wave) * 0.08)
     joints.rightShoulder = rotation(0, 0, Math.min(0, wave) * 0.08)
   },
   'shoulder-rolls': ({ joints, wave, orbit }) => {
-    const lift = orbit * 0.14
-    joints.leftClavicle = rotation(0, wave * 0.12, -(orbit + 1) * 0.065)
-    joints.rightClavicle = rotation(0, -wave * 0.12, (orbit + 1) * 0.065)
-    joints.leftShoulder = rotation(-wave * 0.22, 0, -0.08 + lift)
-    joints.rightShoulder = rotation(-wave * 0.22, 0, 0.08 - lift)
-    joints.chest = rotation(wave * 0.025)
+    // The girdle travels up → back → down → forward; the arms hang naturally.
+    joints.leftClavicle = rotation(0, -wave * 0.18, -(orbit + 1) * 0.08)
+    joints.rightClavicle = rotation(0, wave * 0.18, (orbit + 1) * 0.08)
+    joints.leftShoulder = rotation(0, 0, -0.03)
+    joints.rightShoulder = rotation(0, 0, 0.03)
   },
   'upper-trapezius': ({ joints, wave }) => {
-    const side = wave >= 0 ? 1 : -1
-    const reach = Math.abs(wave)
-    joints.neck = rotation(0, -wave * 0.03, wave * 0.12)
-    joints.head = rotation(0, -wave * 0.04, wave * 0.32)
-    joints.leftShoulder = rotation(side > 0 ? 0.32 * reach : 0, side > 0 ? -0.18 * reach : 0, -0.05)
-    joints.rightShoulder = rotation(side < 0 ? 0.32 * reach : 0, side < 0 ? 0.18 * reach : 0, 0.05)
-    joints.leftElbow = rotation(side > 0 ? -0.18 * reach : 0)
-    joints.rightElbow = rotation(side < 0 ? -0.18 * reach : 0)
+    const left = Math.max(0, -wave)
+    const right = Math.max(0, wave)
+    joints.neck = rotation(0, 0, wave * 0.1)
+    joints.head = rotation(0, 0, wave * 0.22)
+    // Head tilts away from the arm behind the hip, on either side.
+    joints.leftShoulder = rotation(0.48 * left, 0, -0.02)
+    joints.rightShoulder = rotation(0.48 * right, 0, 0.02)
+    joints.leftElbow = rotation(-0.1 * left)
+    joints.rightElbow = rotation(-0.1 * right)
   },
   'chest-opener': ({ joints, pulse }) => {
-    const open = 0.25 + pulse * 0.75
-    joints.chest = rotation(-open * 0.08)
-    joints.leftShoulder = rotation(open * 0.68, -open * 0.25, -open * 0.16)
-    joints.rightShoulder = rotation(open * 0.68, open * 0.25, open * 0.16)
-    joints.leftElbow = rotation(-open * 0.42, 0, -open * 0.22)
-    joints.rightElbow = rotation(-open * 0.42, 0, open * 0.22)
+    joints.leftClavicle = rotation(0, -pulse * 0.08)
+    joints.rightClavicle = rotation(0, pulse * 0.08)
+    joints.leftShoulder = rotation(pulse * 0.4, 0, -pulse * 0.06)
+    joints.rightShoulder = rotation(pulse * 0.4, 0, pulse * 0.06)
+    joints.leftElbow = rotation(-pulse * 0.15)
+    joints.rightElbow = rotation(-pulse * 0.15)
   },
   'upper-back-rotation': ({ joints, wave }) => {
-    joints.torso = rotation(0, wave * 0.18)
-    joints.chest = rotation(0, wave * 0.34)
-    joints.neck = rotation(0, -wave * 0.12)
-    joints.leftShoulder = rotation(-0.5, 0, -0.82)
-    joints.rightShoulder = rotation(-0.5, 0, 0.82)
-    joints.leftElbow = rotation(0, 0, -1.18)
-    joints.rightElbow = rotation(0, 0, 1.18)
+    // Rotate the upper spine; keep the pelvis still and avoid an extra arm pose.
+    joints.chest = rotation(0, wave * 0.35)
+    joints.leftShoulder = rotation(-0.05, 0, -0.03)
+    joints.rightShoulder = rotation(-0.05, 0, 0.03)
+    joints.leftElbow = rotation(-0.12)
+    joints.rightElbow = rotation(-0.12)
   },
   'wrist-forearm': ({ joints, wave }) => {
     const left = Math.max(0, wave)
     const right = Math.max(0, -wave)
     joints.leftShoulder = rotation(-1.4 * left, 0, -0.08)
     joints.rightShoulder = rotation(-1.4 * right, 0, 0.08)
+    joints.leftElbow = rotation(-0.08 * left)
+    joints.rightElbow = rotation(-0.08 * right)
     joints.leftWrist = rotation(0.5 * left)
     joints.rightWrist = rotation(0.5 * right)
   },

@@ -289,16 +289,16 @@ export default function Home() {
                   Icon: Eye,
                   title: t('让眼睛歇一会儿', 'Room for your eyes'),
                   body: t(
-                    '短休息，暂时把视线从屏幕移开。',
-                    'Short breaks to move your gaze beyond the screen.',
+                    '每次短休息一条护眼知识，读完就看远处。',
+                    'One eye-care tip per short break. Read it, then look into the distance.',
                   ),
                 },
                 {
                   Icon: Sprout,
                   title: t('跟着做，松松肩颈', 'Remember your shoulders?'),
                   body: t(
-                    '长休息配合离线 3D 拉伸引导，跟着舒展身体。',
-                    'Longer breaks with offline 3D stretching guidance.',
+                    '放大的离线 3D 人物在左，动作说明与倒计时在右。',
+                    'A larger offline 3D guide on the left, with cues and countdown on the right.',
                   ),
                 },
                 {
@@ -360,7 +360,7 @@ export default function Home() {
                 {[
                   t('下巴微收', 'Chin tuck'),
                   t('颈部侧向拉伸', 'Side neck stretch'),
-                  t('肩部前后环绕', 'Shoulder rolls'),
+                  t('肩部向后环绕', 'Backward shoulder rolls'),
                   t('上斜方肌拉伸', 'Upper trapezius stretch'),
                   t('胸肩打开', 'Chest opener'),
                   t('上背旋转', 'Upper back rotation'),
@@ -640,6 +640,7 @@ export default function Home() {
               v{macRelease.version} · {t('Mac 预览版', 'Mac preview')} · Apple
               Silicon · macOS 14+
             </p>
+            <p className="download-scope">{macRelease.highlights[lang]}</p>
             <p className="download-scope">
               {t(
                 '安装后应用名为 Repose。本次安装包提供休息与拉伸功能；手机钥匙和手机工作台不包含在此版本中。',
@@ -742,8 +743,8 @@ export default function Home() {
                   'What devices do I need? Where can I download it?',
                 ),
                 t(
-                  '从本页“下载 Mac 版”可获取安装包。目前提供 v0.6.2，适用于 Apple Silicon 芯片的 Mac，系统需为 macOS 14 或更新版本。安装后应用名为 Repose，包含休息与拉伸功能；手机钥匙和手机工作台不包含在此安装包中。',
-                  'Use “Download for Mac” on this page to get v0.6.2 for Apple Silicon Macs running macOS 14 or later. The installed app is named Repose and includes breaks and stretching. Phone Key and Phone Controls are not included in this download.',
+                  '从本页“下载 Mac 版”可获取安装包。目前提供 v0.6.3，适用于 Apple Silicon 芯片的 Mac，系统需为 macOS 14 或更新版本。安装后应用名为 Repose，包含休息与拉伸功能；手机钥匙和手机工作台不包含在此安装包中。',
+                  'Use “Download for Mac” on this page to get v0.6.3 for Apple Silicon Macs running macOS 14 or later. The installed app is named Repose and includes breaks and stretching. Phone Key and Phone Controls are not included in this download.',
                 ),
               ],
             ].map(([question, answer], i) => (

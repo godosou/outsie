@@ -2425,3 +2425,14 @@ svg {
     flex-wrap: wrap;
   }
 }
+
+/* Release 0.6.3: show the shipped eye-care card and side-by-side guide. */
+.rest-eye-tip{display:grid;gap:8px;max-width:320px;margin:6px 0 18px;padding:16px;border:1px solid #b7c9a64d;border-radius:12px;background:#ffffff0a;text-align:left;font-size:.82rem;line-height:1.7;color:#e1ead8}
+.rest-eye-tip b{font-weight:500}
+.rest-eye-tip span{color:#c3d0b8}
+.simple-stretch-demo{grid-template-columns:1.2fr 1fr;gap:28px}
+.stretch-scene-preview{align-self:stretch;display:flex;align-items:center;background:#f2f4ef}
+.stretch-scene-preview img{height:100%;min-height:440px;object-fit:contain}
+.stretch-duration{flex-wrap:wrap;padding-top:20px;border-top:1px solid #d5dfcc}
+.stretch-duration strong{font-variant-numeric:tabular-nums}
+@media(max-width:760px){.simple-stretch-demo{grid-template-columns:1fr;gap:0}.stretch-scene-preview img{min-height:0;height:auto}.rest-eye-tip{max-width:100%}}

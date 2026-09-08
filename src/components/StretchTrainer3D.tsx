@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Pause, Sparkles } from 'lucide-react'
 import type { StretchScene } from '../lib/stretchScene.ts'
 import {
@@ -11,9 +11,10 @@ type StretchTrainer3DProps = {
   remaining: number
   duration: number
   running: boolean
+  children?: ReactNode
 }
 
-export function StretchTrainer3D({ remaining, duration, running }: StretchTrainer3DProps) {
+export function StretchTrainer3D({ remaining, duration, running, children }: StretchTrainer3DProps) {
   const [manualOffset, setManualOffset] = useState(0)
   const [sceneUnavailable, setSceneUnavailable] = useState(false)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -72,6 +73,7 @@ export function StretchTrainer3D({ remaining, duration, running }: StretchTraine
       <span className="stretch-3d-badge"><Sparkles size={12} />3D 动作示范</span>
       <span className="stretch-region-legend"><i />拉伸区域示意 · 非精确肌肉解剖</span>
     </div>
+    <div className="stretch-sidebar">
     <div className="stretch-guide">
       <div className="stretch-guide-topline"><span>{step.exercise.focus}</span><span>{step.index + 1} / {STRETCH_EXERCISES.length}</span></div>
       <h2 aria-live="polite">{step.exercise.title}</h2>
@@ -87,6 +89,8 @@ export function StretchTrainer3D({ remaining, duration, running }: StretchTraine
         <div className="stretch-dots" aria-label={`当前是第 ${step.index + 1} 个动作`}>{STRETCH_EXERCISES.map((exercise, index) => <span key={exercise.id} className={index === step.index ? 'active' : ''} />)}</div>
         <button type="button" onClick={() => move('next')} aria-label="下一个拉伸动作"><ChevronRight size={18} /></button>
       </div>
+    </div>
+    {children}
     </div>
   </section>
 }

@@ -17,16 +17,16 @@ export const STRETCH_EXERCISES = [
   },
   {
     id: 'shoulder-rolls',
-    title: '肩部前后环绕',
+    title: '肩部向后环绕',
     focus: '肩颈与上背',
-    cue: '双肩向耳朵提起，再向后、向下画一个舒缓的大圆。',
+    cue: '双肩轻轻提起，缓缓向后、向下，再回到起点，小幅画圈。',
     safety: '保持呼吸自然，肩部疼痛时缩小圆圈。',
   },
   {
     id: 'upper-trapezius',
     title: '上斜方肌拉伸',
     focus: '肩颈与上背',
-    cue: '一手放在身后，头部轻轻倒向另一侧，左右交替进行。',
+    cue: '一侧手臂轻放到身后，头部向另一侧轻倾，回正后换边。',
     safety: '肩膀保持放松，不要拉扯颈部。',
   },
   {
@@ -40,7 +40,7 @@ export const STRETCH_EXERCISES = [
     id: 'upper-back-rotation',
     title: '上背旋转',
     focus: '肩颈与上背',
-    cue: '骨盆保持朝前，胸口带动上半身缓缓向左右转动。',
+    cue: '双臂自然下垂，骨盆保持朝前，胸口带动上半身小幅左右转动。',
     safety: '转动来自上背，不要憋气或猛然扭腰。',
   },
   {

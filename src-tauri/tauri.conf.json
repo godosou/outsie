@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Repose",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "identifier": "ai.repose.lite",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -30,8 +30,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "Healthcare and Fitness",
     "shortDescription": "给日常，留一点空白。",
     "macOS": {
