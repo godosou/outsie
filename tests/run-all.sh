@@ -33,6 +33,7 @@ cd "$REPO"
 
 run "web + lib unit tests" npm test --silent
 run "acceptance harness self-test" tests/e2e/harness_selftest.sh
+run "acceptance test passes and fails correctly" tests/e2e/fake_target_test.sh
 run "authorization plugin, rule transform, install invariants" \
     make -C native/macos/minimal-auth-plugin test
 
