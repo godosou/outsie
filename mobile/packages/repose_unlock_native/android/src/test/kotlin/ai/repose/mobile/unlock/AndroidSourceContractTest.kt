@@ -55,6 +55,14 @@ class AndroidSourceContractTest {
         assertFalse("BIND permission belongs on the service", requestedPermissions.contains(
             "android.permission.BIND_COMPANION_DEVICE_SERVICE",
         ))
+        assertEquals(
+            1,
+            requestedPermissions.count { it == "android.permission.BLUETOOTH_SCAN" },
+        )
+        assertEquals(
+            1,
+            requestedPermissions.count { it == "android.permission.BLUETOOTH_CONNECT" },
+        )
 
         val features = document.getElementsByTagName("uses-feature").asElements()
         assertEquals(
@@ -109,6 +117,7 @@ class AndroidSourceContractTest {
         ).toFile().readText()
         val methods = listOf(
             "getSnapshot",
+            "requestCompanionAssociation",
             "beginPairing",
             "confirmPairing",
             "startCalibration",
@@ -147,27 +156,139 @@ class AndroidSourceContractTest {
         ).toFile().readText()
 
         assertEquals(
-            7,
+            8,
             Regex("@TaskQueue\\(type: TaskQueueType\\.serialBackgroundThread\\)")
                 .findAll(schema)
                 .count(),
         )
         assertEquals(1, Regex("makeBackgroundTaskQueue\\(\\)").findAll(generatedKotlin).count())
-        assertEquals(7, Regex(", codec, taskQueue\\)").findAll(generatedKotlin).count())
+        assertEquals(8, Regex(", codec, taskQueue\\)").findAll(generatedKotlin).count())
     }
 
     @Test
-    fun `plugin registers and tears down the fail closed host api`() {
+    fun `plugin registers and tears down a variant isolated host api`() {
         val pluginSource = plugin.resolve(
             "android/src/main/kotlin/ai/repose/mobile/unlock/ReposeUnlockNativePlugin.kt",
         ).toFile().readText()
+        val debugFactory = plugin.resolve(
+            "android/src/debug/kotlin/ai/repose/mobile/unlock/" +
+                "VariantReposeUnlockHostApiFactory.kt",
+        ).toFile().readText()
+        val releaseFactory = plugin.resolve(
+            "android/src/release/kotlin/ai/repose/mobile/unlock/" +
+                "VariantReposeUnlockHostApiFactory.kt",
+        ).toFile().readText()
+        val profileFactory = plugin.resolve(
+            "android/src/profile/kotlin/ai/repose/mobile/unlock/" +
+                "VariantReposeUnlockHostApiFactory.kt",
+        ).toFile().readText()
 
         assertTrue(pluginSource.contains("ReposeUnlockHostApi.setUp("))
-        assertTrue(Regex("FailClosedReposeUnlockHostApi\\s*[({]").containsMatchIn(pluginSource))
+        assertTrue(pluginSource.contains("VariantReposeUnlockHostApiFactory.create("))
+        assertFalse(pluginSource.contains("DebugReposeUnlockHostApi"))
+        assertTrue(debugFactory.contains("DebugReposeUnlockHostApi("))
+        assertFalse(debugFactory.contains("FailClosedReposeUnlockHostApi("))
+        assertTrue(releaseFactory.contains("FailClosedReposeUnlockHostApi("))
+        assertFalse(releaseFactory.contains("DebugReposeUnlockHostApi"))
+        assertTrue(profileFactory.contains("FailClosedReposeUnlockHostApi("))
+        assertFalse(profileFactory.contains("DebugReposeUnlockHostApi"))
+        val mainSources = Files.walk(plugin.resolve("android/src/main/kotlin")).use { paths ->
+            paths.iterator().asSequence()
+                .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                .map { it.toFile().readText() }
+                .joinToString("\n")
+        }
+        assertFalse(mainSources.contains("class DebugReposeUnlockHostApi"))
+        assertFalse(mainSources.contains("class AndroidDebugGattPairingTransport"))
+        assertFalse(mainSources.contains("class DebugPairingCoordinator"))
         assertTrue(
             Regex("onDetachedFromEngine[\\s\\S]*?ReposeUnlockHostApi\\.setUp\\([\\s\\S]*?null")
                 .containsMatchIn(pluginSource),
         )
+        assertTrue(pluginSource.contains("hostApi?.close()"))
+        assertTrue(pluginSource.contains("ActivityAware"))
+        assertTrue(pluginSource.contains("addRequestPermissionsResultListener"))
+        assertTrue(pluginSource.contains("addActivityResultListener"))
+        assertTrue(pluginSource.contains("VariantReposeUnlockHostApiFactory.configureAssociation("))
+
+        assertTrue(debugFactory.contains("AndroidDebugCompanionAssociationProvider"))
+        assertFalse(debugFactory.contains("ReposeUnlockRuntime.activeAssociationId"))
+        assertFalse(debugFactory.contains("ReposeUnlockRuntime.availability"))
+        assertTrue(releaseFactory.contains("ReposeUnlockRuntime.configureAssociation"))
+        assertTrue(profileFactory.contains("ReposeUnlockRuntime.configureAssociation"))
+        assertFalse(releaseFactory.contains("AndroidDebugCompanionAssociationProvider"))
+        assertFalse(profileFactory.contains("AndroidDebugCompanionAssociationProvider"))
+    }
+
+    @Test
+    fun `debug foreground association provider supports API 31 through 35 without presence runtime`() {
+        val source = plugin.resolve(
+            "android/src/debug/kotlin/ai/repose/mobile/unlock/pairing/" +
+                "AndroidDebugCompanionAssociationProvider.kt",
+        ).toFile().readText()
+
+        assertTrue(source.contains("FEATURE_COMPANION_DEVICE_SETUP"))
+        assertTrue(source.contains("Build.VERSION.SDK_INT >= 33"))
+        assertTrue(source.contains("Build.VERSION.SDK_INT >= 34"))
+        assertTrue(source.contains("manager.myAssociations"))
+        assertTrue(source.contains("manager.associations"))
+        assertTrue(source.contains("DebugAssociationSelector.select"))
+        assertTrue(source.contains("legacyAssociationToken"))
+        assertFalse(source.contains("ReposeUnlockRuntime"))
+
+        val driver = plugin.resolve(
+            "android/src/main/kotlin/ai/repose/mobile/unlock/companion/" +
+                "AndroidCompanionAssociationDriver.kt",
+        ).toFile().readText()
+        assertTrue(driver.contains("CompanionDeviceManager.EXTRA_DEVICE"))
+        assertTrue(driver.contains("legacyAssociationToken"))
+    }
+
+    @Test
+    fun `debug GATT client resolves only its association and fixed Repose profile`() {
+        val source = plugin.resolve(
+            "android/src/debug/kotlin/ai/repose/mobile/unlock/pairing/" +
+                "AndroidDebugGattPairingTransport.kt",
+        ).toFile().readText()
+
+        assertTrue(source.contains("manager.myAssociations.singleOrNull"))
+        assertTrue(source.contains("@TargetApi(31)"))
+        assertTrue(source.contains("Build.VERSION.SDK_INT >= 34"))
+        assertTrue(source.contains("it.id == associationToken"))
+        assertTrue(source.contains("association.associatedDevice?.bleDevice?.device"))
+        assertTrue(source.contains("association.deviceMacAddress?.toString()"))
+        assertTrue(source.contains("adapter::getRemoteDevice"))
+        assertTrue(source.contains("BluetoothDevice.TRANSPORT_LE"))
+        assertTrue(source.contains("requestMtu(TARGET_MTU)"))
+        assertTrue(source.contains("PairingProtocolV1.bleServiceUuid"))
+        assertTrue(source.contains("PairingProtocolV1.bleControlCharacteristicUuid"))
+        assertTrue(source.contains("PairingProtocolV1.bleStatusCharacteristicUuid"))
+        assertTrue(source.contains("BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE"))
+        assertTrue(source.contains("readCharacteristic(statusValue)"))
+        assertTrue(source.contains("CALLBACK_HANDLER.post(observer::onFailure)"))
+        assertTrue(source.contains("CALLBACK_HANDLER.post(observer::onDisconnected)"))
+        assertTrue(source.contains("HANDSHAKE_TIMEOUT_MILLIS = 15_000L"))
+        assertTrue(source.contains("DebugGattHandshakeDeadline("))
+        assertTrue(source.contains("handler.postDelayed"))
+        assertTrue(source.contains("manager.associations"))
+        assertTrue(source.contains("legacyAssociationToken"))
+    }
+
+    @Test
+    fun `association discovery filters the fixed Repose service uuid`() {
+        val sources = Files.walk(plugin.resolve("android/src/main/kotlin")).use { paths ->
+            paths.iterator().asSequence()
+                .filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                .map { it.toFile().readText() }
+                .toList()
+        }
+        val joined = sources.joinToString("\n")
+
+        assertTrue(joined.contains("A53E0001-7A6B-4D59-9F2E-5245504F5345"))
+        assertTrue(joined.contains("BluetoothLeDeviceFilter.Builder()"))
+        assertTrue(joined.contains("ScanFilter.Builder()"))
+        assertTrue(joined.contains(".setServiceUuid("))
+        assertTrue(joined.contains("AssociationRequest.Builder()"))
     }
 
     @Test

@@ -339,7 +339,14 @@ fn validate_identifier(value: &str) -> Result<(), UnlockCommandError> {
     }
 }
 
-pub type ProductionUnlockCommandService = UnlockCommandService<GateClosedBackend>;
+pub type ProductionUnlockCommandService =
+    UnlockCommandService<crate::build_unlock_backend::BuildUnlockBackend>;
+
+impl UnlockCommandService<crate::build_unlock_backend::BuildUnlockBackend> {
+    pub fn for_current_build() -> Self {
+        Self::new(crate::build_unlock_backend::BuildUnlockBackend::for_current_build())
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

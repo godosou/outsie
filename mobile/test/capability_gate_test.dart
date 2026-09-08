@@ -11,6 +11,7 @@ void main() {
     test('enables pairing and calibration only when native is ready', () {
       final gate = CapabilityGate.from(CompanionCapability.ready);
 
+      expect(gate.canAssociate, isFalse);
       expect(gate.canPair, isTrue);
       expect(gate.canCalibrate, isTrue);
       expect(gate.message, isNull);
@@ -27,6 +28,21 @@ void main() {
         expect(gate.message, isNotEmpty);
       });
     }
+
+    test('exposes only system association before a Mac is configured', () {
+      final gate = CapabilityGate.from(
+        CompanionCapability.associationNotConfigured,
+      );
+
+      expect(gate.canAssociate, isTrue);
+      expect(gate.canPair, isFalse);
+      expect(gate.canCalibrate, isFalse);
+      expect(
+        gate.message,
+        'Connect this phone to a Repose Mac before scanning the one-time '
+        'pairing QR code.',
+      );
+    });
   });
 
   group('DeviceController', () {
@@ -67,6 +83,66 @@ void main() {
       );
       expect(controller.state.isHydrated, isTrue);
     });
+
+    test('system association refreshes authoritative native state', () async {
+      final gateway = FakeNativeGateway(
+        snapshot: UnlockSnapshot(
+          capability: CompanionCapability.associationNotConfigured,
+          devices: const <PairedDevice>[],
+          calibration: const CalibrationSnapshot(),
+        ),
+      );
+      gateway.onRequestCompanionAssociation = () {
+        gateway.snapshot = UnlockSnapshot(
+          capability: CompanionCapability.backgroundExecutionUnavailable,
+          devices: const <PairedDevice>[],
+          calibration: const CalibrationSnapshot(),
+        );
+      };
+      final controller = DeviceController(gateway: gateway);
+      await controller.hydrate();
+
+      expect(await controller.requestCompanionAssociation(), isTrue);
+
+      expect(gateway.associationRequestCount, 1);
+      expect(gateway.snapshotReadCount, 2);
+      expect(
+        controller.state.snapshot?.capability,
+        CompanionCapability.backgroundExecutionUnavailable,
+      );
+      expect(
+        controller.state.message,
+        'Android connection saved. Next, scan the one-time pairing QR code '
+        'shown on your Mac.',
+      );
+    });
+
+    test(
+      'denied association remains retryable but never opens pairing',
+      () async {
+        final gateway =
+            FakeNativeGateway(
+                snapshot: UnlockSnapshot(
+                  capability: CompanionCapability.associationNotConfigured,
+                  devices: const <PairedDevice>[],
+                  calibration: const CalibrationSnapshot(),
+                ),
+              )
+              ..associationError = const NativeGatewayException(
+                NativeErrorCode.bluetoothPermissionDenied,
+                safeMessage:
+                    'Nearby devices access is required to find your Mac.',
+              );
+        final controller = DeviceController(gateway: gateway);
+        await controller.hydrate();
+
+        expect(await controller.requestCompanionAssociation(), isFalse);
+
+        expect(controller.state.gate.canAssociate, isTrue);
+        expect(controller.state.gate.canPair, isFalse);
+        expect(controller.state.message, contains('Nearby devices'));
+      },
+    );
 
     test(
       'revokes a device natively before removing it from UI state',

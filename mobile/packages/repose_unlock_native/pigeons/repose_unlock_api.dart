@@ -2,6 +2,7 @@ import 'package:pigeon/pigeon.dart';
 
 enum NativeCompanionCapability {
   ready,
+  associationNotConfigured,
   bluetoothUnavailable,
   secureHardwareUnavailable,
   backgroundExecutionUnavailable,
@@ -77,6 +78,10 @@ class NativeDiagnostics {
 abstract class ReposeUnlockHostApi {
   @TaskQueue(type: TaskQueueType.serialBackgroundThread)
   NativeUnlockSnapshot getSnapshot();
+
+  @async
+  @TaskQueue(type: TaskQueueType.serialBackgroundThread)
+  void requestCompanionAssociation();
 
   @TaskQueue(type: TaskQueueType.serialBackgroundThread)
   NativePairingSession beginPairing(String qrPayload);

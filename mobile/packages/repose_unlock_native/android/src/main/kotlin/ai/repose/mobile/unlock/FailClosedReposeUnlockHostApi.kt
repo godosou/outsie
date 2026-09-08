@@ -10,6 +10,10 @@ import ai.repose.mobile.unlock.generated.NativePairingSession
 import ai.repose.mobile.unlock.generated.NativeUnlockSnapshot
 import ai.repose.mobile.unlock.generated.ReposeUnlockHostApi
 
+internal interface LifecycleReposeUnlockHostApi : ReposeUnlockHostApi {
+    fun close()
+}
+
 internal enum class NativeRuntimeAvailability(
     val capability: NativeCompanionCapability,
     val diagnostic: String,
@@ -23,7 +27,7 @@ internal enum class NativeRuntimeAvailability(
         "The companion-device background feature is unavailable.",
     ),
     ASSOCIATION_NOT_CONFIGURED(
-        NativeCompanionCapability.BACKGROUND_EXECUTION_UNAVAILABLE,
+        NativeCompanionCapability.ASSOCIATION_NOT_CONFIGURED,
         "A companion association is not configured.",
     ),
     TRANSPORT_NOT_IMPLEMENTED(
@@ -33,8 +37,9 @@ internal enum class NativeRuntimeAvailability(
 }
 
 internal class FailClosedReposeUnlockHostApi(
+    private val requestCompanionAssociation: (((Result<Unit>) -> Unit) -> Unit)? = null,
     private val availability: () -> NativeRuntimeAvailability,
-) : ReposeUnlockHostApi {
+) : LifecycleReposeUnlockHostApi {
     override fun getSnapshot(): NativeUnlockSnapshot {
         val current = availability()
         return NativeUnlockSnapshot(
@@ -49,6 +54,31 @@ internal class FailClosedReposeUnlockHostApi(
         summary = availability().diagnostic,
     )
 
+    override fun requestCompanionAssociation(callback: (Result<Unit>) -> Unit) {
+        if (availability() != NativeRuntimeAvailability.ASSOCIATION_NOT_CONFIGURED) {
+            callback(Result.failure(FlutterError(
+                code = "associationUnavailable",
+                message = "A companion association cannot be started in the current runtime state.",
+                details = null,
+            )))
+            return
+        }
+        val request = requestCompanionAssociation
+        if (request == null) {
+            callback(Result.failure(FlutterError(
+                code = "activityUnavailable",
+                message = "Open Repose on your phone before starting system association.",
+                details = null,
+            )))
+            return
+        }
+        try {
+            request(callback)
+        } catch (error: RuntimeException) {
+            callback(Result.failure(error))
+        }
+    }
+
     override fun beginPairing(qrPayload: String): NativePairingSession = unavailable("Pairing")
 
     override fun confirmPairing(sessionId: String): Unit = unavailable("Pairing confirmation")
@@ -59,6 +89,8 @@ internal class FailClosedReposeUnlockHostApi(
         unavailable("Calibration")
 
     override fun revokeDevice(deviceId: String): Unit = unavailable("Device revocation")
+
+    override fun close() = Unit
 
     private fun unavailable(operation: String): Nothing = throw FlutterError(
         code = "capabilityUnavailable",

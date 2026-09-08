@@ -1,76 +1,60 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+
+import 'app_text.dart';
+import 'repose_theme.dart';
+import '../features/settings/settings_page.dart';
 
 import '../features/calibration/calibration_controller.dart';
 import '../features/devices/device_controller.dart';
 import '../features/pairing/pairing_controller.dart';
+import '../features/pairing/pairing_scanner.dart';
 import '../native/native_gateway.dart';
 import '../native/native_models.dart';
 
 class ReposeUnlockApp extends StatelessWidget {
-  const ReposeUnlockApp({required this.gateway, super.key});
+  const ReposeUnlockApp({
+    required this.gateway,
+    this.pairingCameraAccess = const SystemPairingCameraAccess(),
+    this.pairingScannerBuilder,
+    super.key,
+  });
 
   final NativeGateway gateway;
+  final PairingCameraAccess pairingCameraAccess;
+  final PairingScannerBuilder? pairingScannerBuilder;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Repose Phone Key',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff5eead4),
-          brightness: Brightness.dark,
-          surface: const Color(0xff111c2e),
-        ),
-        scaffoldBackgroundColor: const Color(0xff08111f),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          foregroundColor: Color(0xfff8fafc),
-          elevation: 0,
-          centerTitle: false,
-        ),
-        cardTheme: CardThemeData(
-          color: const Color(0xff111c2e),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-            side: const BorderSide(color: Color(0xff26364d)),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xff0c1727),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xff31445e)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: const BorderSide(color: Color(0xff31445e)),
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(52),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-          ),
-        ),
-        useMaterial3: true,
+      theme: reposeTheme(Brightness.light),
+      darkTheme: reposeTheme(Brightness.dark),
+      themeMode: ThemeMode.system,
+      supportedLocales: const [Locale('en'), Locale('zh')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: _CompanionHome(
+        gateway: gateway,
+        pairingCameraAccess: pairingCameraAccess,
+        pairingScannerBuilder: pairingScannerBuilder,
       ),
-      home: _CompanionHome(gateway: gateway),
     );
   }
 }
 
 class _CompanionHome extends StatefulWidget {
-  const _CompanionHome({required this.gateway});
+  const _CompanionHome({
+    required this.gateway,
+    required this.pairingCameraAccess,
+    this.pairingScannerBuilder,
+  });
 
   final NativeGateway gateway;
+  final PairingCameraAccess pairingCameraAccess;
+  final PairingScannerBuilder? pairingScannerBuilder;
 
   @override
   State<_CompanionHome> createState() => _CompanionHomeState();
@@ -81,8 +65,8 @@ class _CompanionHomeState extends State<_CompanionHome> {
   late final PairingController _pairing;
   late final CalibrationController _calibration;
   late final Listenable _controllers;
-  final _qrController = TextEditingController();
   var _showAdditionalPairing = false;
+  var _openingScanner = false;
 
   @override
   void initState() {
@@ -131,32 +115,199 @@ class _CompanionHomeState extends State<_CompanionHome> {
   @override
   void dispose() {
     _devices.removeListener(_syncCalibrationFromAuthoritativeSnapshot);
-    _qrController.dispose();
     _calibration.dispose();
     _pairing.dispose();
     _devices.dispose();
     super.dispose();
   }
 
+  Future<void> _openSettings() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const SettingsPage()));
+    if (mounted && !_pairing.state.isBusy && !_calibration.state.isBusy) {
+      await _hydrateFromNative();
+    }
+  }
+
+  Future<void> _scanPairingQr() async {
+    if (_openingScanner || !_devices.state.gate.canPair) {
+      return;
+    }
+    setState(() => _openingScanner = true);
+    var retryAfterDenial = false;
+    try {
+      final shouldContinue = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          key: const Key('cameraPermissionRationaleDialog'),
+          icon: const Icon(Icons.qr_code_scanner_rounded),
+          title: const AppText('Use camera to pair?'),
+          content: const AppText(
+            'Repose uses the camera only while this scanner is open. It reads the one-time QR code on your Mac and does not save photos.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const AppText('Not now'),
+            ),
+            FilledButton(
+              key: const Key('continueToCameraButton'),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const AppText('Use camera'),
+            ),
+          ],
+        ),
+      );
+      if (shouldContinue != true || !mounted) {
+        return;
+      }
+
+      final access = await widget.pairingCameraAccess.request();
+      if (!mounted) {
+        return;
+      }
+      switch (access) {
+        case CameraAccessOutcome.granted:
+          final payload = await Navigator.of(context).push<String>(
+            MaterialPageRoute<String>(
+              builder: (_) => PairingScannerPage(
+                scannerBuilder: widget.pairingScannerBuilder,
+              ),
+            ),
+          );
+          if (payload != null && mounted) {
+            await _pairing.beginPairing(payload);
+          }
+        case CameraAccessOutcome.denied:
+          retryAfterDenial = await _showCameraDeniedDialog();
+        case CameraAccessOutcome.permanentlyDenied:
+          await _showCameraPermanentlyDeniedDialog();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _openingScanner = false);
+      }
+    }
+    if (retryAfterDenial && mounted) {
+      unawaited(_scanPairingQr());
+    }
+  }
+
+  Future<bool> _showCameraDeniedDialog() async {
+    if (!mounted) {
+      return false;
+    }
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            key: const Key('cameraPermissionDeniedDialog'),
+            icon: const Icon(Icons.no_photography_outlined),
+            title: const AppText('Camera access was not allowed'),
+            content: const AppText(
+              'The QR scanner stays closed. You can try again or keep using your Mac password.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const AppText('Not now'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const AppText('Try again'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _showCameraPermanentlyDeniedDialog() async {
+    if (!mounted) {
+      return;
+    }
+    final openSettings = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('cameraPermissionPermanentlyDeniedDialog'),
+        icon: const Icon(Icons.settings_outlined),
+        title: const AppText('Allow camera access in Settings'),
+        content: const AppText(
+          'Your device will not show the camera prompt again. Open Repose permissions in Settings, allow Camera, then return to scan.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const AppText('Not now'),
+          ),
+          FilledButton(
+            key: const Key('openCameraSettingsButton'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const AppText('Open settings'),
+          ),
+        ],
+      ),
+    );
+    if (openSettings == true) {
+      await widget.pairingCameraAccess.openSettings();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'Repose Key',
-          style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.4),
+        title: Row(
+          children: [
+            const ReposeBrandMark(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const AppText(
+                    'repose.',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 25,
+                      letterSpacing: -1,
+                    ),
+                  ),
+                  AppText(
+                    'Repose Key',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        actions: const <Widget>[
-          Padding(
-            padding: EdgeInsets.only(right: 20),
-            child: Icon(Icons.shield_outlined, size: 22),
+        actions: [
+          IconButton(
+            tooltip: tr(context, 'Permissions & background'),
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune_rounded, size: 22),
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: AnimatedBuilder(
         animation: _controllers,
         builder: (context, _) {
           final deviceState = _devices.state;
+          final needsSystemAssociation =
+              deviceState.snapshot?.capability ==
+              CompanionCapability.associationNotConfigured;
+          final canShowWorkflows =
+              deviceState.gate.canPair ||
+              deviceState.snapshot?.pendingPairing != null ||
+              _pairing.state.phase != PairingPhase.idle;
           final showPrimaryPairing =
               deviceState.devices.isEmpty ||
               (!_showAdditionalPairing &&
@@ -175,11 +326,36 @@ class _CompanionHomeState extends State<_CompanionHome> {
                         calibration: _calibration.state,
                       ),
                       const SizedBox(height: 12),
-                      if (showPrimaryPairing) ...[
+                      if (needsSystemAssociation) ...[
+                        _AssociationCard(controller: _devices),
+                        const SizedBox(height: 12),
+                      ],
+                      if (!deviceState.gate.canPair &&
+                          !needsSystemAssociation) ...[
+                        FilledButton.icon(
+                          onPressed: _openSettings,
+                          icon: const Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 19,
+                          ),
+                          label: const AppText('See setup guidance'),
+                        ),
+                        const SizedBox(height: 8),
+                        OutlinedButton.icon(
+                          onPressed: deviceState.isLoading
+                              ? null
+                              : () => unawaited(_hydrateFromNative()),
+                          icon: const Icon(Icons.refresh_rounded, size: 19),
+                          label: const AppText('Check again'),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+                      if (showPrimaryPairing && canShowWorkflows) ...[
                         _PairingCard(
                           gate: deviceState.gate,
                           controller: _pairing,
-                          qrController: _qrController,
+                          isOpeningScanner: _openingScanner,
+                          onScan: _scanPairingQr,
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -196,7 +372,7 @@ class _CompanionHomeState extends State<_CompanionHome> {
                         calibration: _calibration.state,
                       ),
                       const SizedBox(height: 12),
-                      if (deviceState.devices.isEmpty) ...[
+                      if (deviceState.devices.isEmpty && canShowWorkflows) ...[
                         _CalibrationCard(
                           gate: deviceState.gate,
                           hasPairedDevice: false,
@@ -219,11 +395,12 @@ class _CompanionHomeState extends State<_CompanionHome> {
                         _PairingCard(
                           gate: deviceState.gate,
                           controller: _pairing,
-                          qrController: _qrController,
+                          isOpeningScanner: _openingScanner,
+                          onScan: _scanPairingQr,
                         ),
                       ],
                       const SizedBox(height: 12),
-                      const Text(
+                      const AppText(
                         'Password sign-in remains available if phone key is '
                         'unavailable.',
                         textAlign: TextAlign.center,
@@ -240,6 +417,44 @@ class _CompanionHomeState extends State<_CompanionHome> {
   }
 }
 
+class _AssociationCard extends StatelessWidget {
+  const _AssociationCard({required this.controller});
+
+  final DeviceController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.state;
+    return _SectionCard(
+      icon: Icons.bluetooth_searching_rounded,
+      title: 'Connect this phone',
+      children: <Widget>[
+        const AppText(
+          'Let Android find the Repose service advertised by your Mac. This system connection does not unlock your Mac; secure pairing comes next.',
+        ),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          key: const Key('requestCompanionAssociationButton'),
+          onPressed: state.isAssociating
+              ? null
+              : () => unawaited(controller.requestCompanionAssociation()),
+          icon: state.isAssociating
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.radar_rounded),
+          label: const AppText('Find a Repose Mac'),
+        ),
+        if (state.message != null) ...<Widget>[
+          const SizedBox(height: 8),
+          _LiveStatus(state.message!),
+        ],
+      ],
+    );
+  }
+}
+
 class _PhoneKeyHero extends StatelessWidget {
   const _PhoneKeyHero({required this.state, required this.calibration});
 
@@ -251,34 +466,49 @@ class _PhoneKeyHero extends StatelessWidget {
     final gate = state.gate;
     final hasPairedDevice = state.devices.isNotEmpty;
     final isCalibrated = calibration.phase == CalibrationPhase.complete;
-    final isReady = gate.canPair && hasPairedDevice && isCalibrated;
-    final (statusLabel, headline, detail) = switch ((
-      gate.canPair,
-      hasPairedDevice,
-      isCalibrated,
-    )) {
-      (false, _, _) => (
-        'PHONE KEY OFFLINE',
-        'Phone key unavailable',
-        gate.message ?? 'Phone key setup is paused.',
-      ),
-      (true, false, _) => (
-        'READY TO PAIR',
-        'Add your phone key',
-        'Pair this phone with your Mac to continue.',
-      ),
-      (true, true, false) => (
-        'CALIBRATION NEEDED',
-        'Set your unlock distance',
-        'Choose where your Mac should recognize this phone.',
-      ),
-      (true, true, true) => (
-        'SETUP COMPLETE',
-        'Phone key setup complete',
-        'Secure setup is complete on this device.',
-      ),
-    };
-    final accent = isReady ? const Color(0xff6ee7b7) : const Color(0xffffc857);
+    final checking =
+        state.isLoading ||
+        state.snapshot == null ||
+        state.snapshot?.capability == CompanionCapability.loading;
+    final needsSystemAssociation =
+        state.snapshot?.capability ==
+        CompanionCapability.associationNotConfigured;
+    final (statusLabel, headline, detail) = checking
+        ? (
+            'CHECKING',
+            'Checking your phone key',
+            'This will only take a moment.',
+          )
+        : needsSystemAssociation
+        ? (
+            'CONNECT YOUR MAC',
+            'Connect Android to your Mac',
+            'Allow Android to discover the Repose service before secure pairing.',
+          )
+        : switch ((gate.canPair, hasPairedDevice, isCalibrated)) {
+            (false, _, _) => (
+              'PHONE KEY OFFLINE',
+              'Phone key unavailable',
+              gate.message ?? 'Phone key setup is paused.',
+            ),
+            (true, false, _) => (
+              'READY TO PAIR',
+              'Add your phone key',
+              'Pair this phone with your Mac to continue.',
+            ),
+            (true, true, false) => (
+              'CALIBRATION NEEDED',
+              'Set your unlock distance',
+              'Choose where your Mac should recognize this phone.',
+            ),
+            (true, true, true) => (
+              'SETUP COMPLETE',
+              'Phone key setup complete',
+              'Secure setup is complete on this device.',
+            ),
+          };
+    final colors = Theme.of(context).colorScheme;
+    final accent = colors.primary;
     final capabilityStatus = gate.canPair
         ? 'Phone key setup is ready'
         : state.message ?? gate.message ?? 'Phone key is unavailable.';
@@ -288,18 +518,8 @@ class _PhoneKeyHero extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[Color(0xff15263d), Color(0xff0a111d)],
-        ),
-        boxShadow: const <BoxShadow>[
-          BoxShadow(
-            color: Color(0x29000000),
-            blurRadius: 28,
-            offset: Offset(0, 14),
-          ),
-        ],
+        color: colors.surfaceContainerLow,
+        border: Border.all(color: colors.outlineVariant),
       ),
       child: Column(
         children: <Widget>[
@@ -312,7 +532,7 @@ class _PhoneKeyHero extends StatelessWidget {
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(color: accent.withValues(alpha: 0.38)),
               ),
-              child: Text(
+              child: AppText(
                 statusLabel,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   color: accent,
@@ -325,8 +545,8 @@ class _PhoneKeyHero extends StatelessWidget {
           const SizedBox(height: 10),
           Container(
             key: const Key('proximityOrb'),
-            width: 96,
-            height: 96,
+            width: 80,
+            height: 80,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -346,24 +566,26 @@ class _PhoneKeyHero extends StatelessWidget {
                 color: accent.withValues(alpha: 0.12),
                 border: Border.all(color: accent.withValues(alpha: 0.46)),
               ),
-              child: Icon(Icons.key_rounded, size: 34, color: accent),
+              child: Icon(Icons.key_rounded, size: 28, color: accent),
             ),
           ),
           const SizedBox(height: 10),
           Text(
-            hasPairedDevice ? state.devices.first.displayName : 'THIS PHONE',
+            hasPairedDevice
+                ? state.devices.first.displayName
+                : tr(context, 'THIS PHONE'),
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: const Color(0xff8fa4bb),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
               letterSpacing: 1.1,
             ),
           ),
           const SizedBox(height: 5),
-          Text(
+          AppText(
             headline,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: Colors.white,
+              color: colors.onSurface,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -371,24 +593,25 @@ class _PhoneKeyHero extends StatelessWidget {
           Semantics(
             container: true,
             liveRegion: true,
-            label: 'Phone key status\n$capabilityStatus',
+            label:
+                '${tr(context, 'Phone key status')}\n${tr(context, capabilityStatus)}',
             child: ExcludeSemantics(
               child: Column(
                 children: <Widget>[
-                  Text(
+                  AppText(
                     detail,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xffaebed0),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                       height: 1.4,
                     ),
                   ),
                   if (capabilityStatus != detail) ...<Widget>[
                     const SizedBox(height: 10),
-                    Text(
+                    AppText(
                       capabilityStatus,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Color(0xff8fa4bb)),
+                      style: TextStyle(color: colors.onSurfaceVariant),
                     ),
                   ],
                 ],
@@ -397,27 +620,29 @@ class _PhoneKeyHero extends StatelessWidget {
           ),
           if (gate.isPermanentlyUnsupported) ...<Widget>[
             const SizedBox(height: 10),
-            const Text(
-              'No background polling fallback will be enabled.',
+            AppText(
+              'You can keep signing in with your Mac password.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: Color(0xffffc857),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w600,
               ),
             ),
           ],
           if (gate.canPair) ...<Widget>[
             const SizedBox(height: 8),
-            const Row(
+            Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Icon(Icons.shield_outlined, size: 16, color: Color(0xff8fa4bb)),
                 SizedBox(width: 7),
                 Flexible(
-                  child: Text(
+                  child: AppText(
                     'Protected by on-device security',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Color(0xff8fa4bb)),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ],
@@ -442,9 +667,9 @@ class _SetupProgress extends StatelessWidget {
       key: const Key('setupProgress'),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       decoration: BoxDecoration(
-        color: const Color(0xff0f1a2a),
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xff26364d)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -492,14 +717,14 @@ class _ProgressStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = isComplete
-        ? const Color(0xff5eead4)
-        : const Color(0xff71839a);
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Icon(isComplete ? Icons.check_circle_rounded : icon, color: color),
         const SizedBox(height: 7),
-        Text(
+        AppText(
           label,
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.labelMedium?.copyWith(
@@ -520,7 +745,7 @@ class _ProgressConnector extends StatelessWidget {
     return const Expanded(
       child: Padding(
         padding: EdgeInsets.only(top: 11),
-        child: Divider(color: Color(0xff31445e), height: 1),
+        child: Divider(height: 1),
       ),
     );
   }
@@ -530,47 +755,43 @@ class _PairingCard extends StatelessWidget {
   const _PairingCard({
     required this.gate,
     required this.controller,
-    required this.qrController,
+    required this.isOpeningScanner,
+    required this.onScan,
   });
 
   final CapabilityGate gate;
   final PairingController controller;
-  final TextEditingController qrController;
+  final bool isOpeningScanner;
+  final VoidCallback onScan;
 
   bool get _busy => controller.state.isBusy;
 
   @override
   Widget build(BuildContext context) {
     final state = controller.state;
+    final canScan =
+        gate.canPair &&
+        !_busy &&
+        !isOpeningScanner &&
+        state.phase != PairingPhase.awaitingConfirmation;
     return _SectionCard(
-      icon: Icons.qr_code_scanner,
+      icon: Icons.qr_code_scanner_rounded,
       title: 'Pair this phone',
       children: <Widget>[
-        const Text('Paste the one-time pairing code shown on your Mac.'),
-        const SizedBox(height: 10),
-        TextField(
-          key: const Key('pairingQrField'),
-          controller: qrController,
-          enabled: gate.canPair && !_busy,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            labelText: 'One-time pairing code',
-          ),
+        const AppText(
+          'Open Repose on your Mac, create a one-time pairing QR code, then scan it here.',
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 10),
         FilledButton.icon(
-          key: const Key('beginPairingButton'),
-          onPressed: gate.canPair && !_busy
-              ? () {
-                  final payload = qrController.text;
-                  qrController.clear();
-                  unawaited(controller.beginPairing(payload));
-                }
-              : null,
-          icon: const Icon(Icons.link),
-          label: const Text('Begin pairing'),
+          key: const Key('scanPairingQrButton'),
+          onPressed: canScan ? onScan : null,
+          icon: isOpeningScanner
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.qr_code_scanner_rounded),
+          label: const AppText('Scan Mac QR code'),
         ),
         if (state.phase == PairingPhase.awaitingConfirmation) ...<Widget>[
           const SizedBox(height: 10),
@@ -584,7 +805,7 @@ class _PairingCard extends StatelessWidget {
             onPressed: gate.canPair && !_busy
                 ? () => unawaited(controller.confirmPairing())
                 : null,
-            child: const Text('Confirm this device'),
+            child: const AppText('Confirm this device'),
           ),
         ],
         if (state.phase == PairingPhase.paired) ...<Widget>[
@@ -618,10 +839,12 @@ class _CalibrationCard extends StatelessWidget {
       icon: Icons.social_distance,
       title: 'Distance calibration',
       children: <Widget>[
-        const Text('Collect near for about 8 seconds, then far for 8 seconds.'),
+        const AppText(
+          'Collect near for about 8 seconds, then far for 8 seconds.',
+        ),
         if (!hasPairedDevice) ...<Widget>[
           const SizedBox(height: 6),
-          const Text('Pair a phone before calibration.'),
+          const AppText('Pair a phone before calibration.'),
         ],
         const SizedBox(height: 8),
         FilledButton.icon(
@@ -630,7 +853,7 @@ class _CalibrationCard extends StatelessWidget {
               ? () => unawaited(controller.startCalibration())
               : null,
           icon: const Icon(Icons.tune),
-          label: Text(
+          label: AppText(
             state.canRetry ? 'Retry calibration' : 'Start calibration',
           ),
         ),
@@ -641,7 +864,7 @@ class _CalibrationCard extends StatelessWidget {
             onPressed: canMutate
                 ? () => unawaited(controller.submitStep(CalibrationStep.near))
                 : null,
-            child: const Text('Finish near sample'),
+            child: const AppText('Finish near sample'),
           ),
         ],
         if (state.phase == CalibrationPhase.collectingFar) ...<Widget>[
@@ -651,7 +874,7 @@ class _CalibrationCard extends StatelessWidget {
             onPressed: canMutate
                 ? () => unawaited(controller.submitStep(CalibrationStep.far))
                 : null,
-            child: const Text('Finish far sample'),
+            child: const AppText('Finish far sample'),
           ),
         ],
         if (state.message != null) ...<Widget>[
@@ -677,19 +900,19 @@ class _DevicesCard extends StatelessWidget {
       title: 'Paired devices',
       children: <Widget>[
         if (state.devices.isEmpty)
-          const Text('No paired devices yet.')
+          const AppText('No paired devices yet.')
         else
           for (final device in state.devices)
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(device.displayName),
-              subtitle: Text(
+              subtitle: AppText(
                 device.platform == CompanionPlatform.android
                     ? 'Android'
                     : 'iOS',
               ),
               trailing: IconButton(
-                tooltip: 'Revoke ${device.displayName}',
+                tooltip: tr(context, 'Revoke ${device.displayName}'),
                 onPressed: state.isMutationBusy
                     ? null
                     : () => _confirmRevocation(context, device),
@@ -702,7 +925,7 @@ class _DevicesCard extends StatelessWidget {
             key: const Key('addAnotherKeyButton'),
             onPressed: onAddDevice,
             icon: const Icon(Icons.add_rounded),
-            label: const Text('Add another key'),
+            label: const AppText('Add another key'),
           ),
         ],
         if (state.message != null) ...<Widget>[
@@ -720,16 +943,16 @@ class _DevicesCard extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Revoke phone key?'),
-        content: Text('${device.displayName} will need to pair again.'),
+        title: const AppText('Revoke phone key?'),
+        content: AppText('${device.displayName} will need to pair again.'),
         actions: <Widget>[
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            child: const AppText('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Revoke'),
+            child: const AppText('Revoke'),
           ),
         ],
       ),
@@ -762,10 +985,21 @@ class _SectionCard extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                Icon(icon),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 21,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
+                  child: AppText(
                     title,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
@@ -789,6 +1023,6 @@ class _LiveStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(liveRegion: true, child: Text(message, style: style));
+    return Semantics(liveRegion: true, child: AppText(message, style: style));
   }
 }

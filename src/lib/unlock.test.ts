@@ -98,6 +98,25 @@ test('pairing expires exactly at the published wall-clock deadline', () => {
   assert.equal(pairingExpired({ ...session, expiresAtEpochMs: Number.NaN }, NOW), true)
 })
 
+test('pairing confirmation waits for a real Bluetooth peer name', () => {
+  const pendingPairing = {
+    sessionId: 'pair_waiting',
+    candidateName: '等待手机连接',
+    qrPayload: 'repose://pair/waiting-peer-test',
+    expiresAtEpochMs: NOW + 120_000,
+  }
+  const waiting = deriveUnlockView({ ...readySnapshot, pendingPairing }, NOW)
+  const connected = deriveUnlockView({
+    ...readySnapshot,
+    pendingPairing: { ...pendingPairing, candidateName: 'realme GT5 Pro' },
+  }, NOW)
+
+  assert.equal(waiting.pairingPeerConnected, false)
+  assert.equal(waiting.canConfirmPairing, false)
+  assert.equal(connected.pairingPeerConnected, true)
+  assert.equal(connected.canConfirmPairing, true)
+})
+
 test('calibration progress preserves near then far order and rejects overlap as incomplete', () => {
   assert.deepEqual(calibrationProgress('collectingNear'), { completedSteps: 0, totalSteps: 2 })
   assert.deepEqual(calibrationProgress('collectingFar'), { completedSteps: 1, totalSteps: 2 })

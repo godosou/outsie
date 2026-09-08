@@ -4,12 +4,23 @@
 
 状态：**工程原型 / GATE CLOSED**
 
+手机端现在与 Mac 共用暖白／森林绿色系、Manrope 字体和四瓣花品牌，支持中英文与系统深色
+外观。Debug 构建已提供一条受限的配对联调路径：Mac 生成 120 秒有效的一次性二维码并作为
+CoreBluetooth peripheral 广播，Android 在用户点击后申请相机／附近设备权限，通过相机扫描、
+Companion Device Manager（CDM）和 GATT central 连接。通知权限仍未声明或请求。
+
+这条 Debug 路径只用于验证二维码、系统关联和 GATT 配对，不会安装 macOS Authorization
+组件，也不会触发系统自动解锁。右上角「权限与后台运行」仍会说明后台限制及 realme 设置
+位置；修改系统设置不会打开 production 解锁能力。
+详细验收记录见 [手机 UI 与权限体验验证](validation/mobile-ux-results.md)。
+
 ## 先看当前状态
 
 仓库已经实现并测试了距离校准、离开—返回状态机、密码学线协议、一次性许可、macOS
-Authorization 原型、Flutter 管理界面以及 Android 原生能力的主要离线边界。但生产链路故意
-保持关闭：没有修改这台 Mac 的 Authorization Services，没有把插件加载进
-`authorizationhost`，Android BLE 角色没有根据 GT5 Pro 真机证据启用，iOS 后台实现也尚未在
+Authorization 原型、Flutter 管理界面以及 Android 原生能力的主要离线边界。当前 Debug
+构建还包含 Mac 二维码／CoreBluetooth peripheral 与 Android 相机／CDM／GATT central 的配对
+联调实现。但生产链路故意保持关闭：没有修改这台 Mac 的 Authorization Services，没有把
+插件加载进 `authorizationhost`，production BLE role 仍为 `Disabled`，iOS 后台实现也尚未在
 受支持的 Xcode/iPhone 环境中完成。
 
 因此，本页后面的“正常流程”描述的是门禁全部通过后的产品行为，不表示当前构建已经可以
@@ -44,8 +55,35 @@ Repose 不保存、读取或模拟输入 macOS 密码。系统密码必须始终
    Secure Enclave/Keychain 中生成不可导出的 P-256 身份密钥。
 4. 双方交换长期公钥与设备标识。配对秘密用后销毁，私钥不离开平台密钥存储。
 
-当前设置页中的安装、配对和校准入口会在后端或验证证据不满足时明确显示关闭状态，不会
-绕过门禁执行系统修改。
+### 当前 Debug 配对联调
+
+当前 Debug 构建实现的是上面流程的受限配对部分：
+
+1. Mac 的「开始配对」生成 canonical `repose://pair/v1/` 二维码，最长 4096 字符，120 秒后
+   失效；页面不提供明文复制粘贴入口。
+2. Mac 以本地名 `Repose Mac` 发布 CoreBluetooth peripheral，服务 UUID 为
+   `A53E0001-7A6B-4D59-9F2E-5245504F5345`，control/status characteristic 分别为
+   `A53E0002-7A6B-4D59-9F2E-5245504F5345` 和
+   `A53E0003-7A6B-4D59-9F2E-5245504F5345`。
+3. Android 先由用户完成 CDM 系统关联，再显示相机用途说明并扫描二维码。Flutter 只预接受
+   无 query、fragment、空白或额外路径的 `repose://pair/v1/<base64url>`，原始值交给 Kotlin
+   严格解码；Debug GATT central 随后只连接关联设备，写入当前 session 的 control 值并等待
+   匹配的 `ACCEPTED` 状态。
+4. 用户确认只会完成 Debug 内存配对状态；它不会授予一次性解锁许可，也不会调用 macOS
+   Authorization Services。
+
+开发 Mac 的 `bluetoothd` 观察记录确认了上述精确本地名和 service UUID 的广告开始，并在
+一次性会话 120 秒到期后停止。该观察没有 Android 发现、连接或写 characteristic 的证据；
+Mac ↔ GT5 Pro 的真实 GATT 配对仍为 **NOT RUN**。
+
+API 35 的 `emulator-5554` 已覆盖安装本轮 Debug APK，并完成 CDM association `id=1`。实测
+顺序为：附近设备用途说明 → Android 系统权限 → 页面显示 `Allowed`；首页随后显示
+`READY TO PAIR`，配对区只有 `Scan Mac QR code` 一个入口；点击后依次看到相机用途说明、
+系统相机权限和真实 `mobile_scanner` 页面，页面没有输入框或复制入口。Android 模拟器不能
+借用 Mac 主机蓝牙完成这条 GATT 链路，所以没有观察到 `ACCEPTED`，也没有完成 Debug 配对。
+
+设置页中的安装、校准和自动解锁入口仍受后端门禁约束，不会因为 Debug 配对成功而执行系统
+修改。完整 payload 格式见 [配对协议 v1](protocol/repose-pairing-v1.md)。
 
 ### 距离校准
 
@@ -73,12 +111,18 @@ Mac 锁屏后先进入未武装状态。只有稳定远离或可靠断连才进�
 
 ## Android 行为与 realme 注意事项
 
-Android UI 使用 Flutter，后台 companion presence、BLE 和 Keystore 由原生 Kotlin 层负责，
-不依赖 Dart isolate 常驻。目标首机是真我 GT5 Pro、realme UI 7.0、Android 16/API 36。
+Android UI 使用 Flutter，CDM、GATT、后台 companion presence、BLE 和 Keystore 由原生 Kotlin
+层负责，不依赖 Dart isolate 常驻。目标首机是真我 GT5 Pro、realme UI 7.0、Android 16/API
+36。Debug manifest 目前声明相机、`BLUETOOTH_SCAN`、`BLUETOOTH_CONNECT` 和 companion
+presence；相机扫码和系统关联均由用户点击触发并在系统提示前解释用途，通知权限仍不申请。
+API 31–35 的前台 association/GATT 兼容路径只存在于 Debug source set；release/profile 使用
+fail-closed host API，production presence runtime 仍要求 API 36，应用 Release 构建门禁也未开放。
 
-已在设备自报为 `RMX3888` 的 Android 16/API 36、build `RMX3888_16.0.10.500(CN01)`
-手机上覆盖安装并启动 Debug 应用；界面按设计保持门禁关闭，测试专用 UID 下 5/5
-Keystore/SQLite instrumentation 通过。这不表示 Companion Presence、BLE 角色或自动解锁链路可用。
+本轮 API 35 模拟器已经验证安装、附近设备权限、CDM association、`READY TO PAIR` 和相机扫描
+页面；这只是前台 UI/系统集成证据，不是无线互操作证据。目标 `RMX3888`（Android 16/API
+36、build `RMX3888_16.0.10.500(CN01)`）当前在 ADB 中仍为 `unauthorized`，本轮 APK 没有安装
+到该手机。较早 Debug 应用和测试专用 UID 的 5/5 Keystore/SQLite instrumentation 属于历史
+证据，不能外推为本轮相机/CDM/GATT central 已在 realme 真机验证。
 以下内容仍需真机与匹配 Mac peer 共同确认：熄屏、应用 UI 关闭、Doze、系统回收、蓝牙切换、
 重启、口袋/背包校准、30 次离开/返回循环、延迟、耗电和误判。
 用户对应用执行“强行停止”后，Android 不应再被认为能够自动响应；在用户重新打开应用并恢复
@@ -94,6 +138,10 @@ Keystore/SQLite instrumentation 通过。这不表示 Companion Presence、BLE �
 iOS 目标设计使用 Flutter 共享界面、AccessorySetupKit 做前台用户授权配对、Core Bluetooth
 state restoration 处理后台传输，并把身份密钥保存在 Secure Enclave/Keychain。用户强制退出
 应用、蓝牙关闭、重启后首次解锁前或系统拒绝后台恢复时，自动响应必须不可用并退回密码。
+
+共享 Flutter 层已经包含二维码扫描页面；`Info.plist` 有相机用途说明，Podfile 静态启用了
+`PERMISSION_CAMERA=1`。这些只是源代码和配置契约，不代表 iOS Debug 已编译或扫码已运行；
+Android 的 CDM/GATT central 也不是 iOS 实现。
 
 当前选中的 Apple 开发工具链是 macOS Command Line Tools，无法定位 `iphoneos`/iOS 26 SDK；
 是否在其他位置另装 Xcode 未作为门禁证据。因此没有提交无法编译验证的生产 Swift 实现，
@@ -148,5 +196,7 @@ repose-unlockctl repair --apply --backup <absolute-path>
 - [验证状态与发布门禁](validation/verification-summary.md)
 - [macOS Authorization 实机门禁](validation/macos-authorization-results.md)
 - [Android GT5 Pro 结果](validation/android-gt5-pro-results.md)
+- [手机 UI 与权限体验验证](validation/mobile-ux-results.md)
 - [iOS 后台结果](validation/ios-background-results.md)
+- [配对协议 v1](protocol/repose-pairing-v1.md)
 - [协议 v1](protocol/repose-unlock-v1.md)

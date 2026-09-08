@@ -8,6 +8,7 @@ import 'native_models.dart';
 
 abstract interface class ReposeUnlockPigeonClient {
   Future<pigeon.NativeUnlockSnapshot> getSnapshot();
+  Future<void> requestCompanionAssociation();
   Future<pigeon.NativePairingSession> beginPairing(String qrPayload);
   Future<void> confirmPairing(String sessionId);
   Future<void> startCalibration();
@@ -36,6 +37,10 @@ final class GeneratedReposeUnlockPigeonClient
 
   @override
   Future<pigeon.NativeUnlockSnapshot> getSnapshot() => _api.getSnapshot();
+
+  @override
+  Future<void> requestCompanionAssociation() =>
+      _api.requestCompanionAssociation();
 
   @override
   Future<void> revokeDevice(String deviceId) => _api.revokeDevice(deviceId);
@@ -68,6 +73,10 @@ final class PigeonNativeGateway implements NativeGateway {
           : _pairingSession(snapshot.pendingPairing!),
     );
   });
+
+  @override
+  Future<void> requestCompanionAssociation() =>
+      _guard(_client.requestCompanionAssociation);
 
   @override
   Future<PairingSession> beginPairing(String qrPayload) => _guard(() async {
@@ -146,6 +155,8 @@ PairedDevice _device(pigeon.NativePairedDevice device) => PairedDevice(
 CompanionCapability _capability(pigeon.NativeCompanionCapability capability) =>
     switch (capability) {
       pigeon.NativeCompanionCapability.ready => CompanionCapability.ready,
+      pigeon.NativeCompanionCapability.associationNotConfigured =>
+        CompanionCapability.associationNotConfigured,
       pigeon.NativeCompanionCapability.bluetoothUnavailable =>
         CompanionCapability.bluetoothUnavailable,
       pigeon.NativeCompanionCapability.secureHardwareUnavailable =>
@@ -175,18 +186,29 @@ CalibrationPhase _calibrationPhase(pigeon.NativeCalibrationPhase phase) =>
 NativeErrorCode _errorCode(String code) => switch (code) {
   'qrExpired' => NativeErrorCode.qrExpired,
   'qrAlreadyUsed' => NativeErrorCode.qrAlreadyUsed,
+  'pairingNotAccepted' => NativeErrorCode.pairingNotAccepted,
   'capabilityUnavailable' => NativeErrorCode.capabilityUnavailable,
   'unsupported' => NativeErrorCode.unsupported,
   'calibrationOutOfOrder' => NativeErrorCode.calibrationOutOfOrder,
   'calibrationOverlap' => NativeErrorCode.calibrationOverlap,
   'deviceNotFound' => NativeErrorCode.deviceNotFound,
   'bridgeUnavailable' => NativeErrorCode.bridgeUnavailable,
+  'associationBusy' => NativeErrorCode.associationBusy,
+  'bluetoothPermissionDenied' => NativeErrorCode.bluetoothPermissionDenied,
+  'associationCancelled' => NativeErrorCode.associationCancelled,
+  'activityUnavailable' => NativeErrorCode.activityUnavailable,
+  'associationDiscoveryFailed' => NativeErrorCode.associationDiscoveryFailed,
+  'associationConfigurationFailed' =>
+    NativeErrorCode.associationConfigurationFailed,
   _ => NativeErrorCode.unknown,
 };
 
 String _safeMessage(NativeErrorCode code) => switch (code) {
-  NativeErrorCode.qrExpired => 'This pairing code has expired.',
-  NativeErrorCode.qrAlreadyUsed => 'This pairing code has already been used.',
+  NativeErrorCode.qrExpired => 'This pairing QR code has expired.',
+  NativeErrorCode.qrAlreadyUsed =>
+    'This pairing QR code has already been used.',
+  NativeErrorCode.pairingNotAccepted =>
+    'Still connecting to the Repose Mac. Wait a moment and try again.',
   NativeErrorCode.capabilityUnavailable =>
     'This phone-key capability is unavailable.',
   NativeErrorCode.unsupported =>
@@ -198,5 +220,17 @@ String _safeMessage(NativeErrorCode code) => switch (code) {
   NativeErrorCode.deviceNotFound => 'The paired device was not found.',
   NativeErrorCode.bridgeUnavailable =>
     'The native phone-key service is unavailable.',
+  NativeErrorCode.associationBusy =>
+    'A companion association request is already open.',
+  NativeErrorCode.bluetoothPermissionDenied =>
+    'Nearby devices access is required to find your Mac.',
+  NativeErrorCode.associationCancelled =>
+    'No Mac was associated. You can try again.',
+  NativeErrorCode.activityUnavailable =>
+    'Open Repose on your phone before starting system association.',
+  NativeErrorCode.associationDiscoveryFailed =>
+    'Repose could not find a Mac advertising the phone-key service.',
+  NativeErrorCode.associationConfigurationFailed =>
+    'Android did not confirm the companion association.',
   NativeErrorCode.unknown => 'The native phone-key operation failed safely.',
 };

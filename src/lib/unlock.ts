@@ -72,6 +72,7 @@ export interface UnlockViewModel {
   canBeginCalibration: boolean
   canRevokeDevice: boolean
   pairingIsExpired: boolean
+  pairingPeerConnected: boolean
   calibrationProgress: CalibrationProgress
 }
 
@@ -101,6 +102,7 @@ const PLATFORMS = new Set<CompanionPlatform>(['android', 'ios'])
 const CALIBRATION_PHASES = new Set<CalibrationPhase>(['idle', 'collectingNear', 'collectingFar', 'complete', 'overlapRejected', 'unavailable', 'failed'])
 const LIMITATIONS = new Set<UnlockLimitation>(['task8GateClosed', 'relayRisk', 'stolenUnlockedPhone', 'bluetoothOff', 'androidForceStop', 'passwordFallback'])
 const ERROR_CODES = new Set<UnlockErrorCode>(['callerNotAllowed', 'invalidRequest', 'backendUnavailable', 'busy', 'pairingExpired', 'deviceNotFound'])
+export const PAIRING_PENDING_CANDIDATE_NAME = '等待手机连接'
 
 export const CLOSED_UNLOCK_SNAPSHOT: UnlockSnapshot = {
   schemaVersion: 1,
@@ -213,6 +215,10 @@ export function pairingExpired(session: PairingSession, now: number): boolean {
   return !Number.isFinite(session.expiresAtEpochMs) || !Number.isFinite(now) || now >= session.expiresAtEpochMs
 }
 
+export function pairingHasConnectedPeer(session: PairingSession | null): boolean {
+  return session !== null && session.candidateName !== PAIRING_PENDING_CANDIDATE_NAME
+}
+
 export function calibrationProgress(phase: CalibrationPhase): CalibrationProgress {
   if (phase === 'collectingFar') return { completedSteps: 1, totalSteps: 2 }
   if (phase === 'complete') return { completedSteps: 2, totalSteps: 2 }
@@ -234,6 +240,7 @@ function capabilityMessage(capability: UnlockCapability): string {
 
 export function deriveUnlockView(snapshot: UnlockSnapshot, now: number): UnlockViewModel {
   const pendingExpired = snapshot.pendingPairing ? pairingExpired(snapshot.pendingPairing, now) : false
+  const pairingPeerConnected = pairingHasConnectedPeer(snapshot.pendingPairing)
   const operational = snapshot.capability === 'ready'
     && snapshot.components.service === 'ready'
     && snapshot.components.transport === 'ready'
@@ -243,13 +250,14 @@ export function deriveUnlockView(snapshot: UnlockSnapshot, now: number): UnlockV
     authorizationMessage: authorizationMessage(snapshot.authorizationGate.state),
     capabilityMessage: capabilityMessage(snapshot.capability),
     canBeginPairing: operational && snapshot.pendingPairing === null,
-    canConfirmPairing: operational && snapshot.pendingPairing !== null && !pendingExpired,
+    canConfirmPairing: operational && pairingPeerConnected && !pendingExpired,
     canBeginCalibration: operational
       && snapshot.devices.length > 0
       && snapshot.pendingPairing === null
       && !['collectingNear', 'collectingFar'].includes(snapshot.calibration.phase),
     canRevokeDevice: snapshot.devices.length > 0,
     pairingIsExpired: pendingExpired,
+    pairingPeerConnected,
     calibrationProgress: calibrationProgress(snapshot.calibration.phase),
   }
 }

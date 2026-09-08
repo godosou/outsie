@@ -9,7 +9,7 @@ import 'support/fake_native_gateway.dart';
 
 void main() {
   group('PairingController', () {
-    test('pairing errors only point to the available paste flow', () async {
+    test('pairing errors only point to the available scanner flow', () async {
       final now = DateTime.utc(2026, 9, 8, 10);
       final gateway = FakeNativeGateway(snapshot: _readySnapshot());
       final devices = await _hydratedDevices(gateway);
@@ -20,7 +20,7 @@ void main() {
       );
 
       await controller.beginPairing('');
-      expect(controller.state.message, 'Paste a valid pairing code first.');
+      expect(controller.state.message, 'Scan a valid pairing QR code first.');
 
       gateway.beginPairingError = const NativeGatewayException(
         NativeErrorCode.qrExpired,
@@ -28,7 +28,7 @@ void main() {
       await controller.beginPairing('expired');
       expect(
         controller.state.message,
-        'This pairing code has expired. Paste a new code.',
+        'This pairing QR code has expired. Scan a new QR code.',
       );
 
       gateway.beginPairingError = const NativeGatewayException(
@@ -37,7 +37,7 @@ void main() {
       await controller.beginPairing('already-used');
       expect(
         controller.state.message,
-        'This pairing code was already used. Paste a new code.',
+        'This pairing QR code was already used. Scan a new QR code.',
       );
     });
 
@@ -229,6 +229,46 @@ void main() {
       expect(confirmed, isFalse);
       expect(controller.state.phase, PairingPhase.expired);
       expect(controller.state.message, isNotEmpty);
+    });
+
+    test('keeps an early Mac acceptance check retryable', () async {
+      final now = DateTime.utc(2026, 9, 8, 10);
+      final gateway =
+          FakeNativeGateway(
+              snapshot: _readySnapshot(),
+              pairingSession: PairingSession(
+                sessionId: 'connecting',
+                deviceName: 'Repose MacBook Pro',
+                expiresAt: now.add(const Duration(minutes: 2)),
+              ),
+            )
+            ..confirmPairingError = const NativeGatewayException(
+              NativeErrorCode.pairingNotAccepted,
+            );
+      final devices = await _hydratedDevices(gateway);
+      final controller = PairingController(
+        gateway: gateway,
+        deviceController: devices,
+        clock: () => now,
+      );
+      await controller.beginPairing('repose://pair/v1/frame');
+
+      expect(await controller.confirmPairing(), isFalse);
+      expect(controller.state.phase, PairingPhase.awaitingConfirmation);
+      expect(controller.state.session?.sessionId, 'connecting');
+      expect(controller.state.message, contains('connecting'));
+
+      gateway.confirmPairingError = null;
+      gateway.snapshot = _readySnapshot(
+        devices: const <PairedDevice>[
+          PairedDevice(
+            id: 'mac',
+            displayName: 'Repose MacBook Pro',
+            platform: CompanionPlatform.android,
+          ),
+        ],
+      );
+      expect(await controller.confirmPairing(), isTrue);
     });
 
     test('capability downgrade blocks pending confirmation natively', () async {

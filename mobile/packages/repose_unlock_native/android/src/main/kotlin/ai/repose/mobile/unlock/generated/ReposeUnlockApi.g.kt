@@ -194,11 +194,12 @@ class FlutterError (
 
 enum class NativeCompanionCapability(val raw: Int) {
   READY(0),
-  BLUETOOTH_UNAVAILABLE(1),
-  SECURE_HARDWARE_UNAVAILABLE(2),
-  BACKGROUND_EXECUTION_UNAVAILABLE(3),
-  UNSUPPORTED_PLATFORM(4),
-  NATIVE_BRIDGE_UNAVAILABLE(5);
+  ASSOCIATION_NOT_CONFIGURED(1),
+  BLUETOOTH_UNAVAILABLE(2),
+  SECURE_HARDWARE_UNAVAILABLE(3),
+  BACKGROUND_EXECUTION_UNAVAILABLE(4),
+  UNSUPPORTED_PLATFORM(5),
+  NATIVE_BRIDGE_UNAVAILABLE(6);
 
   companion object {
     fun ofRaw(raw: Int): NativeCompanionCapability? {
@@ -551,9 +552,11 @@ private open class ReposeUnlockApiPigeonCodec : StandardMessageCodec() {
   }
 }
 
+
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface ReposeUnlockHostApi {
   fun getSnapshot(): NativeUnlockSnapshot
+  fun requestCompanionAssociation(callback: (Result<Unit>) -> Unit)
   fun beginPairing(qrPayload: String): NativePairingSession
   fun confirmPairing(sessionId: String)
   fun startCalibration()
@@ -581,6 +584,23 @@ interface ReposeUnlockHostApi {
               ReposeUnlockApiPigeonUtils.wrapError(exception)
             }
             reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.repose_unlock_native.ReposeUnlockHostApi.requestCompanionAssociation$separatedMessageChannelSuffix", codec, taskQueue)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.requestCompanionAssociation{ result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(ReposeUnlockApiPigeonUtils.wrapError(error))
+              } else {
+                reply.reply(ReposeUnlockApiPigeonUtils.wrapResult(null))
+              }
+            }
           }
         } else {
           channel.setMessageHandler(null)

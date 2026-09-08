@@ -86,6 +86,11 @@ internal object ReposeUnlockRuntime {
         }
     }
 
+    internal fun activeAssociationId(context: Context): Int? {
+        initialize(context)
+        return state.get()?.activeAssociationId?.get()
+    }
+
     internal fun configureAssociation(
         context: Context,
         associationId: Int,

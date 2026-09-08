@@ -5,6 +5,7 @@ import '../../native/native_models.dart';
 
 class CapabilityGate {
   const CapabilityGate._({
+    required this.canAssociate,
     required this.canPair,
     required this.canCalibrate,
     this.message,
@@ -14,37 +15,53 @@ class CapabilityGate {
   factory CapabilityGate.from(CompanionCapability capability) {
     return switch (capability) {
       CompanionCapability.ready => const CapabilityGate._(
+        canAssociate: false,
         canPair: true,
         canCalibrate: true,
       ),
       CompanionCapability.loading => const CapabilityGate._(
+        canAssociate: false,
         canPair: false,
         canCalibrate: false,
         message: 'Checking native phone-key capabilities…',
       ),
+      CompanionCapability.associationNotConfigured => const CapabilityGate._(
+        canAssociate: true,
+        canPair: false,
+        canCalibrate: false,
+        message:
+            'Connect this phone to a Repose Mac before scanning the one-time '
+            'pairing QR code.',
+      ),
       CompanionCapability.bluetoothUnavailable => const CapabilityGate._(
+        canAssociate: false,
         canPair: false,
         canCalibrate: false,
         message: 'Bluetooth is unavailable. Turn it on to continue.',
       ),
       CompanionCapability.secureHardwareUnavailable => const CapabilityGate._(
+        canAssociate: false,
         canPair: false,
         canCalibrate: false,
         message: 'Secure hardware keys are unavailable on this device.',
       ),
       CompanionCapability.backgroundExecutionUnavailable =>
         const CapabilityGate._(
+          canAssociate: false,
           canPair: false,
           canCalibrate: false,
-          message: 'Allow background execution before enabling phone key.',
+          message:
+              'Phone key is not enabled in this version. Changing background settings alone will not enable it.',
         ),
       CompanionCapability.unsupportedPlatform => const CapabilityGate._(
+        canAssociate: false,
         canPair: false,
         canCalibrate: false,
         isPermanentlyUnsupported: true,
         message: 'Automatic presence unlock is unsupported on this platform.',
       ),
       CompanionCapability.nativeBridgeUnavailable => const CapabilityGate._(
+        canAssociate: false,
         canPair: false,
         canCalibrate: false,
         message: 'The native phone-key service is not connected yet.',
@@ -53,17 +70,20 @@ class CapabilityGate {
   }
 
   static const refreshing = CapabilityGate._(
+    canAssociate: false,
     canPair: false,
     canCalibrate: false,
     message: 'Refreshing authoritative phone-key state…',
   );
 
   static const mutating = CapabilityGate._(
+    canAssociate: false,
     canPair: false,
     canCalibrate: false,
     message: 'A phone-key update is in progress…',
   );
 
+  final bool canAssociate;
   final bool canPair;
   final bool canCalibrate;
   final bool isPermanentlyUnsupported;
@@ -75,6 +95,7 @@ class DeviceState {
     this.snapshot,
     this.isLoading = false,
     this.isFailClosed = false,
+    this.isAssociating = false,
     this.message,
     Iterable<String> revokingDeviceIds = const <String>[],
   }) : revokingDeviceIds = Set<String>.unmodifiable(revokingDeviceIds);
@@ -82,11 +103,12 @@ class DeviceState {
   final UnlockSnapshot? snapshot;
   final bool isLoading;
   final bool isFailClosed;
+  final bool isAssociating;
   final String? message;
   final Set<String> revokingDeviceIds;
 
   bool get isHydrated => snapshot != null && !isLoading && !isFailClosed;
-  bool get isMutationBusy => revokingDeviceIds.isNotEmpty;
+  bool get isMutationBusy => isAssociating || revokingDeviceIds.isNotEmpty;
   List<PairedDevice> get devices => snapshot?.devices ?? const <PairedDevice>[];
   CalibrationSnapshot get calibration =>
       snapshot?.calibration ?? const CalibrationSnapshot();
@@ -115,11 +137,12 @@ class DeviceController extends ChangeNotifier {
   var _epoch = 0;
   var _disposed = false;
   var _revokeInFlight = false;
+  var _associationInFlight = false;
 
   DeviceState get state => _state;
 
   Future<bool> hydrate() async {
-    if (_disposed || _revokeInFlight) {
+    if (_disposed || _revokeInFlight || _associationInFlight) {
       return false;
     }
     final token = ++_epoch;
@@ -162,9 +185,76 @@ class DeviceController extends ChangeNotifier {
     }
   }
 
+  Future<bool> requestCompanionAssociation() async {
+    if (_disposed ||
+        _associationInFlight ||
+        _revokeInFlight ||
+        _state.isLoading ||
+        _state.snapshot?.capability !=
+            CompanionCapability.associationNotConfigured) {
+      return false;
+    }
+
+    _associationInFlight = true;
+    final token = ++_epoch;
+    final previous = _state.snapshot;
+    _replace(
+      DeviceState(snapshot: previous, isAssociating: true),
+      token: token,
+    );
+    try {
+      await _gateway.requestCompanionAssociation();
+      if (!_isCurrent(token)) {
+        return false;
+      }
+      final refreshed = await _gateway.getSnapshot();
+      if (!_isCurrent(token)) {
+        return false;
+      }
+      _replace(
+        DeviceState(
+          snapshot: refreshed,
+          message:
+              'Android connection saved. Next, scan the one-time pairing QR '
+              'code shown on your Mac.',
+        ),
+        token: token,
+      );
+      return true;
+    } on NativeGatewayException catch (error) {
+      if (!_isCurrent(token)) {
+        return false;
+      }
+      _replace(
+        DeviceState(
+          snapshot: previous,
+          message:
+              error.safeMessage ?? 'Android companion setup did not complete.',
+        ),
+        token: token,
+      );
+      return false;
+    } catch (_) {
+      if (!_isCurrent(token)) {
+        return false;
+      }
+      _replace(
+        DeviceState(
+          snapshot: previous,
+          message: 'Android companion setup did not complete.',
+        ),
+        token: token,
+      );
+      return false;
+    } finally {
+      _associationInFlight = false;
+    }
+  }
+
   Future<bool> revokeDevice(String deviceId) async {
     if (_disposed ||
         _revokeInFlight ||
+        _associationInFlight ||
         _state.isLoading ||
         !_state.devices.any((device) => device.id == deviceId)) {
       return false;

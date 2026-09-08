@@ -2,6 +2,7 @@
 
 pub mod calibration;
 pub mod domain;
+pub mod pairing;
 pub mod permit;
 pub mod phone;
 pub mod protocol;

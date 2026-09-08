@@ -17,10 +17,12 @@ class FakeNativeGateway implements NativeGateway {
   UnlockSnapshot snapshot;
   PairingSession pairingSession;
   Object? beginPairingError;
+  Object? associationError;
   Object? confirmPairingError;
   Object? snapshotError;
   Object? revokeError;
   FutureOr<PairingSession> Function(String qrPayload)? onBeginPairing;
+  FutureOr<void> Function()? onRequestCompanionAssociation;
   FutureOr<void> Function(String sessionId)? onConfirmPairing;
   FutureOr<UnlockSnapshot> Function()? onGetSnapshot;
   FutureOr<void> Function()? onStartCalibration;
@@ -33,6 +35,7 @@ class FakeNativeGateway implements NativeGateway {
   final List<CalibrationStep> submittedCalibrationSteps = <CalibrationStep>[];
   final List<String> revokedDeviceIds = <String>[];
   var calibrationStartCount = 0;
+  var associationRequestCount = 0;
   var snapshotReadCount = 0;
 
   @override
@@ -47,6 +50,16 @@ class FakeNativeGateway implements NativeGateway {
       return await handler(qrPayload);
     }
     return pairingSession;
+  }
+
+  @override
+  Future<void> requestCompanionAssociation() async {
+    associationRequestCount += 1;
+    final error = associationError;
+    if (error != null) {
+      throw error;
+    }
+    await onRequestCompanionAssociation?.call();
   }
 
   @override

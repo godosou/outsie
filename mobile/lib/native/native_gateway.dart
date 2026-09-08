@@ -2,6 +2,7 @@ import 'native_models.dart';
 
 abstract interface class NativeGateway {
   Future<UnlockSnapshot> getSnapshot();
+  Future<void> requestCompanionAssociation();
   Future<PairingSession> beginPairing(String qrPayload);
   Future<void> confirmPairing(String sessionId);
   Future<void> startCalibration();
@@ -24,6 +25,10 @@ final class UnavailableNativeGateway implements NativeGateway {
   @override
   Future<PairingSession> beginPairing(String qrPayload) =>
       Future<PairingSession>.error(_unavailable);
+
+  @override
+  Future<void> requestCompanionAssociation() =>
+      Future<void>.error(_unavailable);
 
   @override
   Future<void> confirmPairing(String sessionId) =>

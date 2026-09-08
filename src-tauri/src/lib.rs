@@ -203,6 +203,11 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconEvent},
 };
 
+pub mod build_unlock_backend;
+pub mod debug_bluetooth_pairing;
+pub mod debug_pairing_material;
+#[cfg(target_os = "macos")]
+pub mod macos_bluetooth_pairing;
 pub mod unlock;
 use unlock::{
     ProductionUnlockCommandService, begin_calibration, begin_pairing, confirm_pairing,
@@ -877,7 +882,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let shared = Arc::new(SharedState::default());
-    let unlock_service = Arc::new(ProductionUnlockCommandService::closed());
+    let unlock_service = Arc::new(ProductionUnlockCommandService::for_current_build());
     let app = tauri::Builder::default()
         .manage(shared.clone())
         .manage(unlock_service)

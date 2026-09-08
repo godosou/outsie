@@ -1,6 +1,7 @@
 enum CompanionCapability {
   ready,
   loading,
+  associationNotConfigured,
   bluetoothUnavailable,
   secureHardwareUnavailable,
   backgroundExecutionUnavailable,
@@ -35,12 +36,19 @@ enum CalibrationPhase {
 enum NativeErrorCode {
   qrExpired,
   qrAlreadyUsed,
+  pairingNotAccepted,
   capabilityUnavailable,
   unsupported,
   calibrationOutOfOrder,
   calibrationOverlap,
   deviceNotFound,
   bridgeUnavailable,
+  associationBusy,
+  bluetoothPermissionDenied,
+  associationCancelled,
+  activityUnavailable,
+  associationDiscoveryFailed,
+  associationConfigurationFailed,
   unknown,
 }
 

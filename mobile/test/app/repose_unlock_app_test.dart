@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:repose_unlock/app/repose_unlock_app.dart';
+import 'package:repose_unlock/features/pairing/pairing_scanner.dart';
 import 'package:repose_unlock/native/native_models.dart';
 
 import '../support/fake_native_gateway.dart';
@@ -92,22 +93,54 @@ void main() {
     expect(find.textContaining('unsupported'), findsOneWidget);
     expect(find.text('PHONE KEY OFFLINE'), findsOneWidget);
     expect(
-      find.text('No background polling fallback will be enabled.'),
+      find.text('You can keep signing in with your Mac password.'),
       findsOneWidget,
     );
     expect(find.text('Protected by on-device security'), findsNothing);
-    expect(
-      tester
-          .widget<FilledButton>(find.byKey(const Key('beginPairingButton')))
-          .onPressed,
-      isNull,
+    expect(find.byKey(const Key('scanPairingQrButton')), findsNothing);
+    expect(find.byKey(const Key('startCalibrationButton')), findsNothing);
+    expect(find.text('See setup guidance'), findsOneWidget);
+    expect(gateway.pairingPayloads, isEmpty);
+  });
+
+  testWidgets('unassociated Android shows a distinct system connection step', (
+    tester,
+  ) async {
+    final gateway = FakeNativeGateway(
+      snapshot: UnlockSnapshot(
+        capability: CompanionCapability.associationNotConfigured,
+        devices: const <PairedDevice>[],
+        calibration: const CalibrationSnapshot(),
+      ),
     );
-    expect(
-      tester
-          .widget<FilledButton>(find.byKey(const Key('startCalibrationButton')))
-          .onPressed,
-      isNull,
+    gateway.onRequestCompanionAssociation = () {
+      gateway.snapshot = UnlockSnapshot(
+        capability: CompanionCapability.backgroundExecutionUnavailable,
+        devices: const <PairedDevice>[],
+        calibration: const CalibrationSnapshot(),
+      );
+    };
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connect this phone'), findsOneWidget);
+    expect(find.text('Find a Repose Mac'), findsOneWidget);
+    expect(find.byKey(const Key('scanPairingQrButton')), findsNothing);
+
+    final associate = find.byKey(
+      const Key('requestCompanionAssociationButton'),
     );
+    await tester.ensureVisible(associate);
+    await tester.tap(associate);
+    await tester.pumpAndSettle();
+
+    expect(gateway.associationRequestCount, 1);
+    expect(gateway.snapshotReadCount, 2);
+    expect(
+      find.byKey(const Key('requestCompanionAssociationButton')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('scanPairingQrButton')), findsNothing);
   });
 
   testWidgets(
@@ -138,15 +171,16 @@ void main() {
           calibration: const CalibrationSnapshot(),
         );
       };
-      await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+      await tester.pumpWidget(
+        ReposeUnlockApp(
+          gateway: gateway,
+          pairingCameraAccess: const _GrantedCameraAccess(),
+          pairingScannerBuilder: _validPairingScanner,
+        ),
+      );
       await tester.pumpAndSettle();
 
-      await tester.enterText(
-        find.byKey(const Key('pairingQrField')),
-        'repose://pair/opaque-token',
-      );
-      await tester.tap(find.byKey(const Key('beginPairingButton')));
-      await tester.pumpAndSettle();
+      await _scanValidPairingQr(tester, 'repose://pair/v1/opaque-token');
 
       expect(find.textContaining('Confirm realme GT5 Pro'), findsOneWidget);
       expect(gateway.confirmedSessionIds, isEmpty);
@@ -192,14 +226,13 @@ void main() {
     await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('pairingQrField')), findsNothing);
+    expect(find.byKey(const Key('scanPairingQrButton')), findsNothing);
     final addAnother = find.byKey(const Key('addAnotherKeyButton'));
     await tester.ensureVisible(addAnother);
     await tester.tap(addAnother);
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('pairingQrField')), findsOneWidget);
-    expect(find.byKey(const Key('beginPairingButton')), findsOneWidget);
+    expect(find.byKey(const Key('scanPairingQrButton')), findsOneWidget);
   });
 
   testWidgets('overlapping calibration samples show an explicit retry', (
@@ -295,14 +328,15 @@ void main() {
         expiresAt: DateTime.utc(2099),
       ),
     );
-    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const Key('pairingQrField')),
-      'repose://pair/refresh-fails',
+    await tester.pumpWidget(
+      ReposeUnlockApp(
+        gateway: gateway,
+        pairingCameraAccess: const _GrantedCameraAccess(),
+        pairingScannerBuilder: _validPairingScanner,
+      ),
     );
-    await tester.tap(find.byKey(const Key('beginPairingButton')));
     await tester.pumpAndSettle();
+    await _scanValidPairingQr(tester, 'repose://pair/v1/refresh-fails');
     gateway.snapshotError = const NativeGatewayException(
       NativeErrorCode.bridgeUnavailable,
     );
@@ -316,7 +350,7 @@ void main() {
     expect(find.textContaining('refresh'), findsWidgets);
     expect(
       tester
-          .widget<FilledButton>(find.byKey(const Key('beginPairingButton')))
+          .widget<FilledButton>(find.byKey(const Key('scanPairingQrButton')))
           .onPressed,
       isNull,
     );
@@ -580,6 +614,64 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.textContaining('Bluetooth is unavailable'), findsOneWidget);
-    expect(find.byKey(const Key('beginPairingButton')), findsOneWidget);
+    expect(find.byKey(const Key('scanPairingQrButton')), findsNothing);
+    expect(find.text('See setup guidance'), findsOneWidget);
   });
+
+  testWidgets('initial capability check is not presented as a failure', (
+    tester,
+  ) async {
+    final pending = Completer<UnlockSnapshot>();
+    final gateway = FakeNativeGateway()..onGetSnapshot = () => pending.future;
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pump();
+    expect(find.text('Checking your phone key'), findsOneWidget);
+    expect(find.text('Phone key unavailable'), findsNothing);
+    pending.complete(
+      UnlockSnapshot(
+        capability: CompanionCapability.ready,
+        devices: const [],
+        calibration: const CalibrationSnapshot(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('READY TO PAIR'), findsOneWidget);
+  });
+}
+
+Future<void> _scanValidPairingQr(WidgetTester tester, String payload) async {
+  _nextPairingPayload = payload;
+  final scanButton = find.byKey(const Key('scanPairingQrButton'));
+  await tester.ensureVisible(scanButton);
+  await tester.tap(scanButton);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.tap(find.byKey(const Key('continueToCameraButton')));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.tap(find.byKey(const Key('emitValidPairingQr')));
+  await tester.pumpAndSettle();
+}
+
+String _nextPairingPayload = 'repose://pair/v1/test';
+
+Widget _validPairingScanner(
+  BuildContext context,
+  ValueChanged<String?> onDetected,
+) => Center(
+  child: FilledButton(
+    key: const Key('emitValidPairingQr'),
+    onPressed: () => onDetected(_nextPairingPayload),
+    child: const Text('scan'),
+  ),
+);
+
+class _GrantedCameraAccess implements PairingCameraAccess {
+  const _GrantedCameraAccess();
+
+  @override
+  Future<CameraAccessOutcome> request() async => CameraAccessOutcome.granted;
+
+  @override
+  Future<bool> openSettings() async => true;
 }

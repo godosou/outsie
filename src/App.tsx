@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
 import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
 import { localDateKey } from './lib/timer'
 import { getShortBreakVoice } from './lib/reposeVoice'
 
-type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'settings'
+type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phoneKey' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
@@ -24,12 +24,14 @@ const navigation: { id: Page; label: string; icon: typeof Eye }[] = [
   { id: 'schedule', label: '休息计划', icon: SlidersHorizontal },
   { id: 'ideas', label: '休息灵感', icon: Flower2 },
   { id: 'activity', label: '我的记录', icon: BarChart3 },
+  { id: 'phoneKey', label: '手机钥匙', icon: KeyRound },
 ]
 const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }> = {
   overview: { title: '让休息，自然发生。', subtitle: '专注于热爱的事，也留一点时间，好好照顾自己。', eyebrow: 'A LITTLE PAUSE, A BETTER DAY' },
   schedule: { title: '找到自己的节奏。', subtitle: '没有唯一正确的频率，舒服的节奏就是好节奏。', eyebrow: 'MAKE ROOM FOR YOURSELF' },
   ideas: { title: '小小休息，大有不同。', subtitle: '离开屏幕的这一刻，可以用来做很多美好的小事。', eyebrow: 'SMALL MOMENTS, BIG DIFFERENCE' },
   activity: { title: '每一次停顿，都算数。', subtitle: '慢慢积累的好习惯，正在成为生活的一部分。', eyebrow: 'A KINDER WAY TO KEEP GOING' },
+  phoneKey: { title: '手机钥匙与 BLE 调试。', subtitle: '在这里生成配对二维码，联调手机连接，并校准适合你的靠近距离。', eyebrow: 'PAIR, CONNECT, CALIBRATE' },
   settings: { title: '让 Repose 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
 }
 
@@ -376,6 +378,8 @@ export default function App() {
         </section>
       </div>}
 
+      {page === 'phoneKey' && <div className="page-enter phone-key-page"><UnlockSettingsPanel bridge={window.repose?.unlock} /></div>}
+
       {page === 'settings' && <div className="page-enter preferences-page">
         <section className="panel preferences-panel security-panel">
           <div className="section-heading"><div><h2>Mac 屏幕保护</h2><p>休息时专心休息，离开时安心离开。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
@@ -384,7 +388,6 @@ export default function App() {
           <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '首次使用安全锁屏，请在系统设置中允许 Repose 使用辅助功能；如果系统询问自动化权限，也请允许。锁屏只检测空闲时长，不读取或记录按键内容。' : '网页仅预览界面。全局活动检测、跨屏遮罩和 macOS 安全锁屏均在 Mac App 中运行。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
           <p className="security-limit">强制休息限制日常操作；系统级结束进程或关机仍由 macOS 管理。</p>
         </section>
-        <UnlockSettingsPanel bridge={window.repose?.unlock} />
 <section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Repose · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
 
       <footer className="page-footer"><span><Leaf size={13} strokeWidth={1.5} />更好的状态，来自恰到好处的停顿。</span><span>MADE FOR A SLOWER, BETTER DAY<span className="footer-flower">✳</span></span></footer>

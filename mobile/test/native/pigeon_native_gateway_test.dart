@@ -34,11 +34,11 @@ void main() {
     const expected = <String, (NativeErrorCode, String)>{
       'qrExpired': (
         NativeErrorCode.qrExpired,
-        'This pairing code has expired.',
+        'This pairing QR code has expired.',
       ),
       'qrAlreadyUsed': (
         NativeErrorCode.qrAlreadyUsed,
-        'This pairing code has already been used.',
+        'This pairing QR code has already been used.',
       ),
       'capabilityUnavailable': (
         NativeErrorCode.capabilityUnavailable,
@@ -63,6 +63,30 @@ void main() {
       'bridgeUnavailable': (
         NativeErrorCode.bridgeUnavailable,
         'The native phone-key service is unavailable.',
+      ),
+      'associationBusy': (
+        NativeErrorCode.associationBusy,
+        'A companion association request is already open.',
+      ),
+      'bluetoothPermissionDenied': (
+        NativeErrorCode.bluetoothPermissionDenied,
+        'Nearby devices access is required to find your Mac.',
+      ),
+      'associationCancelled': (
+        NativeErrorCode.associationCancelled,
+        'No Mac was associated. You can try again.',
+      ),
+      'activityUnavailable': (
+        NativeErrorCode.activityUnavailable,
+        'Open Repose on your phone before starting system association.',
+      ),
+      'associationDiscoveryFailed': (
+        NativeErrorCode.associationDiscoveryFailed,
+        'Repose could not find a Mac advertising the phone-key service.',
+      ),
+      'associationConfigurationFailed': (
+        NativeErrorCode.associationConfigurationFailed,
+        'Android did not confirm the companion association.',
       ),
     };
 
@@ -142,6 +166,26 @@ void main() {
       isA<UnavailableNativeGateway>(),
     );
   });
+
+  test(
+    'system companion association is exposed separately from secure pairing',
+    () async {
+      final client = _FakePigeonClient(associationSucceeds: true);
+
+      await PigeonNativeGateway(client: client).requestCompanionAssociation();
+
+      expect(client.associationRequestCount, 1);
+    },
+  );
+
+  test('maps pending Mac acceptance to a stable retryable error', () async {
+    final error = await _captureGatewayError(
+      PlatformException(code: 'pairingNotAccepted'),
+    );
+
+    expect(error.code, NativeErrorCode.pairingNotAccepted);
+    expect(error.safeMessage, contains('connecting'));
+  });
 }
 
 Future<NativeGatewayException> _captureGatewayError(
@@ -159,10 +203,16 @@ Future<NativeGatewayException> _captureGatewayError(
 }
 
 final class _FakePigeonClient implements ReposeUnlockPigeonClient {
-  _FakePigeonClient({this.snapshot, this.error});
+  _FakePigeonClient({
+    this.snapshot,
+    this.error,
+    this.associationSucceeds = false,
+  });
 
   final pigeon.NativeUnlockSnapshot? snapshot;
   final PlatformException? error;
+  final bool associationSucceeds;
+  var associationRequestCount = 0;
 
   Never _fail() => throw error ?? StateError('unexpected fake call');
 
@@ -172,6 +222,12 @@ final class _FakePigeonClient implements ReposeUnlockPigeonClient {
 
   @override
   Future<void> confirmPairing(String sessionId) async => _fail();
+
+  @override
+  Future<void> requestCompanionAssociation() async {
+    associationRequestCount += 1;
+    if (!associationSucceeds) _fail();
+  }
 
   @override
   Future<pigeon.NativeDiagnostics> getDiagnostics() async =>

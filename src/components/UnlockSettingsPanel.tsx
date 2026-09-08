@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bluetooth, CheckCircle2, CircleAlert, KeyRound, LockKeyhole, ShieldAlert, Smartphone, Wrench } from 'lucide-react'
+import { Bluetooth, CheckCircle2, CircleAlert, LockKeyhole, RefreshCw, ShieldAlert, Smartphone, Wrench } from 'lucide-react'
+import QRCodeImport from 'react-qr-code'
 import type { UnlockDesktopBridge } from '../tauriBridge'
 import {
   CLOSED_UNLOCK_SNAPSHOT,
@@ -8,6 +9,7 @@ import {
   failUnlockRequest,
   finishUnlockRequest,
   normalizeUnlockDiagnostics,
+  normalizeUnlockSnapshot,
   reduceRevocationConfirmation,
   unlockErrorCode,
   unlockErrorMessage,
@@ -21,7 +23,20 @@ import {
 
 interface UnlockSettingsPanelProps {
   bridge?: UnlockDesktopBridge
+  pairingPollScheduler?: PairingPollScheduler
 }
+
+interface PairingPollScheduler {
+  setInterval: (callback: () => void, milliseconds: number) => number
+  clearInterval: (timerId: number) => void
+}
+
+const browserPairingPollScheduler: PairingPollScheduler = {
+  setInterval: (callback, milliseconds) => window.setInterval(callback, milliseconds),
+  clearInterval: timerId => window.clearInterval(timerId),
+}
+
+const QRCode = ((QRCodeImport as unknown as { QRCode?: typeof QRCodeImport }).QRCode ?? QRCodeImport)
 
 interface UnlockSettingsViewProps {
   model: UnlockViewModel
@@ -37,6 +52,7 @@ interface UnlockSettingsViewProps {
   onCancelRevokeDevice: () => void
   onConfirmRevokeDevice: () => void
   onOpenDiagnostics: () => void
+  pairingSecondsRemaining: number | null
 }
 
 const healthCopy: Record<ComponentHealth, string> = {
@@ -45,6 +61,13 @@ const healthCopy: Record<ComponentHealth, string> = {
   ready: '正常',
   degraded: '需要处理',
   unavailable: '不可用',
+}
+
+function formatPairingCountdown(value: number | null): string {
+  const totalSeconds = Number.isFinite(value) ? Math.max(0, Math.ceil(value ?? 0)) : 0
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
 export function UnlockSettingsView({
@@ -61,6 +84,7 @@ export function UnlockSettingsView({
   onCancelRevokeDevice,
   onConfirmRevokeDevice,
   onOpenDiagnostics,
+  pairingSecondsRemaining,
 }: UnlockSettingsViewProps) {
   const { snapshot } = model
   const pairing = snapshot.pendingPairing
@@ -74,10 +98,10 @@ export function UnlockSettingsView({
   return <section className="panel preferences-panel unlock-panel" aria-labelledby="unlock-settings-title">
     <div className="section-heading">
       <div>
-        <h2 id="unlock-settings-title">手机靠近解锁</h2>
-        <p>通过已配对手机和校准后的蓝牙距离恢复当前 Mac 会话。</p>
+        <h2 id="unlock-settings-title">蓝牙配对与距离校准</h2>
+        <p>生成一次性配对二维码，联调手机连接，并采集靠近与远离的蓝牙信号。</p>
       </div>
-      <span className="subtle-badge"><KeyRound size={13} />安全预览</span>
+      <span className="subtle-badge"><Bluetooth size={13} />BLE 调试</span>
     </div>
 
     <div className="unlock-gate" role="status" aria-live="polite">
@@ -87,8 +111,8 @@ export function UnlockSettingsView({
     {errorMessage && <div className="unlock-error" role="alert"><CircleAlert size={16} />{errorMessage}</div>}
 
     <div className="unlock-install-row">
-      <div><h3>macOS 授权组件</h3><p>Task 8 实体机授权验证仍为 NOT RUN / GATE CLOSED。</p></div>
-      <button type="button" className="button outline" data-testid="unlock-install" disabled>安装尚不可用</button>
+      <div><h3>BLE 配对调试</h3><p>可先联调配对二维码与蓝牙传输；macOS 自动解锁的系统授权尚未启用。</p></div>
+      <button type="button" className="button outline" data-testid="unlock-install" disabled>系统授权未启用</button>
     </div>
 
     <div className="unlock-health" aria-label="手机钥匙组件状态">
@@ -98,13 +122,28 @@ export function UnlockSettingsView({
     <div className="unlock-actions-grid">
       <article className="unlock-action-card">
         <Smartphone size={20} />
-        <div><h3>已配对手机</h3><p>{snapshot.devices.length ? `${snapshot.devices.length} 台设备` : '尚无可用设备；后端接通前不会创建临时假配对。'}</p></div>
+        <div><h3>已配对手机</h3><p>{snapshot.devices.length ? `${snapshot.devices.length} 台设备` : '尚无可用设备。点击开始配对后，用手机 App 扫描 Mac 生成的二维码。'}</p></div>
         <button type="button" className="button outline" disabled={busy || !model.canBeginPairing} onClick={onBeginPairing}>开始配对</button>
       </article>
 
-      {pairing && <article className="unlock-session" aria-live="polite">
-        <div><strong>{model.pairingIsExpired ? '配对会话已过期' : `等待确认：${pairing.candidateName}`}</strong><p>会话由原生后端生成并强制一次性使用；页面倒计时不承担安全校验。</p></div>
-        <button type="button" className="button outline" disabled={busy || !model.canConfirmPairing} onClick={onConfirmPairing}>确认这台手机</button>
+      {pairing && <article className="unlock-session">
+        <div className="unlock-session-heading" aria-live="polite"><strong>{model.pairingIsExpired ? '配对会话已过期' : model.pairingPeerConnected ? `等待确认：${pairing.candidateName}` : '等待手机连接'}</strong><p>使用 Repose 手机 App 扫描下方二维码，连接后这里会自动更新设备状态。</p></div>
+        {!model.pairingIsExpired && <div className="unlock-qr-layout">
+          <figure className="unlock-qr-figure" data-testid="pairing-qr-code" role="img" aria-label="手机钥匙配对二维码，请使用 Repose 手机 App 扫描">
+            <div className="unlock-qr-canvas" aria-hidden="true">
+              <QRCode value={pairing.qrPayload} size={256} viewBox="0 0 256 256" level="M" bgColor="#FFFFFF" fgColor="#1F2D24" aria-hidden="true" focusable="false" />
+            </div>
+            <figcaption>打开 Repose 手机 App，选择“扫描 Mac 二维码”，将镜头对准此处。</figcaption>
+          </figure>
+          <div className="unlock-qr-status">
+            <span>二维码有效期</span>
+            <strong role="timer" aria-label={`二维码有效期还剩 ${formatPairingCountdown(pairingSecondsRemaining)}`}>{formatPairingCountdown(pairingSecondsRemaining)}</strong>
+            <p><RefreshCw size={14} aria-hidden="true" />连接状态每秒自动刷新，无需手动操作。</p>
+            <small>请保持此页面和手机蓝牙开启，直到设备名称出现在上方。</small>
+          </div>
+        </div>}
+        {model.pairingIsExpired && <div className="unlock-qr-expired" role="status"><RefreshCw size={17} aria-hidden="true" /><div><strong>二维码已过期，正在自动刷新配对状态…</strong><p>状态同步完成后，请重新开始配对以生成新的二维码。</p></div></div>}
+        <button type="button" className="button outline" data-testid="confirm-pairing" disabled={busy || !model.canConfirmPairing} onClick={onConfirmPairing}>{model.pairingIsExpired ? '等待刷新…' : model.pairingPeerConnected ? '确认这台手机' : '连接中…'}</button>
       </article>}
 
       {snapshot.devices.map(device => <article className="unlock-device" key={device.id}>
@@ -128,7 +167,7 @@ export function UnlockSettingsView({
       </article>
     </div>
 
-    <div className="unlock-safety-copy">
+    <div className="unlock-safety-notes">
       <h3><LockKeyhole size={16} />已知限制与恢复方式</h3>
       <ul>
         <li>蓝牙 RSSI 不是密码学距离证明，无法完全抵御无线中继。</li>
@@ -145,7 +184,7 @@ export function UnlockSettingsView({
   </section>
 }
 
-export function UnlockSettingsPanel({ bridge }: UnlockSettingsPanelProps) {
+export function UnlockSettingsPanel({ bridge, pairingPollScheduler = browserPairingPollScheduler }: UnlockSettingsPanelProps) {
   const [state, setState] = useState<UnlockUiState>({
     snapshot: CLOSED_UNLOCK_SNAPSHOT,
     pendingRequestId: null,
@@ -157,8 +196,16 @@ export function UnlockSettingsPanel({ bridge }: UnlockSettingsPanelProps) {
   const [now, setNow] = useState(Date.now())
   const requestSequence = useRef(0)
   const inFlightRequest = useRef<number | null>(null)
+  const statusPollInFlight = useRef(false)
+  const mounted = useRef(true)
   const busy = state.pendingRequestId !== null
   const model = useMemo(() => deriveUnlockView(state.snapshot, now), [state.snapshot, now])
+  const pairingSessionId = state.snapshot.pendingPairing?.sessionId ?? null
+
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   useEffect(() => {
     const pairing = state.snapshot.pendingPairing
@@ -175,9 +222,9 @@ export function UnlockSettingsPanel({ bridge }: UnlockSettingsPanelProps) {
     setState(previous => beginUnlockRequest(previous, requestId, action))
     try {
       const snapshot = await operation()
-      setState(previous => finishUnlockRequest(previous, requestId, snapshot))
+      if (mounted.current) setState(previous => finishUnlockRequest(previous, requestId, snapshot))
     } catch (error) {
-      setState(previous => failUnlockRequest(previous, requestId, unlockErrorCode(error)))
+      if (mounted.current) setState(previous => failUnlockRequest(previous, requestId, unlockErrorCode(error)))
     } finally {
       if (inFlightRequest.current === requestId) inFlightRequest.current = null
     }
@@ -200,6 +247,33 @@ export function UnlockSettingsPanel({ bridge }: UnlockSettingsPanelProps) {
       if (inFlightRequest.current === requestId) inFlightRequest.current = null
     }
   }, [bridge])
+
+  useEffect(() => {
+    if (!bridge) return
+    let active = true
+    const timerId = pairingPollScheduler.setInterval(() => {
+      if (!active || !mounted.current || pendingRevocationDeviceId || inFlightRequest.current !== null || statusPollInFlight.current) return
+      const requestId = ++requestSequence.current
+      statusPollInFlight.current = true
+      // Refresh silently; a user action may supersede this read without waiting for it.
+      void bridge.unlockStatus().then(
+        snapshot => {
+          if (active && mounted.current && requestSequence.current === requestId) {
+            setState(previous => ({ ...previous, snapshot: normalizeUnlockSnapshot(snapshot), errorCode: null }))
+          }
+        },
+        error => {
+          if (active && mounted.current && requestSequence.current === requestId) {
+            setState(previous => ({ ...previous, snapshot: CLOSED_UNLOCK_SNAPSHOT, errorCode: unlockErrorCode(error) }))
+          }
+        },
+      ).finally(() => { statusPollInFlight.current = false })
+    }, pairingSessionId ? 1000 : 3000)
+    return () => {
+      active = false
+      pairingPollScheduler.clearInterval(timerId)
+    }
+  }, [bridge, pairingSessionId, pairingPollScheduler, pendingRevocationDeviceId])
 
   const openDiagnostics = async () => {
     if (!bridge || inFlightRequest.current !== null) return
@@ -241,5 +315,8 @@ export function UnlockSettingsPanel({ bridge }: UnlockSettingsPanelProps) {
     onCancelRevokeDevice={() => { handleRevocation({ type: 'cancel' }) }}
     onConfirmRevokeDevice={() => { handleRevocation({ type: 'confirm' }) }}
     onOpenDiagnostics={() => { void openDiagnostics() }}
+    pairingSecondsRemaining={state.snapshot.pendingPairing
+      ? Math.max(0, Math.ceil((state.snapshot.pendingPairing.expiresAtEpochMs - now) / 1000))
+      : null}
   />
 }

@@ -2714,7 +2714,11 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "repose"
 version = "0.6.2"
 dependencies = [
+ "base64 0.22.1",
  "cc",
+ "p256",
+ "rand_core",
+ "repose-unlock-core",
  "serde",
  "serde_json",
  "tauri",
