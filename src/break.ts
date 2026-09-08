@@ -8,6 +8,7 @@ import {
 } from './lib/stretchRoutine.ts'
 import './break.css'
 import './stretch-anatomy.css'
+import { getShortBreakVoice } from './lib/reposeVoice.ts'
 
 type BreakStatus = {
   phase: string
@@ -21,6 +22,8 @@ type BreakStatus = {
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
 const shortGuide = element<HTMLElement>('short-guide')
+const shortTitle = element<HTMLElement>('short-title')
+const shortDescription = element<HTMLElement>('short-description')
 const longGuide = element<HTMLElement>('long-guide')
 const countdown = element<HTMLElement>('countdown')
 const totalLabel = element<HTMLElement>('total-label')
@@ -90,6 +93,12 @@ function renderStatus(status: BreakStatus) {
   shortGuide.hidden = long
   longGuide.hidden = !long
 
+  if (!long) {
+    const voice = getShortBreakVoice(status.canPostpone ? 'enter' : 'return', status.breakId)
+    shortTitle.textContent = voice.title
+    shortDescription.textContent = voice.body
+  }
+
   if (long) {
     const step = getStretchStep(seconds, duration, manualOffset)
     ensureStretchScene(step.exercise.id)
@@ -139,6 +148,10 @@ postpone.addEventListener('click', async () => {
   postpone.textContent = '正在延迟…'
   try {
     const accepted = await invoke<boolean>('postpone_break')
+    if (accepted && lastStatus && !lastStatus.phase.toLowerCase().includes('long')) {
+      const voice = getShortBreakVoice('postpone', lastStatus.breakId)
+      postponeNote.textContent = `${voice.title} ${voice.body}`
+    }
     if (!accepted && lastStatus) renderStatus(lastStatus)
   } catch {
     if (lastStatus) renderStatus(lastStatus)
@@ -159,7 +172,7 @@ if (!preview) {
     remaining: previewRemaining,
     duration: previewDuration,
     breakId: 'browser-preview',
-    canPostpone: true,
+    canPostpone: !new URLSearchParams(location.search).has('returned'),
     postponeSeconds: previewLong ? 300 : 60,
     postponing: false,
   })

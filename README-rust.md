@@ -1,4 +1,4 @@
-# Repose Lite（Rust / Tauri 版）
+# Repose（Rust / Tauri 版）
 
 这个分支把 Electron 桌面层替换为 Tauri 2：应用逻辑运行在 Rust 中，界面使用 macOS 自带的 WKWebView，不再随安装包携带 Chromium。现有 React 界面、休息计划和记录逻辑继续复用。
 
@@ -17,7 +17,7 @@ npm run desktop:dev
 npm run package:mac
 ```
 
-产物位于 `src-tauri/target/release/bundle/macos/Repose Lite.app`。当前构建面向 Apple Silicon，最低支持 macOS 14；本地构建没有 Apple Developer 签名或公证。
+产物位于 `src-tauri/target/release/bundle/macos/Repose.app`。当前构建面向 Apple Silicon，最低支持 macOS 14；本地构建没有 Apple Developer 签名或公证。
 
 生成带版本号的 App 和 DMG（含本机 ad hoc 签名及 SHA-256 校验文件）：
 
@@ -25,7 +25,7 @@ npm run package:mac
 npm run package:mac:release
 ```
 
-产物位于 `release/Repose-Lite-<版本>-mac-<架构>/`。DMG 内包含 App 和 Applications 快捷入口；脚本会校验镜像与 App 签名，并拒绝覆盖已存在的同版本发布目录。
+产物位于 `release/Repose-<版本>-mac-<架构>/`。DMG 内包含 App 和 Applications 快捷入口；脚本会校验镜像与 App 签名，并拒绝覆盖已存在的同版本发布目录。
 
 ## 原生能力
 
@@ -33,6 +33,7 @@ npm run package:mac:release
 - Rust 每秒检查全系统键盘和鼠标闲置时间，30 秒后请求 macOS 锁屏。
 - 强制休息为每块显示器创建系统 WKWebView 覆盖页，并通过 AppKit 展示策略禁用应用切换、强制退出面板、隐藏应用和普通退出。
 - 大休息在每块覆盖页中展示同一套离线 3D 拉伸训练：8 个动作每 30 秒自动轮播，支持前后切换，并重点覆盖肩颈和上背。主窗口和覆盖页共享动作与程序化关节动画定义。
+- 小休息按稳定休息 ID 从五组文案库轮换提醒、延期、追回与完成反馈；同一次休息始终显示同一句，半眯眼花朵图标与 Dock、窗口和菜单栏保持一致。
 - 小休息可延迟 1 分钟，大休息可延迟 5 分钟；同一次休息只能延迟一次，之后执行完整休息。
 - 延迟和结束由稳定的休息 ID 确认，重复请求不能增加延迟机会。
 - 普通无键鼠操作仍算专注；macOS 锁屏、显示器休眠、系统睡眠或用户会话离开会冻结专注。
@@ -52,7 +53,7 @@ Rust 桌面实现位于 `src-tauri/src/lib.rs`，macOS AppKit/CoreGraphics 桥�
 运行以下命令可在真实 WKWebView 中预览拉伸动作，不启动休息计时、覆盖屏幕或闲置锁屏，也不修改已保存的偏好：
 
 ```sh
-REPOSE_STRETCH_PREVIEW=1 "src-tauri/target/release/bundle/macos/Repose Lite.app/Contents/MacOS/repose-lite"
+REPOSE_STRETCH_PREVIEW=1 "src-tauri/target/release/bundle/macos/Repose.app/Contents/MacOS/repose"
 ```
 
 正常双击 App 时仍运行完整的休息提醒应用。前端双入口产物可使用 `npm run verify:build` 检查。

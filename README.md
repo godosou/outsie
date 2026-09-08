@@ -6,13 +6,14 @@
 
 ## 打开 Mac 应用
 
-完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Repose Lite.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
+完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Repose.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
 
 这是本地开发版本，只有本机使用的 ad hoc 签名，尚未通过 Apple Developer 签名或公证。生成的 ZIP 对应打包电脑的芯片架构，跨电脑分发前需要补充签名、公证和对应架构验证。
 
 ## 休息和安全锁屏
 
 - **3D 拉伸跟练**：大休息会自动轮播 8 个离线 3D 拉伸动作，其中 6 个重点照顾肩颈和上背。每个动作展示名称、要领、安全提示和动作进度，也可手动切换前后动作；小休息继续提供简洁的护眼引导。
+- **会盯人的小花**：小休息用统一的半眯眼花朵形象提醒你离屏，并从初次提醒、通知、延期、再次提醒与完成五组文案中稳定轮换；语气会逐步变得更“嘴欠”，但不恐吓、不羞辱，也不虚构健康风险。
 - **强制休息**：休息开始后遮盖所有连接的显示器，并显示剩余时间。每次小休息可延迟 1 分钟，大休息可延迟 5 分钟，均仅限一次；延迟结束后重新执行完整休息，不再提供延迟按钮。普通退出与程序切换在强制休息期间被禁用，倒计时结束后恢复工作。
 - **闲置锁屏**：用于安全保护；根据整个系统的鼠标和键盘闲置时间，在超过 30 秒时请求 macOS 锁定会话。锁定后由 macOS 要求系统密码或 Touch ID 解锁。
 
@@ -39,7 +40,7 @@ npm run desktop:dev
 npm run package:mac
 ```
 
-产物位于 `src-tauri/target/release/bundle/macos/Repose Lite.app`。它使用独立的应用标识，可与 Electron 版并存。
+产物位于 `src-tauri/target/release/bundle/macos/Repose.app`。内部应用标识保持不变，以便升级后继续使用原来的本地设置与系统权限。
 
 ```sh
 npm test
