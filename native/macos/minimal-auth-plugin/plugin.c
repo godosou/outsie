@@ -4,7 +4,7 @@
  *
  * Two mechanisms live in this one binary:
  *   ReposeSpike:log      milestone A -- log the invocation, then Allow.
- *   ReposeSpike:permit   milestone B -- poll /tmp/repose-permit for 10s;
+ *   ReposeSpike:permit   milestone B -- poll /tmp/repose-permit briefly;
  *                        Allow if it appears, Deny (fall back to the password
  *                        field) if it does not.
  *
@@ -24,7 +24,17 @@
 
 #define LOG_PATH "/tmp/repose-plugin.log"
 #define PERMIT_PATH "/tmp/repose-permit"
-#define PERMIT_TIMEOUT_MS 10000
+/* 1.5s, not 10s. Two reasons, both real:
+ *
+ * The mechanism runs ahead of the password path, so this timeout is how long a
+ * user stares at a frozen screen before the password field appears when the
+ * phone is not there. Ten seconds of that is worse than no feature at all.
+ *
+ * And it has to be shorter than the acceptance test's "stays locked while the
+ * phone is away" window. Otherwise a mechanism still polling from that step is
+ * alive when the next step creates the permit, sees it, and allows -- an unlock
+ * credited to the phone returning that was really a leftover poll. */
+#define PERMIT_TIMEOUT_MS 1500
 #define PERMIT_POLL_MS 200
 
 typedef struct {

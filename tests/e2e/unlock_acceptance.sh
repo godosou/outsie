@@ -183,15 +183,18 @@ main() {
   fi
   say "[1/3] locked after ${elapsed}ms"
 
-  # 2. Phone leaves. The Mac must NOT unlock. Without this assertion a plugin
-  #    that unlocks unconditionally would pass the test.
+  # 2. Phone leaves, then somebody tries to get in anyway. The Mac must NOT
+  #    unlock. Waking here is what makes the assertion mean anything: without an
+  #    unlock attempt macOS never evaluates the rule, the mechanism never runs,
+  #    and "stayed locked" would be true of a machine with no plugin at all.
   run_hook "leave " "$LEAVE_CMD"
+  run_hook "wake  " "$WAKE_CMD"
   elapsed="$(wait_for_lock_state false $((STAY_LOCKED_S * 1000)))"; rc=$?
   [ "$rc" = "3" ] && oracle_died "$elapsed"
   if [ "$rc" = "0" ]; then
     fail "Mac unlocked ${elapsed}ms after the phone LEFT. Unlock is not gated on presence."
   fi
-  say "[2/3] stayed locked for ${STAY_LOCKED_S}s while the phone was away"
+  say "[2/3] stayed locked through a wake attempt while the phone was away"
 
   # 3. Phone returns. This is the promise.
   local t0 t1

@@ -286,9 +286,9 @@ int main(int argc, char **argv)
         unlink(PERMIT_PATH);
     }
 
-    /* 5. Milestone B, permit absent: deny, and only after the full timeout.
-     *    Denying early would break the acceptance test's "stays locked while
-     *    the phone is away" assertion; never denying would hang the login UI. */
+    /* 5. Milestone B, permit absent: deny, after roughly the advertised
+     *    timeout. Denying instantly would make "stays locked while the phone is
+     *    away" prove nothing; never denying would freeze the login UI. */
     {
         unlink(PERMIT_PATH);
         long long elapsed = 0;
@@ -302,7 +302,12 @@ int main(int argc, char **argv)
         char detail[64];
         snprintf(detail, sizeof detail, "waited %lldms", elapsed);
         check("permit mechanism waits roughly the advertised timeout",
-              elapsed >= 9000 && elapsed <= 13000, detail);
+              elapsed >= 1200 && elapsed <= 3000, detail);
+        /* The timeout must stay below the window the acceptance test keeps the
+         * phone away for, or a poll from that step survives into the next one
+         * and allows on a permit it was never meant to see. */
+        check("permit timeout leaves room inside the stay-locked window",
+              elapsed < 5000, detail);
     }
 
     /* 6. An unrecognised mechanism id must deny. Defaulting it to allow is how
