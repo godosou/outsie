@@ -35,6 +35,39 @@
 **最关键的一点：那 200 多个测试里没有一个会因为「Mac 真的解锁了」而由红转绿。**
 测试全绿与功能零可用同时成立，TDD 的反馈回路完全脱靶。
 
+## 开发机上已被实际安装的组件（2026-09-08 已清理）
+
+排查过程中发现，`repose-unlockctl install --apply` 曾在这台日常开发机上真实执行过，
+时间戳 2026-09-08 15:23。这与旧分支 `docs/validation/verification-summary.md` 中
+「没有读取或修改真实 authorizationdb，没有安装/加载 Authorization Plugin 或 launchd
+服务，没有执行任何 `--apply` 命令」的记载直接矛盾。**该分支的 "GATE CLOSED / NOT RUN"
+记载不能再作为机器实际状态的证据。**
+
+发现时的实际状态：
+
+| 组件 | 状态 |
+|---|---|
+| `/Library/PrivilegedHelperTools/ai.repose.unlockd` | 以 root 运行中（PID 65212），`RunAtLoad` + `KeepAlive` |
+| `/private/var/run/ai.repose.unlock-control.sock` | `srw-rw-rw-`，即 0666，**任何本地进程可写** |
+| `/var/run/ai.repose.unlockd/consume.sock` | 0600（同一 plist 里这个是对的） |
+| `ai.repose.unlock` | 已写入 authorizationdb，并被 `system.login.screensaver` 引用 |
+| `ReposeUnlock.bundle` | 已装入 `/Library/Security/SecurityAgentPlugins/` |
+
+当时没有发生自动解锁，原因是巧合而非设计：规则 pin 的 cdhash 是
+`38ea648b...`，而实际安装的 bundle 是 `a7c8340c...`，两者不匹配，插件不被信任，
+规则失败后回落到 `use-login-window-ui`。**根因是先算 cdhash 再安装**；
+`native/macos/minimal-auth-plugin/install.sh` 改为从已安装的 bundle 读取 cdhash，
+避免同类错误。
+
+清理由 `tools/uninstall-legacy-unlock/` 的两个脚本完成，已执行并独立复核：
+
+- 守护进程、plist、二进制、两个套接字全部移除，无残留进程；
+- `ai.repose.unlock` 从 screensaver 规则中外科式摘除，命名规则本身删除，bundle 删除；
+- 无关的 `com.openai.sky.CUAService.AuthorizationPlugin.remote` 原样保留；
+- 清理后锁屏往返验证 **PASS**：锁屏 1142ms 生效，密码解锁 4469ms 完成。
+
+回滚备份保留在 `/var/db/repose-unlock-cleanup/`。
+
 ## 唯一的执行规则
 
 > 只有 `tests/e2e/unlock_acceptance.sh` 由红转绿，才算完成一步。
