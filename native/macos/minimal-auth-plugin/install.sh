@@ -70,9 +70,18 @@ echo "==> Clearing previous run evidence"
 rm -f /tmp/repose-plugin.log /tmp/repose-permit
 
 echo "==> Installing bundle"
+# Stage beside the destination and swap, rather than deleting what is currently
+# in place and hoping the copy succeeds. A failed copy after the delete would
+# leave the authorization rule pointing at a bundle that is no longer there.
+STAGED="${DEST_BUNDLE}.incoming"
+rm -rf "${STAGED}"
+cp -R "${BUILT_BUNDLE}" "${STAGED}"
+chown -R root:wheel "${STAGED}"
+codesign --verify --deep "${STAGED}" 2>/dev/null \
+    || { echo "Staged bundle does not verify; leaving the existing one alone." >&2
+         rm -rf "${STAGED}"; exit 1; }
 rm -rf "${DEST_BUNDLE}"
-cp -R "${BUILT_BUNDLE}" "${DEST_BUNDLE}"
-chown -R root:wheel "${DEST_BUNDLE}"
+mv "${STAGED}" "${DEST_BUNDLE}"
 
 # Recorded so the log says which binary is actually in place, and read from the
 # installed copy rather than the build directory -- computing it before the copy

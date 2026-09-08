@@ -31,15 +31,29 @@ echo "install/uninstall invariants"
 #    that record a lie, which is worth preventing: an install log that names a
 #    binary other than the installed one is exactly the kind of evidence that
 #    sends an investigation down the wrong path for a day.
-cp_line="$(line_of "$INSTALL" 'cp -R "${BUILT_BUNDLE}" "${DEST_BUNDLE}"')"
+# The bundle is staged then moved, so "in place" is the mv, not the cp.
+place_line="$(line_of "$INSTALL" 'mv "${STAGED}" "${DEST_BUNDLE}"')"
 hash_line="$(line_of "$INSTALL" 'CDHASH=')"
-if [ -n "$cp_line" ] && [ -n "$hash_line" ]; then
-  [ "$hash_line" -gt "$cp_line" ] \
-    && ok "cdhash is read after the bundle is copied into place" \
-    || no "cdhash is read after the bundle is copied into place" \
-          "cp at line ${cp_line}, cdhash at ${hash_line}"
+if [ -n "$place_line" ] && [ -n "$hash_line" ]; then
+  [ "$hash_line" -gt "$place_line" ] \
+    && ok "cdhash is read after the bundle is in place" \
+    || no "cdhash is read after the bundle is in place" \
+          "moved into place at line ${place_line}, cdhash at ${hash_line}"
 else
-  no "cdhash is read after the bundle is copied into place" "could not locate both lines"
+  no "cdhash is read after the bundle is in place" "could not locate both lines"
+fi
+
+# Staging must happen before the live bundle is removed, so a failed copy cannot
+# leave the authorization rule pointing at nothing.
+stage_line="$(line_of "$INSTALL" 'cp -R "${BUILT_BUNDLE}" "${STAGED}"')"
+remove_line="$(line_of "$INSTALL" 'rm -rf "${DEST_BUNDLE}"')"
+if [ -n "$stage_line" ] && [ -n "$remove_line" ]; then
+  [ "$stage_line" -lt "$remove_line" ] \
+    && ok "the new bundle is staged before the old one is removed" \
+    || no "the new bundle is staged before the old one is removed" \
+          "staged at ${stage_line}, removed at ${remove_line}"
+else
+  no "the new bundle is staged before the old one is removed" "lines not found"
 fi
 
 grep -q 'CDHASH=.*codesign -dvvv "${DEST_BUNDLE}"' "$INSTALL" \

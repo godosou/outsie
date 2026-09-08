@@ -15,6 +15,7 @@
 #include <Security/AuthorizationTags.h>
 
 #include <fcntl.h>
+#include <os/log.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -76,8 +77,31 @@ static const char *mode_name(MechanismMode mode)
     }
 }
 
+/* Two independent channels on purpose.
+ *
+ * Milestone A's whole verdict is "did the plugin get called", read off a file in
+ * /tmp. If the host process cannot write there -- sandboxing, a read-only
+ * volume, a permissions surprise on a future macOS -- the file stays empty and
+ * looks exactly like a plugin macOS refused to load. os_log goes through the
+ * system's own logging and does not depend on the filesystem at all, so the two
+ * together can tell "never ran" apart from "ran but could not write".
+ *
+ * Read it with:
+ *   log show --last 10m --predicate 'subsystem == "ai.repose.spike"' --info
+ */
 static void repose_log(const char *fmt, ...)
 {
+    va_list oslog_args;
+    va_start(oslog_args, fmt);
+    char line[512];
+    vsnprintf(line, sizeof line, fmt, oslog_args);
+    va_end(oslog_args);
+    static os_log_t logger;
+    if (logger == NULL) {
+        logger = os_log_create("ai.repose.spike", "plugin");
+    }
+    os_log_info(logger, "uid=%d %{public}s", (int)getuid(), line);
+
     /* This runs as root and the log lives in a world-writable directory, so a
      * plain fopen would happily follow a symlink a local user planted there and
      * append root-owned output to a file of their choosing. O_NOFOLLOW refuses
