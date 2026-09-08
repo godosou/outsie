@@ -12,6 +12,7 @@ stderr; the caller is expected to abort.
 
     authdb-edit.py add-subrule    <plist> <subrule>
     authdb-edit.py remove-subrule <plist> <subrule>
+    authdb-edit.py validate       <plist>
 
 The plist is edited in place and is expected to be the output of
 `security authorizationdb read system.login.screensaver`.
@@ -82,12 +83,22 @@ def add_subrule(path, subrule):
             "%s, because a failure of the spike would leave no way in."
             % (", ".join(PASSWORD_FALLBACKS), subrule))
 
-    data["rule"] = [subrule] + without_ours
     # k-of-n=1 means any single sub-rule succeeding is enough, which is what
     # lets the spike run first and the password path still work when it denies.
-    data["k-of-n"] = 1
+    # Rather than set it and try to restore it on uninstall -- an asymmetry that
+    # would leave a machine permanently weakened if the surgical removal path
+    # ever ran -- refuse to touch a rule that is not already 1. The stock macOS
+    # screensaver rule is 1, so the ordinary case needs no change at all.
+    existing = data.get("k-of-n")
+    if existing != 1:
+        die("this rule has k-of-n=%r, not 1. Setting it to 1 would permanently "
+            "weaken the rule from 'all sub-rules must pass' to 'any one may', "
+            "and uninstall could not reliably put it back. Inspect it by hand:\n"
+            "  security authorizationdb read system.login.screensaver" % existing)
+
+    data["rule"] = [subrule] + without_ours
     save(path, data)
-    print("added %s; rule is now %s" % (subrule, data["rule"]))
+    print("added %s; rule is now %s (k-of-n left at 1)" % (subrule, data["rule"]))
 
 
 def remove_subrule(path, subrule):
@@ -113,7 +124,27 @@ def remove_subrule(path, subrule):
     print("removed %s; rule is now %s" % (subrule, after))
 
 
+def validate(path):
+    """Check a saved rule is safe to write back.
+
+    A backup is only worth restoring if it still describes a usable rule. An
+    empty or truncated file is worse than no backup at all: the restore path
+    would feed it straight to `security authorizationdb write` and replace a
+    working screensaver rule with nothing.
+    """
+    data, rule = load(path)
+    if not rule:
+        die("%s has an empty rule array" % path)
+    if not any(entry in PASSWORD_FALLBACKS for entry in rule):
+        die("%s has no recognised password fallback (%s); writing it back could "
+            "leave no way to unlock" % (path, ", ".join(PASSWORD_FALLBACKS)))
+    print("%s looks restorable: %s" % (path, rule))
+
+
 def main(argv):
+    if len(argv) == 3 and argv[1] == "validate":
+        validate(argv[2])
+        return 0
     if len(argv) != 4:
         sys.stderr.write(__doc__)
         return 2

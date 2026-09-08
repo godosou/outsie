@@ -62,7 +62,7 @@ if "$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1; then
   [ "$(rule_of "$f")" = "${SUB},use-login-window-ui" ] \
     && ok "add prepends the sub-rule" \
     || no "add prepends the sub-rule" "got $(rule_of "$f")"
-  [ "$(kofn_of "$f")" = "1" ] && ok "add sets k-of-n=1" || no "add sets k-of-n=1"
+  [ "$(kofn_of "$f")" = "1" ] && ok "add leaves k-of-n at 1" || no "add leaves k-of-n at 1"
 else
   no "add prepends the sub-rule" "command failed"
 fi
@@ -92,6 +92,25 @@ fixture "$f" "{'class':'rule','rule':['${SUB}'],'k-of-n':1}"
 "$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1 \
   && no "add refuses when our entry would be the only one" "it wrote anyway" \
   || ok "add refuses when our entry would be the only one"
+
+# k-of-n is never modified. Setting it would have to be undone on uninstall, and
+# the surgical removal path has no way to know what it used to be -- so a rule
+# that is not already 1 is refused rather than quietly weakened from "all
+# sub-rules must pass" to "any one may".
+f="$WORK/kofn2.plist"
+fixture "$f" "{'class':'rule','rule':['a','use-login-window-ui'],'k-of-n':2}"
+"$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1 \
+  && no "add refuses to weaken a rule whose k-of-n is not 1" "it wrote anyway" \
+  || ok "add refuses to weaken a rule whose k-of-n is not 1"
+[ "$(kofn_of "$f")" = "2" ] \
+  && ok "the refused rule keeps its original k-of-n" \
+  || no "the refused rule keeps its original k-of-n" "now $(kofn_of "$f")"
+
+f="$WORK/kofnmissing.plist"
+fixture "$f" "{'class':'rule','rule':['use-login-window-ui']}"
+"$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1 \
+  && no "add refuses when k-of-n is absent" "it wrote anyway" \
+  || ok "add refuses when k-of-n is absent"
 
 # --- remove ---------------------------------------------------------------
 
@@ -152,6 +171,37 @@ sum_before="$(shasum "$f" | cut -d' ' -f1)"
 [ "$(shasum "$f" | cut -d' ' -f1)" = "$sum_before" ] \
   && ok "a refusal leaves the file byte-identical" \
   || no "a refusal leaves the file byte-identical" "file was modified"
+
+# --- validate ---------------------------------------------------------------
+# uninstall calls this before writing a backup back into the authorization
+# database. A zero-byte or truncated backup is worse than none at all.
+
+f="$WORK/good.plist"; fixture "$f" "$STOCK"
+"$EDIT" validate "$f" >/dev/null 2>&1 \
+  && ok "validate accepts a restorable rule" \
+  || no "validate accepts a restorable rule" "rejected a good one"
+
+f="$WORK/zero.plist"; : > "$f"
+"$EDIT" validate "$f" >/dev/null 2>&1 \
+  && no "validate rejects a zero-byte backup" "it accepted one" \
+  || ok "validate rejects a zero-byte backup"
+
+f="$WORK/emptyrule.plist"; fixture "$f" "{'class':'rule','rule':[],'k-of-n':1}"
+"$EDIT" validate "$f" >/dev/null 2>&1 \
+  && no "validate rejects an empty rule array" "it accepted one" \
+  || ok "validate rejects an empty rule array"
+
+f="$WORK/nopathback.plist"
+fixture "$f" "{'class':'rule','rule':['com.vendor.thing'],'k-of-n':1}"
+"$EDIT" validate "$f" >/dev/null 2>&1 \
+  && no "validate rejects a rule with no password path" "it accepted one" \
+  || ok "validate rejects a rule with no password path"
+
+f="$WORK/truncated.plist"
+head -c 40 "$WORK/good.plist" > "$f" 2>/dev/null
+"$EDIT" validate "$f" >/dev/null 2>&1 \
+  && no "validate rejects a truncated plist" "it accepted one" \
+  || ok "validate rejects a truncated plist"
 
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"

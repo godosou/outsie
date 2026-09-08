@@ -53,8 +53,9 @@ This will make the following changes to THIS machine:
   3. Create authorization right '${SUBRULE}' (evaluate-mechanisms):
        mechanism  ${MECHANISM}
        requirement pinned to the installed bundle's ad-hoc cdhash
-  4. Prepend '${SUBRULE}' to '${RIGHT}' and set k-of-n=1, so the spike runs
-     first and the normal password path remains as fallback.
+  4. Prepend '${SUBRULE}' to '${RIGHT}'. k-of-n is left exactly as it is; the
+     install refuses unless it is already 1, so the spike runs first and the
+     normal password path stays as the fallback.
 
 uninstall.sh restores the backup exactly, removes '${SUBRULE}', and deletes
 the bundle.
@@ -80,8 +81,16 @@ chmod 700 "${BACKUP_DIR}"
 if [[ -s "${BACKUP}" ]]; then
     echo "    keeping existing backup (captured before the first install)"
 else
-    security authorizationdb read "${RIGHT}" > "${BACKUP}"
-    chmod 600 "${BACKUP}"
+    # Write to a temporary file and only move it into place once it validates.
+    # Redirecting straight into ${BACKUP} creates the file before the read runs,
+    # so an interrupt or a failure leaves a zero-byte "backup" behind.
+    TMP_BACKUP="${BACKUP}.partial"
+    security authorizationdb read "${RIGHT}" > "${TMP_BACKUP}"
+    "$(dirname "$0")/authdb-edit.py" validate "${TMP_BACKUP}" >/dev/null \
+        || { echo "Refusing to install: could not capture a restorable backup." >&2
+             rm -f "${TMP_BACKUP}"; exit 1; }
+    chmod 600 "${TMP_BACKUP}"
+    mv "${TMP_BACKUP}" "${BACKUP}"
 fi
 
 echo "==> Creating right ${SUBRULE}"
@@ -107,7 +116,10 @@ security authorizationdb write "${SUBRULE}" <<EOF
 EOF
 
 echo "==> Wiring ${SUBRULE} into ${RIGHT}"
-NEW_RULE="/tmp/repose-spike-${RIGHT}.new.plist"
+# Never /tmp. This file is piped straight into `security authorizationdb write`,
+# so a predictable path in a world-writable directory would let a local user
+# swap in a rule of their choosing between the edit and the write.
+NEW_RULE="${BACKUP_DIR}/${RIGHT}.new.plist"
 # Build from the rule as it is now, not from the backup. The backup is the
 # pristine pre-spike state and is deliberately never overwritten, so using it
 # here would silently revert anything another tool added since.
