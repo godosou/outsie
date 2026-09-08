@@ -126,7 +126,22 @@ eval "$REPOSE_LOCKSTATE_CMD"    # 应输出 true
 
 在 VM 里输密码解锁，再读一次应输出 `false`。
 
-**这个往返走通了，才能开始 A1。** 如果 `IOConsoleLocked` 在 VM 里不随锁屏变化（虚拟机
+**这个往返走通了，才能开始 A1。**
+
+## 8. 跑 A1
+
+```bash
+source tools/vm-spike/vm-env.sh
+repose_vm_check          # 四项都要绿
+tools/vm-spike/run-a1.sh
+```
+
+它会自己完成：前置检查 → 拷贝插件 → 在客户机里跑合约测试 → 装 `log` 模式 →
+锁屏 → 唤醒 → 判定是否被加载 → 若是则继续里程碑 B → **无论成败都卸载干净** →
+把结论写进 `docs/validation/`。
+
+脚本会拒绝对着 VM 以外的目标运行。里程碑 A 期间这台 VM 会**无密码解锁**，
+这正是被测量的东西，也是它只能在一次性客户机上跑的原因。 如果 `IOConsoleLocked` 在 VM 里不随锁屏变化（虚拟机
 没有真实显示器，理论上有这个风险），就得先换一个 oracle，否则后面所有结论都不可信。
 
 ## 已知的坑

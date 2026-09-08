@@ -48,8 +48,13 @@ if ! backup_usable "${BACKUP}"; then
     echo "(missing, empty, or not a restorable rule). Falling back to removing"
     echo "just our own entry, which keeps the existing password path intact."
 fi
-read -r -p "Proceed? [y/N] " reply
-[[ "${reply}" == "y" || "${reply}" == "Y" ]] || { echo "Aborted."; exit 0; }
+# --yes exists so the A1 ladder can be re-run identically three times if the
+# first signing configuration does not load. A prompt in the middle of a
+# scripted experiment is how runs end up subtly different from each other.
+if [[ "${ASSUME_YES:-}" != "1" ]]; then
+    read -r -p "Proceed? [y/N] " reply
+    [[ "${reply}" == "y" || "${reply}" == "Y" ]] || { echo "Aborted."; exit 0; }
+fi
 
 if backup_usable "${BACKUP}"; then
     echo "==> Restoring ${RIGHT} from ${BACKUP}"

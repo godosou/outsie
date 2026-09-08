@@ -59,8 +59,13 @@ This will make the following changes to THIS machine:
 uninstall.sh restores the backup exactly, removes '${SUBRULE}', and deletes
 the bundle.
 EOF
-read -r -p "Proceed? [y/N] " reply
-[[ "${reply}" == "y" || "${reply}" == "Y" ]] || { echo "Aborted."; exit 0; }
+# --yes exists so the A1 ladder can be re-run identically three times if the
+# first signing configuration does not load. A prompt in the middle of a
+# scripted experiment is how runs end up subtly different from each other.
+if [[ "${ASSUME_YES:-}" != "1" ]]; then
+    read -r -p "Proceed? [y/N] " reply
+    [[ "${reply}" == "y" || "${reply}" == "Y" ]] || { echo "Aborted."; exit 0; }
+fi
 
 # Milestone A's entire verdict is "did a line appear in this log". A log left
 # over from a previous run would be read as a fresh success, so it is cleared

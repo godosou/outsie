@@ -107,6 +107,15 @@ for f in "$INSTALL" "$UNINSTALL"; do
   grep -qE 'read -r -p|read -r reply' "$f" \
     && ok "${name} asks before changing anything" \
     || no "${name} asks before changing anything" "no prompt"
+  # The prompt may be skipped for scripted runs, but only when something
+  # explicitly asks for that. A bypass that defaults to on is not a bypass, it
+  # is a missing prompt.
+  if grep -q 'ASSUME_YES' "$f"; then
+    grep -q 'ASSUME_YES:-}" != "1"' "$f" \
+      && ok "${name} only skips the prompt when ASSUME_YES is explicitly 1" \
+      || no "${name} only skips the prompt when ASSUME_YES is explicitly 1" \
+            "the bypass does not require an explicit opt-in"
+  fi
 done
 
 # 7. Uninstall must not delete the named right while the screensaver rule still
