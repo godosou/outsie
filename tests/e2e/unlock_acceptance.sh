@@ -88,7 +88,10 @@ preflight() {
   "$LOCKSTATE" --raw >/dev/null 2>&1 || fail "lock-state oracle unreadable on this host"
   [ -n "$LEAVE_CMD" ] || fail "REPOSE_LEAVE_CMD is not set (see header for per-step values)"
   [ -n "$RETURN_CMD" ] || fail "REPOSE_RETURN_CMD is not set (see header for per-step values)"
-  if is_locked; then
+  # Only the real run needs to begin unlocked. A dry run never locks anything,
+  # so refusing there would make the wiring check fail on a machine that simply
+  # happens to be locked -- which is most machines nobody is sitting at.
+  if [ "$DRY_RUN" != "1" ] && is_locked; then
     fail "screen is already locked; this test must start from an unlocked session"
   fi
 }
