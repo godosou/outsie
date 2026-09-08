@@ -9,6 +9,8 @@
     "core:window:default",
     "allow-set-status",
     "allow-set-preferences",
+    "allow-get-lifecycle-snapshot",
+    "allow-acknowledge-lifecycle-interval",
     "allow-postpone-break",
     "allow-notify-user",
     "allow-open-security-settings"

@@ -1,32 +1,18 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
 import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
-import type { UnlockDesktopBridge } from './tauriBridge'
+import { StretchTrainer3D } from './components/StretchTrainer3D'
+import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
+import { localDateKey } from './lib/timer'
+import { getShortBreakVoice } from './lib/reposeVoice'
 
 type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
-type DesktopCommand = 'toggle-pause' | 'start-short-break' | 'start-long-break' | 'idle-lock-failed' | 'strict-break-finished' | 'postpone-break'
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
-declare global {
-  interface Window {
-    repose?: {
-      isDesktop: boolean
-      onCommand: (callback: (command: DesktopCommand) => void) => () => void
-      setStatus: (status: { running: boolean; phase: string; remaining: number; breakId: string | null; canPostpone: boolean; postponeSeconds: number }) => void
-      postponeBreak: () => Promise<boolean>
-      notify: (notification: { title: string; body: string }) => void
-      showBreak: () => void
-      setPreferences: (preferences: DesktopPreferences) => void
-      openSecuritySettings: () => void
-      unlock: UnlockDesktopBridge
-    }
-    webkitAudioContext?: typeof AudioContext
-  }
-}
 
-const APP_VERSION = '0.2.0'
+const APP_VERSION = '0.6.2'
 
 const exercises: Exercise[] = [
   { id: 'eyes', category: '放松双眼', title: '目光，去远方散个步', subtitle: '暂时离开屏幕，看看窗外的风景。', duration: '短休息', type: 'short', art: 'eyes', color: 'sage', icon: Eye, steps: ['轻轻闭上眼睛，让眼周放松。', '望向窗外或房间远处，让目光自然停留。', '慢慢眨几次眼，感受眼睛重新湿润。'] },
@@ -52,9 +38,25 @@ function time(value: number) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`
 }
 function minuteLabel(seconds: number) { return seconds < 60 ? '0' : String(Math.floor(seconds / 60)) }
+function activityDurationLabel(seconds: number) {
+  if (seconds <= 0) return '0 分钟'
+  if (seconds < 60) return '<1 分钟'
+  const minutes = seconds / 60
+  return `${minutes < 10 ? Math.round(minutes * 10) / 10 : Math.round(minutes)} 分钟`
+}
+function localNoon(timestamp = Date.now()) {
+  const date = new Date(timestamp)
+  date.setHours(12, 0, 0, 0)
+  return date.getTime()
+}
+function shiftLocalDay(timestamp: number, days: number) {
+  const date = new Date(timestamp)
+  date.setDate(date.getDate() + days)
+  return localNoon(date.getTime())
+}
 function clockAfter(seconds: number) { return new Date(Date.now() + seconds * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) }
 function BrandMark({ small = false }: { small?: boolean }) {
-  return <span className={`brand-mark ${small ? 'small' : ''}`} aria-hidden="true"><i /><i /><i /><i /><b /></span>
+  return <span className={`brand-mark ${small ? 'small' : ''}`} aria-hidden="true"><img src="./favicon.svg" alt="" /></span>
 }
 function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: () => void; label: string }) {
   return <button className={`toggle ${enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={enabled} aria-label={label} onClick={onChange}><span /></button>
@@ -100,10 +102,11 @@ export default function App() {
   const [breathing, setBreathing] = useState(false)
   const [breathSeconds, setBreathSeconds] = useState(0)
   const [exercise, setExercise] = useState<Exercise | null>(null)
-  const [activeExercise, setActiveExercise] = useState<Exercise>(exercises[0])
   const [toast, setToast] = useState('')
   const [postponePending, setPostponePending] = useState(false)
   const [ideaFilter, setIdeaFilter] = useState('全部灵感')
+  const [activityDate, setActivityDate] = useState(() => localNoon())
+  const [selectedHour, setSelectedHour] = useState(() => new Date().getHours())
   const [theme, setTheme] = useState<Theme>(() => { try { return (localStorage.getItem('repose-theme') as Theme) || 'light' } catch { return 'light' } })
   const [draft, setDraft] = useState(settings)
   const [desktopPreferences, setDesktopPreferences] = useState<DesktopPreferences>(() => {
@@ -115,8 +118,12 @@ export default function App() {
 
   const audio = useRef<AudioContext | null>(null)
   const previousPhase = useRef(phase)
+  const previousBreakId = useRef(breakId)
   const today = new Date()
   const inBreak = phase !== 'focus'
+  const voiceKey = breakId ?? previousBreakId.current ?? 'short-break'
+  if (breakId) previousBreakId.current = breakId
+  const shortVoice = getShortBreakVoice(canPostpone ? 'enter' : 'return', voiceKey)
   const showToast = (message: string) => setToast(message)
   const initAudio = () => {
     try { const Audio = window.AudioContext || window.webkitAudioContext; if (Audio && !audio.current) audio.current = new Audio(); void audio.current?.resume() } catch { /* Sound is optional. */ }
@@ -133,7 +140,7 @@ export default function App() {
       }
     } catch { /* The timer continues if audio is unavailable. */ }
   }
-  const beginBreak = (type: 'short' | 'long', chosen = type === 'long' ? exercises[1] : exercises[0]) => { initAudio(); setExercise(null); setActiveExercise(chosen); timer.startBreak(type) }
+  const beginBreak = (type: 'short' | 'long') => { initAudio(); setExercise(null); timer.startBreak(type) }
   const postponeCurrentBreak = async () => {
     if (!canPostpone || postponePending) return
     setPostponePending(true)
@@ -164,11 +171,11 @@ export default function App() {
     document.title = `${time(remaining)} · ${inBreak ? '好好休息' : running ? '专注中' : '已暂停'} — Repose`
     window.repose?.setStatus({ running, phase, remaining, breakId, canPostpone, postponeSeconds })
   }, [phase, running, remaining, inBreak, breakId, canPostpone, postponeSeconds])
-  useEffect(() => window.repose?.onCommand(command => {
+  useEffect(() => window.repose?.onCommand(({ command, breakId: completedBreakId }) => {
     if (command === 'toggle-pause' && !(strictBreak && inBreak)) timer.toggleRunning()
-    if (command === 'start-short-break') { setActiveExercise(exercises[0]); timer.startBreak('short') }
-    if (command === 'start-long-break') { setActiveExercise(exercises[1]); timer.startBreak('long') }
-    if (command === 'strict-break-finished') timer.completeBreak()
+    if (command === 'start-short-break') timer.startBreak('short')
+    if (command === 'start-long-break') timer.startBreak('long')
+    if (command === 'strict-break-finished' && completedBreakId) timer.completeBreak(completedBreakId)
     if (command === 'postpone-break') timer.postponeBreak()
     if (command === 'idle-lock-failed') {
       setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: false }))
@@ -180,16 +187,26 @@ export default function App() {
     if (previousPhase.current === phase) return
     if (phase !== 'focus') {
       setBreathing(false); setExercise(null); setHelp(false)
-      if (phase === 'long') setActiveExercise(exercises[1])
       if (settings.sound) chime(); window.repose?.showBreak()
       if (settings.notifications) {
-        const notification = { title: 'Repose · 歇一会', body: phase === 'long' ? '辛苦了，起身走走，给自己一个长休息。' : '让目光离开屏幕，享受片刻的小休息。' }
+        const shortNotification = getShortBreakVoice('notification', voiceKey)
+        const notification = phase === 'long'
+          ? { title: 'Repose · 歇一会', body: '辛苦了，起身走走，给自己一个长休息。' }
+          : shortNotification
         if (window.repose) window.repose.notify(notification)
         else if ('Notification' in window && Notification.permission === 'granted') { try { new Notification(notification.title, { body: notification.body, icon: './favicon.svg' }) } catch { /* In-app reminders remain available. */ } }
       }
     } else if (postponedBreak) {
-      showToast(`${postponedBreak === 'long' ? '大休息' : '小休息'}已延迟 ${postponeSeconds / 60} 分钟，到时将重新开始完整休息`)
-    } else { setActiveExercise(exercises[0]) }
+      if (postponedBreak === 'short') {
+        const voice = getShortBreakVoice('postpone', voiceKey)
+        showToast(`${voice.title} ${voice.body}`)
+      } else showToast(`大休息已延迟 ${postponeSeconds / 60} 分钟，到时将重新开始完整休息`)
+    } else {
+      if (previousPhase.current === 'short') {
+        const voice = getShortBreakVoice('complete', voiceKey)
+        showToast(`${voice.title} ${voice.body}`)
+      }
+    }
     previousPhase.current = phase
   }, [phase])
   useEffect(() => {
@@ -225,6 +242,26 @@ export default function App() {
   const cycle = breathSeconds % 14
   const breathLabel = cycle < 4 ? '慢慢吸气' : cycle < 8 ? '轻轻停留' : '缓缓呼气'
   const breathCountdown = cycle < 4 ? 4 - cycle : cycle < 8 ? 8 - cycle : 14 - cycle
+  const todayNoon = localNoon(today.getTime())
+  const oldestActivityDate = shiftLocalDay(todayNoon, -34)
+  const activityIsToday = localDateKey(activityDate) === localDateKey(todayNoon)
+  const activityStats = timer.getStatsForDate(activityDate)
+  const activityHistory = timer.getHistoryForDate(activityDate)
+  const activityHourly = timer.getHourlyStatsForDate(activityDate)
+  const activityPoints = buildHourlyChart(activityHourly)
+  const selectedActivityHour = activityPoints[selectedHour] ?? activityPoints[0]
+  const activityPeak = Math.max(0, ...activityPoints.map(point => point.totalSeconds))
+  const hasHourlyActivity = activityPeak > 0
+  const activityDateLabel = activityIsToday
+    ? '今天'
+    : new Date(activityDate).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })
+  const chooseActivityDate = (timestamp: number) => {
+    const target = Math.max(oldestActivityDate, Math.min(todayNoon, localNoon(timestamp)))
+    if (target === activityDate) return
+    const hourly = timer.getHourlyStatsForDate(target)
+    setActivityDate(target)
+    setSelectedHour(selectDefaultHour(hourly, target === todayNoon, today.getHours()))
+  }
 
   return <div className="app-shell" onPointerDown={initAudio}>
     {mobileMenu && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setMobileMenu(false)} />}
@@ -282,7 +319,62 @@ export default function App() {
 
       {page === 'ideas' && <div className="page-enter ideas-page"><section className="ideas-banner"><div><span className="eyebrow">LESS DOING. MORE BEING.</span><h2>这一分钟，不必有所产出。</h2><p>抬头、伸展、呼吸。让自己重新回到当下。</p><button className="button primary" onClick={() => setBreathing(true)}><Wind size={17} />开始呼吸练习</button></div><img src="./illustrations/still-life.svg" alt="" /></section><div className="filter-row" role="group" aria-label="筛选休息灵感">{['全部灵感', '放松双眼', '舒展身体', '补充水分'].map(filter => <button className={ideaFilter === filter ? 'selected' : ''} key={filter} onClick={() => setIdeaFilter(filter)}>{filter}</button>)}</div><div className="exercise-grid large">{exercises.filter(item => ideaFilter === '全部灵感' || item.category === ideaFilter).map(item => <ExerciseCard key={item.id} exercise={item} onClick={() => setExercise(item)} />)}</div><div className="gentle-note"><Heart size={18} /><p>所有动作都以舒适为准。你也可以什么都不做，只是安静地待一会。</p></div></div>}
 
-      {page === 'activity' && <div className="page-enter activity-page"><div className="activity-summary"><div><span>今天的你，已经为自己留出了</span><h2>{minuteLabel(stats.breakSeconds)}<small>分钟</small><Leaf size={30} strokeWidth={1.4} /></h2><p>{stats.completedBreaks ? `完成了 ${stats.completedBreaks} 次休息。谢谢你，有认真照顾自己。` : '第一次休息后，这里会开始记录你的好习惯。'}</p></div><button className="button outline" onClick={exportHistory}><ArrowDownToLine size={16} />导出记录</button></div><section className="panel chart-panel"><div className="section-heading"><div><h2>最近一周的留白</h2><p>每一小段休息，都值得被看见。</p></div><span className="subtle-badge">最近 7 天</span></div><div className="chart"><div className="chart-y"><span>{Math.max(10, ...timer.weeklyStats.map(day => Math.ceil(day.breakSeconds / 60)))} 分钟</span><span>0</span></div><div className="chart-columns">{timer.weeklyStats.map((day, index) => <div className={`chart-column ${index === 6 ? 'today' : ''}`} key={day.date}><div className="bar-track"><div className="bar-value" title={`${day.date}：${Math.floor(day.breakSeconds / 60)} 分钟休息`} style={{ height: `${Math.max(2, day.breakSeconds / (Math.max(10, ...timer.weeklyStats.map(d => d.breakSeconds / 60)) * 60) * 100)}%` }}>{day.breakSeconds > 0 && <span>{Math.floor(day.breakSeconds / 60)}m</span>}</div></div><span>{index === 6 ? '今天' : day.label}</span></div>)}</div></div></section><section className="panel history-panel"><div className="section-heading"><h2>今天的休息足迹</h2><span className="small-muted">已完成 {stats.completedBreaks} 次</span></div>{timer.history.length ? <div className="history-list">{timer.history.map(item => <div className="history-row" key={item.id}><span className={`stat-icon ${item.type === 'short' ? 'sage' : 'peach'}`}>{item.type === 'short' ? <Leaf size={18} /> : <Coffee size={18} />}</span><div><h3>{item.type === 'short' ? '片刻小憩' : '好好放松'}</h3><p>{new Date(item.completedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</p></div><span>{item.duration < 60 ? `${item.duration} 秒` : `${Math.round(item.duration / 60 * 10) / 10} 分钟`}</span><span className="history-complete"><CheckCircle2 size={14} />已完成</span></div>)}</div> : <div className="empty-state"><div className="empty-flower"><Sprout size={34} strokeWidth={1.2} /></div><h3>好习惯，从一个小小的停顿开始。</h3><p>完成第一次休息，让今天的留白在这里生根。</p><button className="text-button" onClick={() => beginBreak('short')}>现在，歇一会<ArrowRight size={15} /></button></div>}</section></div>}
+      {page === 'activity' && <div className="page-enter activity-page">
+        <div className="activity-summary">
+          <div>
+            <span>{activityIsToday ? '今天的你，已经为自己留出了' : `${activityDateLabel}，你为自己留出了`}</span>
+            <h2>{minuteLabel(activityStats.breakSeconds)}<small>分钟</small><Leaf size={30} strokeWidth={1.4} /></h2>
+            <p>{activityStats.completedBreaks ? `完成了 ${activityStats.completedBreaks} 次休息。谢谢你，有认真照顾自己。` : '这一天还没有完成休息记录，慢慢来就好。'}</p>
+          </div>
+          <button className="button outline" onClick={exportHistory}><ArrowDownToLine size={16} />导出记录</button>
+        </div>
+
+        <section className="panel chart-panel">
+          <div className="section-heading activity-chart-heading">
+            <div><h2>一天的节奏</h2><p>看看专注与休息，在一天里如何自然交替。</p></div>
+            <div className="activity-date-switcher" aria-label="选择记录日期">
+              <button type="button" aria-label="前一天" disabled={activityDate <= oldestActivityDate} onClick={() => chooseActivityDate(shiftLocalDay(activityDate, -1))}><ChevronLeft size={15} /></button>
+              <span><CalendarDays size={14} />{activityDateLabel}</span>
+              <button type="button" aria-label="后一天" disabled={activityIsToday} onClick={() => chooseActivityDate(shiftLocalDay(activityDate, 1))}><ChevronRight size={15} /></button>
+            </div>
+          </div>
+          <div className="activity-chart-legend" aria-label="图例"><span><i className="focus" />专注</span><span><i className="rest" />休息</span><small>本地记录 · 每小时</small></div>
+          {hasHourlyActivity ? <>
+            <div className="daily-chart" aria-label={`${activityDateLabel}每小时专注与休息图表`}>
+              <div className="daily-chart-y" aria-hidden="true"><span>{activityDurationLabel(activityPeak)}</span><span>0</span></div>
+              <div className="daily-chart-plot">
+                {activityPoints.map(point => <button
+                  type="button"
+                  className={`daily-chart-column ${selectedHour === point.hour ? 'selected' : ''}`}
+                  key={point.hour}
+                  aria-label={`${String(point.hour).padStart(2, '0')}:00 至 ${String((point.hour + 1) % 24).padStart(2, '0')}:00，专注 ${activityDurationLabel(point.focusSeconds)}，休息 ${activityDurationLabel(point.breakSeconds)}`}
+                  aria-pressed={selectedHour === point.hour}
+                  onClick={() => setSelectedHour(point.hour)}
+                >
+                  <span className="daily-chart-track">
+                    {point.totalSeconds > 0 && <span className="daily-chart-stack" style={{ height: `${point.heightPercent}%` }}>
+                      <i className="focus" style={{ height: `${point.focusPercent}%` }} />
+                      <i className="rest" style={{ height: `${point.breakPercent}%` }} />
+                    </span>}
+                  </span>
+                  <span className="daily-chart-tick" aria-hidden="true">{point.hour % 2 === 0 ? String(point.hour).padStart(2, '0') : ''}</span>
+                </button>)}
+              </div>
+            </div>
+            <div className="hour-detail" aria-live="polite">
+              <div className="hour-detail-title"><Clock3 size={17} /><span>{String(selectedActivityHour.hour).padStart(2, '0')}:00–{String((selectedActivityHour.hour + 1) % 24).padStart(2, '0')}:00</span></div>
+              <div><i className="focus" /><span>专注</span><strong>{activityDurationLabel(selectedActivityHour.focusSeconds)}</strong></div>
+              <div><i className="rest" /><span>休息</span><strong>{activityDurationLabel(selectedActivityHour.breakSeconds)}</strong></div>
+              <span className="hour-detail-total">合计 {activityDurationLabel(selectedActivityHour.totalSeconds)}</span>
+            </div>
+          </> : <div className="chart-empty-state"><Activity size={27} strokeWidth={1.3} /><div><h3>这一天还没有分时记录</h3><p>{activityIsToday ? '从现在开始，专注与休息会在这里慢慢留下痕迹。' : '升级前的每日总量仍会保留，但不会猜测它发生在哪个小时。'}</p></div></div>}
+        </section>
+
+        <section className="panel history-panel">
+          <div className="section-heading"><h2>{activityIsToday ? '今天的休息足迹' : '这一天的休息足迹'}</h2><span className="small-muted">已完成 {activityStats.completedBreaks} 次</span></div>
+          {activityHistory.length ? <div className="history-list">{activityHistory.map(item => <div className="history-row" key={item.id}><span className={`stat-icon ${item.type === 'short' ? 'sage' : 'peach'}`}>{item.type === 'short' ? <Leaf size={18} /> : <Coffee size={18} />}</span><div><h3>{item.type === 'short' ? '片刻小憩' : '好好放松'}</h3><p>{new Date(item.completedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</p></div><span>{item.duration < 60 ? `${item.duration} 秒` : `${Math.round(item.duration / 60 * 10) / 10} 分钟`}</span><span className="history-complete"><CheckCircle2 size={14} />已完成</span></div>)}</div> : <div className="empty-state"><div className="empty-flower"><Sprout size={34} strokeWidth={1.2} /></div><h3>好习惯，从一个小小的停顿开始。</h3><p>{activityIsToday ? '完成第一次休息，让今天的留白在这里生根。' : '这一天没有完成的休息足迹。'}</p>{activityIsToday ? <button className="text-button" onClick={() => beginBreak('short')}>现在，歇一会<ArrowRight size={15} /></button> : <button className="text-button" onClick={() => chooseActivityDate(todayNoon)}>回到今天<ArrowRight size={15} /></button>}</div>}
+        </section>
+      </div>}
 
       {page === 'settings' && <div className="page-enter preferences-page">
         <section className="panel preferences-panel security-panel">
@@ -300,11 +392,11 @@ export default function App() {
 
     {toast && <div className="toast" role="status"><CheckCircle2 size={17} />{toast}</div>}
     {help && <Modal label="认识 Repose" onClose={() => setHelp(false)} className="help-modal"><button className="modal-close icon-button" aria-label="关闭使用指南" onClick={() => setHelp(false)}><X size={21} /></button><BrandMark /><div className="eyebrow">WELCOME TO YOUR LITTLE PAUSE</div><h2>嗨，这里是 Repose<span>.</span></h2><p className="modal-intro">一位安静的休息伙伴，陪你在忙碌日常里，找回舒服的节奏。</p><div className="help-step"><span>01</span><div><h3>专注的时候，放心投入</h3><p>计时会自动进行。你可以随时暂停，或按空格键切换。</p></div></div><div className="help-step"><span>02</span><div><h3>到点了，温柔地歇一会</h3><p>{window.repose ? '默认每 20 分钟短休息 20 秒，完成 4 次后安排长休息。小休息可延迟 1 分钟，大休息可延迟 5 分钟，每次仅一次。再次提醒后须完成完整休息。' : '默认每 20 分钟短休息 20 秒，完成 4 次后安排长休息。'}</p></div></div><div className="help-step"><span>03</span><div><h3>让休息，变成你的习惯</h3><p>在「休息计划」调整节奏，在「我的记录」查看真实的休息足迹。所有记录只保存在本机。</p></div></div><div className="help-platform"><Leaf size={17} /><p>{window.repose ? '关闭窗口后，Repose 会留在托盘继续提醒。通过托盘菜单可完整退出。' : '浏览器版需要保持页面打开；关闭页面后无法提醒。桌面版支持托盘持续运行。'}</p></div><button className="button primary full-width" onClick={() => setHelp(false)}>好的，慢慢来<ArrowRight size={16} /></button></Modal>}
-    {exercise && <Modal label={exercise.title} onClose={() => setExercise(null)} className="exercise-modal"><button className="modal-close icon-button" aria-label="关闭休息灵感" onClick={() => setExercise(null)}><X size={21} /></button><div className={`exercise-modal-art ${exercise.color}`}><img src={`./illustrations/${exercise.art}.svg`} alt="" /></div><div className="exercise-modal-body"><span className="subtle-badge"><exercise.icon size={14} />{exercise.category}<span className="small-dot">·</span>{exercise.type === 'short' ? `${settings.shortDuration} 秒` : `${settings.longDuration} 分钟`}</span><h2>{exercise.title}</h2><p>{exercise.subtitle}</p><ol>{exercise.steps.map(step => <li key={step}>{step}</li>)}</ol><button className="button primary full-width" onClick={() => beginBreak(exercise.type, exercise)}><Play size={16} fill="currentColor" />开始这次休息</button></div></Modal>}
+    {exercise && <Modal label={exercise.title} onClose={() => setExercise(null)} className="exercise-modal"><button className="modal-close icon-button" aria-label="关闭休息灵感" onClick={() => setExercise(null)}><X size={21} /></button><div className={`exercise-modal-art ${exercise.color}`}><img src={`./illustrations/${exercise.art}.svg`} alt="" /></div><div className="exercise-modal-body"><span className="subtle-badge"><exercise.icon size={14} />{exercise.category}<span className="small-dot">·</span>{exercise.type === 'short' ? `${settings.shortDuration} 秒` : `${settings.longDuration} 分钟`}</span><h2>{exercise.title}</h2><p>{exercise.subtitle}</p><ol>{exercise.steps.map(step => <li key={step}>{step}</li>)}</ol><button className="button primary full-width" onClick={() => beginBreak(exercise.type)}><Play size={16} fill="currentColor" />开始这次休息</button></div></Modal>}
     {breathing && <Modal label="呼吸练习" onClose={() => setBreathing(false)} className="breathing-modal"><button className="modal-close icon-button" aria-label="结束呼吸练习" onClick={() => setBreathing(false)}><X size={21} /></button><span className="eyebrow">JUST BREATHE</span><h2>现在，只需要呼吸。</h2><p>不必追赶什么，跟随舒服的节奏。</p><div className={`breathing-orbit ${cycle < 4 ? 'inhale' : cycle < 8 ? 'hold' : 'exhale'}`}><div className="breathing-ring outer" /><div className="breathing-ring middle" /><div className="breathing-circle"><Wind size={28} strokeWidth={1.2} /><span aria-live="polite">{breathLabel}</span><strong>{breathCountdown}</strong></div></div><div className="breathing-steps"><span className={cycle < 4 ? 'active' : ''}>吸气 4 秒</span><span className={cycle >= 4 && cycle < 8 ? 'active' : ''}>停留 4 秒</span><span className={cycle >= 8 ? 'active' : ''}>呼气 6 秒</span></div><p className="breathing-count">已完成 {Math.floor(breathSeconds / 14)} 轮<span className="small-dot">·</span>按自己的舒适程度呼吸</p><button className="button outline" onClick={() => { setBreathing(false); showToast('把这份从容，带回接下来的时光') }}>带着平静，继续</button></Modal>}
-    {inBreak && <Modal label="休息时间" onClose={() => {}} className="break-modal"><div className="break-modal-top"><BrandMark small /><span>REPOSE · A LITTLE TIME FOR YOU</span><span className="subtle-badge">{phase === 'long' ? '长休息' : '短休息'}</span></div><div className="break-content"><div className="break-art"><img src={`./illustrations/${activeExercise.art}.svg`} alt="" /></div><span className="eyebrow">YOU HAVE EARNED A LITTLE PAUSE</span><h2>{phase === 'long' && activeExercise.id === 'eyes' ? '起身走走，让身体舒展开。' : activeExercise.title}</h2><p>{activeExercise.steps[Math.min(2, Math.floor(timer.progress * 3))]}</p><div className="break-timer">{time(remaining)}</div><div className="break-progress"><span style={{ width: `${timer.progress * 100}%` }} /></div><span className="break-encouragement">{running ? '世界可以等一等，现在的时间属于你。' : '休息计时已暂停，按下继续后慢慢来。'}</span><div className="break-actions">
+    {inBreak && <Modal label="休息时间" onClose={() => {}} className={`break-modal ${phase === 'long' ? 'long-break-modal' : ''}`}><div className="break-modal-top"><BrandMark small /><span>REPOSE · A LITTLE TIME FOR YOU</span><span className="subtle-badge">{phase === 'long' ? '长休息 · 跟练模式' : '短休息'}</span></div><div className={`break-content ${phase === 'long' ? 'long-break-content' : ''}`}>{phase === 'long' ? <StretchTrainer3D key={breakId} remaining={remaining} duration={timer.phaseDuration} running={running} /> : <><div className="break-art short-break-mascot"><img src="./favicon.svg" alt="" /></div><span className="eyebrow">REPOSE HAS ENTERED THE CHAT</span><h2>{shortVoice.title}</h2><p>{shortVoice.body}</p></>}<div className="break-total-label">{phase === 'long' ? '大休息剩余' : '本次休息剩余'}</div><div className="break-timer" role="timer" aria-label={`休息剩余 ${time(remaining)}`}>{time(remaining)}</div><div className="break-progress"><span style={{ width: `${timer.progress * 100}%` }} /></div><span className="break-encouragement">{running ? phase === 'long' ? '跟着舒服的幅度慢慢活动，不必追求标准。' : '二十秒而已。我相信你和工作都撑得住。' : '休息计时已暂停。你很会给休息再安排一次休息。'}</span><div className="break-actions">
       {canPostpone && <button className="button postpone-button" disabled={postponePending} onClick={() => void postponeCurrentBreak()}><Clock3 size={16} />{postponePending ? '正在延迟…' : `延迟 ${postponeSeconds / 60} 分钟`}<span>仅此一次</span></button>}
       {strictBreak ? <span className="strict-break-note"><ShieldCheck size={15} />{canPostpone ? '准备好后，安心休息' : '已使用延迟机会，倒计时结束后自动恢复'}</span> : <><button className="button primary" onClick={timer.toggleRunning}>{running ? <Pause size={16} /> : <Play size={16} />}{running ? '暂停休息' : '继续休息'}</button><button className="text-button" onClick={() => { timer.skipBreak(); showToast('已跳过这次休息，记得稍后照顾一下自己') }}>跳过这次<ArrowRight size={15} /></button></>}
-    </div></div><div className="break-bottom"><Heart size={13} />不必做得完美，照顾自己就好。</div></Modal>}
+    </div></div><div className="break-bottom"><Heart size={13} />{phase === 'long' ? '动作以舒适为准；如有疼痛或眩晕，请立即停止。' : '不必做得完美，照顾自己就好。'}</div></Modal>}
   </div>
 }

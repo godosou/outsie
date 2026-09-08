@@ -1,1 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="20" fill="#2f513d"/><g fill="#e2eccf"><ellipse cx="32" cy="22" rx="7" ry="15" transform="rotate(-40 32 32)"/><ellipse cx="32" cy="22" rx="7" ry="15" transform="rotate(40 32 32)"/><ellipse cx="32" cy="22" rx="7" ry="15" transform="rotate(130 32 32)"/><ellipse cx="32" cy="22" rx="7" ry="15" transform="rotate(220 32 32)"/></g><circle cx="32" cy="32" r="5" fill="#2f513d"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512" fill="none">
+  <title>Repose · A little smile</title>
+  <desc>A single continuous six-petal flower with a relaxed smile on a forest-green tile.</desc>
+  <defs>
+    <linearGradient id="forest" x1="96" y1="48" x2="400" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38634F"/>
+      <stop offset="1" stop-color="#244B3B"/>
+    </linearGradient>
+    <linearGradient id="cream" x1="220" y1="96" x2="280" y2="404" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4F2DC"/>
+      <stop offset="1" stop-color="#E3E8C7"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#forest)"/>
+  <rect x="33" y="33" width="446" height="446" rx="107" stroke="#FFFFFF" stroke-opacity=".1" stroke-width="2"/>
+  <!-- One uninterrupted silhouette: the face belongs to the flower, with no center disc. -->
+  <path id="flower" d="M197.72 140.83A59 59 0 0 1 314.28 140.83Q314.96 147.88 321.4 144.94A59 59 0 0 1 379.68 245.89Q373.92 250 379.68 254.11A59 59 0 0 1 321.4 355.06Q314.96 352.12 314.28 359.17A59 59 0 0 1 197.72 359.17Q197.04 352.12 190.6 355.06A59 59 0 0 1 132.32 254.11Q138.08 250 132.32 245.89A59 59 0 0 1 190.6 144.94Q197.04 147.88 197.72 140.83Z" fill="url(#cream)"/>
+  <g id="smile" stroke="#315441" stroke-width="11" stroke-linecap="round">
+    <path d="M211 237Q223 248 235 237"/>
+    <path d="M277 237Q289 248 301 237"/>
+    <path d="M230 273C244 288 270 288 284 270"/>
+  </g>
+</svg>

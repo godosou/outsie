@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the acknowledge_lifecycle_interval command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-acknowledge-lifecycle-interval",
+          "markdownDescription": "Enables the acknowledge_lifecycle_interval command without any pre-configured scope."
+        },
+        {
           "description": "Enables the begin_calibration command without any pre-configured scope.",
           "type": "string",
           "const": "allow-begin-calibration",
@@ -193,6 +199,12 @@
           "type": "string",
           "const": "allow-confirm-pairing",
           "markdownDescription": "Enables the confirm_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_lifecycle_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-lifecycle-snapshot",
+          "markdownDescription": "Enables the get_lifecycle_snapshot command without any pre-configured scope."
         },
         {
           "description": "Enables the notify_user command without any pre-configured scope.",
@@ -243,6 +255,12 @@
           "markdownDescription": "Enables the unlock_status command without any pre-configured scope."
         },
         {
+          "description": "Denies the acknowledge_lifecycle_interval command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-acknowledge-lifecycle-interval",
+          "markdownDescription": "Denies the acknowledge_lifecycle_interval command without any pre-configured scope."
+        },
+        {
           "description": "Denies the begin_calibration command without any pre-configured scope.",
           "type": "string",
           "const": "deny-begin-calibration",
@@ -259,6 +277,12 @@
           "type": "string",
           "const": "deny-confirm-pairing",
           "markdownDescription": "Denies the confirm_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_lifecycle_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-lifecycle-snapshot",
+          "markdownDescription": "Denies the get_lifecycle_snapshot command without any pre-configured scope."
         },
         {
           "description": "Denies the notify_user command without any pre-configured scope.",

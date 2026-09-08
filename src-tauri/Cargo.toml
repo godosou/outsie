@@ -1,6 +1,6 @@
 [package]
-name = "repose-lite"
-version = "0.2.0"
+name = "repose"
+version = "0.6.2"
 description = "A quiet macOS break reminder"
 edition = "2024"
 
@@ -16,7 +16,7 @@ members = [
 resolver = "3"
 
 [lib]
-name = "repose_lite_lib"
+name = "repose_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

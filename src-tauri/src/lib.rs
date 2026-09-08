@@ -1,15 +1,201 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     ffi::{CString, c_char, c_void},
     process::Command,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum InactivityReason {
+    ScreenLock,
+    SystemSleep,
+    DisplaySleep,
+    SessionInactive,
+}
+
+impl InactivityReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ScreenLock => "screen-lock",
+            Self::SystemSleep => "system-sleep",
+            Self::DisplaySleep => "display-sleep",
+            Self::SessionInactive => "session-inactive",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NativeLifecycleAction {
+    Begin(InactivityReason),
+    End(InactivityReason),
+    ResumeAll,
+}
+
+fn decode_native_lifecycle_event(event_code: i32) -> Option<NativeLifecycleAction> {
+    match event_code {
+        1 => Some(NativeLifecycleAction::Begin(InactivityReason::ScreenLock)),
+        2 => Some(NativeLifecycleAction::ResumeAll),
+        3 => Some(NativeLifecycleAction::Begin(InactivityReason::SystemSleep)),
+        4 => Some(NativeLifecycleAction::End(InactivityReason::SystemSleep)),
+        5 => Some(NativeLifecycleAction::Begin(
+            InactivityReason::SessionInactive,
+        )),
+        6 => Some(NativeLifecycleAction::ResumeAll),
+        7 => Some(NativeLifecycleAction::Begin(InactivityReason::DisplaySleep)),
+        8 => Some(NativeLifecycleAction::End(InactivityReason::DisplaySleep)),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleStarted {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    interval_id: String,
+    sequence: u64,
+    reason: String,
+    started_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleInterval {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    interval_id: String,
+    sequence: u64,
+    elapsed_seconds: f64,
+    started_at: u64,
+    ended_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LifecycleSnapshot {
+    inactive: bool,
+    active_interval: Option<LifecycleStarted>,
+    pending_intervals: Vec<LifecycleInterval>,
+}
+
+#[derive(Default)]
+struct LifecycleGate {
+    reasons: HashSet<InactivityReason>,
+    active_interval: Option<(LifecycleStarted, f64)>,
+    pending_intervals: VecDeque<LifecycleInterval>,
+    next_sequence: u64,
+}
+
+impl LifecycleGate {
+    fn begin(
+        &mut self,
+        reason: InactivityReason,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleStarted> {
+        if !self.reasons.insert(reason) || self.active_interval.is_some() {
+            return None;
+        }
+        self.next_sequence = self.next_sequence.wrapping_add(1);
+        let started = LifecycleStarted {
+            kind: "inactive-start",
+            interval_id: format!(
+                "{}-{}-{}",
+                std::process::id(),
+                continuous_seconds.to_bits(),
+                self.next_sequence
+            ),
+            sequence: self.next_sequence,
+            reason: reason.as_str().into(),
+            started_at: wall_time_ms,
+        };
+        self.active_interval = Some((started.clone(), continuous_seconds));
+        Some(started)
+    }
+
+    fn end(
+        &mut self,
+        reason: InactivityReason,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleInterval> {
+        if !self.reasons.remove(&reason) || !self.reasons.is_empty() {
+            return None;
+        }
+        self.complete_active(continuous_seconds, wall_time_ms)
+    }
+
+    fn resume_all(
+        &mut self,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleInterval> {
+        if self.reasons.is_empty() {
+            return None;
+        }
+        self.reasons.clear();
+        self.complete_active(continuous_seconds, wall_time_ms)
+    }
+
+    fn complete_active(
+        &mut self,
+        continuous_seconds: f64,
+        wall_time_ms: u64,
+    ) -> Option<LifecycleInterval> {
+        let (started, started_continuous) = self.active_interval.take()?;
+        let elapsed_seconds = if continuous_seconds.is_finite() && started_continuous.is_finite() {
+            (continuous_seconds - started_continuous).max(0.0)
+        } else {
+            0.0
+        };
+        let completed = LifecycleInterval {
+            kind: "inactive-end",
+            interval_id: started.interval_id,
+            sequence: started.sequence,
+            elapsed_seconds,
+            started_at: started.started_at,
+            ended_at: wall_time_ms,
+        };
+        self.pending_intervals.push_back(completed.clone());
+        while self.pending_intervals.len() > 32 {
+            self.pending_intervals.pop_front();
+        }
+        Some(completed)
+    }
+
+    fn acknowledge(&mut self, interval_id: &str) -> bool {
+        let Some(index) = self
+            .pending_intervals
+            .iter()
+            .position(|interval| interval.interval_id == interval_id)
+        else {
+            return false;
+        };
+        self.pending_intervals.remove(index);
+        true
+    }
+
+    fn snapshot(&self) -> LifecycleSnapshot {
+        LifecycleSnapshot {
+            inactive: !self.reasons.is_empty(),
+            active_interval: self
+                .active_interval
+                .as_ref()
+                .map(|(started, _)| started.clone()),
+            pending_intervals: self.pending_intervals.iter().cloned().collect(),
+        }
+    }
+
+    fn is_inactive(&self) -> bool {
+        !self.reasons.is_empty()
+    }
+}
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, WebviewUrl,
     WebviewWindowBuilder, WindowEvent,
@@ -29,6 +215,27 @@ unsafe extern "C" {
     fn repose_configure_cover(window: *mut c_void);
     fn repose_idle_seconds() -> f64;
     fn repose_notify(title: *const c_char, body: *const c_char);
+    fn repose_continuous_seconds() -> f64;
+    fn repose_observe_lifecycle(callback: extern "C" fn(i32));
+}
+
+fn continuous_seconds() -> f64 {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        return repose_continuous_seconds();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        static START: OnceLock<Instant> = OnceLock::new();
+        START.get_or_init(Instant::now).elapsed().as_secs_f64()
+    }
+}
+
+fn wall_time_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 #[derive(Clone, Deserialize)]
@@ -77,11 +284,22 @@ impl Default for Preferences {
 struct StrictBreak {
     phase: String,
     break_id: String,
-    deadline: Instant,
+    deadline: f64,
     duration: u32,
     can_postpone: bool,
     postpone_seconds: u32,
     postponing: bool,
+}
+
+fn remaining_until(deadline: f64, now: f64) -> f64 {
+    if !deadline.is_finite() || !now.is_finite() {
+        return 0.0;
+    }
+    (deadline - now).max(0.0)
+}
+
+fn deadline_reached(deadline: f64, now: f64) -> bool {
+    remaining_until(deadline, now) <= 0.0
 }
 
 #[derive(Clone, Serialize)]
@@ -100,11 +318,7 @@ impl StrictBreak {
     fn snapshot(&self, postponed: bool) -> BreakSnapshot {
         BreakSnapshot {
             phase: self.phase.clone(),
-            remaining: self
-                .deadline
-                .saturating_duration_since(Instant::now())
-                .as_secs_f64()
-                .ceil() as u32,
+            remaining: remaining_until(self.deadline, continuous_seconds()).ceil() as u32,
             duration: self.duration,
             break_id: self.break_id.clone(),
             can_postpone: self.can_postpone && !self.postponing && !postponed,
@@ -117,6 +331,7 @@ impl StrictBreak {
 struct RuntimeState {
     status: TimerStatus,
     preferences: Preferences,
+    lifecycle: LifecycleGate,
     strict_break: Option<StrictBreak>,
     completed_break_id: Option<String>,
     pending_postpone_id: Option<String>,
@@ -131,6 +346,7 @@ impl Default for RuntimeState {
         Self {
             status: TimerStatus::default(),
             preferences: Preferences::default(),
+            lifecycle: LifecycleGate::default(),
             strict_break: None,
             completed_break_id: None,
             pending_postpone_id: None,
@@ -153,6 +369,71 @@ impl Default for SharedState {
             runtime: Mutex::new(RuntimeState::default()),
             quitting: AtomicBool::new(false),
         }
+    }
+}
+
+struct LifecycleContext {
+    app: AppHandle,
+    shared: Arc<SharedState>,
+}
+
+static LIFECYCLE_CONTEXT: OnceLock<LifecycleContext> = OnceLock::new();
+
+extern "C" fn handle_native_lifecycle(event_code: i32) {
+    let Some(context) = LIFECYCLE_CONTEXT.get() else {
+        return;
+    };
+    let Some(action) = decode_native_lifecycle_event(event_code) else {
+        return;
+    };
+    let continuous_now = continuous_seconds();
+    let wall_now = wall_time_ms();
+    let (started, completed, restore_break) = {
+        let mut state = context.shared.runtime.lock().expect("state poisoned");
+        let (started, completed) = match action {
+            NativeLifecycleAction::Begin(reason) => (
+                state.lifecycle.begin(reason, continuous_now, wall_now),
+                None,
+            ),
+            NativeLifecycleAction::End(reason) => {
+                (None, state.lifecycle.end(reason, continuous_now, wall_now))
+            }
+            NativeLifecycleAction::ResumeAll => {
+                (None, state.lifecycle.resume_all(continuous_now, wall_now))
+            }
+        };
+        let restore_break = completed.is_some()
+            && state
+                .strict_break
+                .as_ref()
+                .is_some_and(|active| !deadline_reached(active.deadline, continuous_now));
+        (started, completed, restore_break)
+    };
+    if let Some(started) = started {
+        close_break_windows(&context.app);
+        let _ = context.app.emit("repose-lifecycle", started);
+    }
+    if let Some(completed) = completed {
+        let _ = context.app.emit("repose-lifecycle", completed);
+        if restore_break {
+            let _ = create_break_windows(&context.app);
+        }
+    }
+}
+
+fn setup_lifecycle(app: &AppHandle, shared: Arc<SharedState>) {
+    if LIFECYCLE_CONTEXT
+        .set(LifecycleContext {
+            app: app.clone(),
+            shared,
+        })
+        .is_err()
+    {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        repose_observe_lifecycle(handle_native_lifecycle)
     }
 }
 
@@ -179,8 +460,31 @@ fn close_break_windows(app: &AppHandle) {
     native_strict(false);
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandEvent {
+    command: String,
+    break_id: Option<String>,
+}
+
 fn emit_command(app: &AppHandle, command: &str) {
-    let _ = app.emit("repose-command", command);
+    let _ = app.emit(
+        "repose-command",
+        CommandEvent {
+            command: command.into(),
+            break_id: None,
+        },
+    );
+}
+
+fn emit_break_finished(app: &AppHandle, break_id: String) {
+    let _ = app.emit(
+        "repose-command",
+        CommandEvent {
+            command: "strict-break-finished".into(),
+            break_id: Some(break_id),
+        },
+    );
 }
 
 fn create_break_windows(app: &AppHandle) -> tauri::Result<()> {
@@ -228,6 +532,7 @@ fn start_strict_break(app: &AppHandle, shared: &SharedState, status: &TimerStatu
     if status.remaining <= 0.0 || status.break_id.is_none() {
         return;
     }
+    let continuous_now = continuous_seconds();
     let should_create = {
         let mut state = shared.runtime.lock().expect("state poisoned");
         if state.strict_break.is_some()
@@ -239,10 +544,11 @@ fn start_strict_break(app: &AppHandle, shared: &SharedState, status: &TimerStatu
             let break_id = status.break_id.clone().expect("checked above");
             let postponed = state.postponed_break_ids.contains(&break_id);
             let duration = status.remaining.ceil() as u32;
+            let inactive = state.lifecycle.is_inactive();
             state.strict_break = Some(StrictBreak {
                 phase: status.phase.clone(),
                 break_id,
-                deadline: Instant::now() + Duration::from_secs_f64(status.remaining),
+                deadline: continuous_now + status.remaining,
                 duration,
                 can_postpone: status.can_postpone && !postponed,
                 postpone_seconds: if status.phase.to_ascii_lowercase().contains("long") {
@@ -252,7 +558,7 @@ fn start_strict_break(app: &AppHandle, shared: &SharedState, status: &TimerStatu
                 },
                 postponing: false,
             });
-            true
+            !inactive
         }
     };
     if should_create && create_break_windows(app).is_err() {
@@ -333,6 +639,32 @@ fn set_preferences(shared: State<'_, Arc<SharedState>>, value: Preferences) {
 }
 
 #[tauri::command]
+fn get_lifecycle_snapshot(shared: State<'_, Arc<SharedState>>) -> LifecycleSnapshot {
+    shared
+        .runtime
+        .lock()
+        .expect("state poisoned")
+        .lifecycle
+        .snapshot()
+}
+
+#[tauri::command]
+fn acknowledge_lifecycle_interval(
+    shared: State<'_, Arc<SharedState>>,
+    interval_id: String,
+) -> bool {
+    if interval_id.is_empty() || interval_id.len() > 200 {
+        return false;
+    }
+    shared
+        .runtime
+        .lock()
+        .expect("state poisoned")
+        .lifecycle
+        .acknowledge(&interval_id)
+}
+
+#[tauri::command]
 fn postpone_break(app: AppHandle, shared: State<'_, Arc<SharedState>>) -> bool {
     let snapshot = {
         let mut state = shared.runtime.lock().expect("state poisoned");
@@ -341,7 +673,7 @@ fn postpone_break(app: AppHandle, shared: State<'_, Arc<SharedState>>) -> bool {
         };
         if active.postponing
             || !active.can_postpone
-            || active.deadline <= Instant::now()
+            || deadline_reached(active.deadline, continuous_seconds())
             || state.postponed_break_ids.contains(&active.break_id)
         {
             return false;
@@ -393,19 +725,24 @@ fn run_break_monitor(app: AppHandle, shared: Arc<SharedState>) {
             if shared.quitting.load(Ordering::Relaxed) {
                 break;
             }
-            let mut finished = false;
+            let mut finished = None;
             let snapshot = {
                 let mut state = shared.runtime.lock().expect("state poisoned");
+                let continuous_now = continuous_seconds();
+                let inactive = state.lifecycle.is_inactive();
                 let postponed = state
                     .strict_break
                     .as_ref()
                     .is_some_and(|active| state.postponed_break_ids.contains(&active.break_id));
                 if let Some(active) = state.strict_break.as_ref() {
-                    if active.deadline <= Instant::now() {
-                        state.completed_break_id = Some(active.break_id.clone());
+                    if deadline_reached(active.deadline, continuous_now) {
+                        let break_id = active.break_id.clone();
+                        state.completed_break_id = Some(break_id.clone());
                         state.strict_break = None;
                         state.pending_postpone_id = None;
-                        finished = true;
+                        if !inactive {
+                            finished = Some(break_id);
+                        }
                         None
                     } else {
                         Some(active.snapshot(postponed))
@@ -417,9 +754,9 @@ fn run_break_monitor(app: AppHandle, shared: Arc<SharedState>) {
             if let Some(snapshot) = snapshot {
                 let _ = app.emit("repose-break-status", snapshot);
             }
-            if finished {
+            if let Some(break_id) = finished {
                 close_break_windows(&app);
-                emit_command(&app, "strict-break-finished");
+                emit_break_finished(&app, break_id);
             }
         }
     });
@@ -477,13 +814,11 @@ fn run_idle_monitor(app: AppHandle, shared: Arc<SharedState>) {
                 }
                 if strict_active {
                     thread::sleep(Duration::from_secs(3));
-                    if shared
-                        .runtime
-                        .lock()
-                        .expect("state poisoned")
-                        .strict_break
-                        .is_some()
-                    {
+                    let should_restore = {
+                        let state = shared.runtime.lock().expect("state poisoned");
+                        state.strict_break.is_some() && !state.lifecycle.is_inactive()
+                    };
+                    if should_restore {
                         native_strict(true);
                     }
                 }
@@ -502,28 +837,13 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .text("quit", "退出 Repose")
         .build()?;
-    // Draw the compact brand flower directly with a transparent background.
-    // It stays sage green instead of macOS recoloring it as a black template.
-    let mut pixels = vec![0_u8; 18 * 18 * 4];
-    for y in 1_i32..17 {
-        for x in 1_i32..17 {
-            let petal = [(9, 4), (14, 9), (9, 13), (4, 9)]
-                .iter()
-                .any(|(cx, cy)| (x - cx).pow(2) + (y - cy).pow(2) <= 9);
-            let center = (x - 9).pow(2) + (y - 9).pow(2) <= 4;
-            let stem = (8..=9).contains(&x) && (9..=16).contains(&y);
-            if petal || center || stem {
-                let offset = ((y * 18 + x) * 4) as usize;
-                pixels[offset..offset + 4].copy_from_slice(&[0x68, 0x82, 0x58, 0xff]);
-            }
-        }
-    }
-    let tray_icon = tauri::image::Image::new_owned(pixels, 18, 18);
+    // The same smiling flower, rendered from public/tray.svg; macOS supplies contrast.
+    let tray_icon = tauri::include_image!("icons/tray/18x18.png");
     TrayIconBuilder::with_id("repose-tray")
         .menu(&menu)
         .tooltip("Repose · 歇一会")
         .icon(tray_icon)
-        .icon_as_template(false)
+        .icon_as_template(true)
         .build(app)?;
     Ok(())
 }
@@ -564,6 +884,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_status,
             set_preferences,
+            get_lifecycle_snapshot,
+            acknowledge_lifecycle_interval,
             postpone_break,
             notify_user,
             open_security_settings,
@@ -589,13 +911,25 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Inspect the packaged WKWebView renderer without starting timers,
+            // changing saved preferences or covering the user's monitors.
+            if std::env::var_os("REPOSE_STRETCH_PREVIEW").is_some() {
+                if let Some(window) = app.get_webview_window("main") {
+                    let mut url = window.url()?;
+                    url.set_path("/break.html");
+                    url.set_query(Some("preview=long"));
+                    window.navigate(url)?;
+                }
+                return Ok(());
+            }
             setup_tray(app)?;
+            setup_lifecycle(app.handle(), shared.clone());
             run_break_monitor(app.handle().clone(), shared.clone());
             run_idle_monitor(app.handle().clone(), shared.clone());
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Repose Lite");
+        .expect("failed to build Repose");
 
     app.run(|app, event| {
         if let RunEvent::ExitRequested { api, .. } = event {
@@ -613,4 +947,149 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lifecycle_gate_overlapping_lock_and_sleep_form_one_interval() {
+        let mut gate = LifecycleGate::default();
+        let started = gate
+            .begin(InactivityReason::ScreenLock, 10.0, 1_000)
+            .expect("first reason starts an interval");
+        assert_eq!(started.sequence, 1);
+        assert!(
+            gate.begin(InactivityReason::SystemSleep, 12.0, 3_000)
+                .is_none()
+        );
+        assert!(
+            gate.end(InactivityReason::SystemSleep, 30.0, 21_000)
+                .is_none()
+        );
+        let completed = gate
+            .end(InactivityReason::ScreenLock, 35.0, 26_000)
+            .expect("last reason ends the interval");
+        assert_eq!(completed.interval_id, started.interval_id);
+        assert_eq!(completed.sequence, started.sequence);
+        assert_eq!(completed.elapsed_seconds, 25.0);
+        assert_eq!(completed.started_at, 1_000);
+        assert_eq!(completed.ended_at, 26_000);
+    }
+
+    #[test]
+    fn lifecycle_gate_ignores_duplicate_and_unmatched_notifications() {
+        let mut gate = LifecycleGate::default();
+        assert!(gate.end(InactivityReason::ScreenLock, 1.0, 1_000).is_none());
+        assert!(
+            gate.begin(InactivityReason::ScreenLock, 2.0, 2_000)
+                .is_some()
+        );
+        assert!(
+            gate.begin(InactivityReason::ScreenLock, 3.0, 3_000)
+                .is_none()
+        );
+        assert!(gate.end(InactivityReason::ScreenLock, 8.0, 8_000).is_some());
+        assert!(gate.end(InactivityReason::ScreenLock, 9.0, 9_000).is_none());
+    }
+
+    #[test]
+    fn lifecycle_gate_replays_pending_interval_until_acknowledged() {
+        let mut gate = LifecycleGate::default();
+        gate.begin(InactivityReason::SessionInactive, 10.0, 1_000);
+        let completed = gate
+            .end(InactivityReason::SessionInactive, 20.0, 11_000)
+            .expect("interval completes");
+        let snapshot = gate.snapshot();
+        assert_eq!(snapshot.pending_intervals.len(), 1);
+        assert_eq!(
+            snapshot.pending_intervals[0].interval_id,
+            completed.interval_id
+        );
+        assert!(!snapshot.inactive);
+        assert!(gate.acknowledge(&completed.interval_id));
+        assert!(gate.snapshot().pending_intervals.is_empty());
+        assert!(!gate.acknowledge(&completed.interval_id));
+    }
+
+    #[test]
+    fn lifecycle_gate_bounds_unacknowledged_intervals() {
+        let mut gate = LifecycleGate::default();
+        for index in 0..40 {
+            let now = index as f64 * 2.0;
+            gate.begin(InactivityReason::ScreenLock, now, index * 2_000);
+            gate.end(
+                InactivityReason::ScreenLock,
+                now + 1.0,
+                index * 2_000 + 1_000,
+            );
+        }
+        assert_eq!(gate.snapshot().pending_intervals.len(), 32);
+    }
+
+    #[test]
+    fn display_sleep_forms_a_rest_interval() {
+        let mut gate = LifecycleGate::default();
+        let started = gate
+            .begin(InactivityReason::DisplaySleep, 10.0, 1_000)
+            .expect("display sleep starts an interval");
+        let completed = gate
+            .end(InactivityReason::DisplaySleep, 40.0, 31_000)
+            .expect("display wake ends the interval");
+        assert_eq!(completed.interval_id, started.interval_id);
+        assert_eq!(completed.elapsed_seconds, 30.0);
+    }
+
+    #[test]
+    fn authoritative_session_resume_clears_stale_inactivity_reasons() {
+        let mut gate = LifecycleGate::default();
+        gate.begin(InactivityReason::SystemSleep, 10.0, 1_000);
+        gate.begin(InactivityReason::DisplaySleep, 11.0, 2_000);
+        gate.begin(InactivityReason::ScreenLock, 12.0, 3_000);
+        gate.begin(InactivityReason::SessionInactive, 13.0, 4_000);
+        assert!(
+            gate.end(InactivityReason::SystemSleep, 20.0, 11_000)
+                .is_none()
+        );
+
+        let completed = gate
+            .resume_all(40.0, 31_000)
+            .expect("unlock proves the user session is active again");
+        assert_eq!(completed.elapsed_seconds, 30.0);
+        assert!(!gate.is_inactive());
+        assert!(
+            gate.end(InactivityReason::DisplaySleep, 41.0, 32_000)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn native_events_cover_display_sleep_and_authoritative_resume() {
+        assert_eq!(
+            decode_native_lifecycle_event(7),
+            Some(NativeLifecycleAction::Begin(InactivityReason::DisplaySleep))
+        );
+        assert_eq!(
+            decode_native_lifecycle_event(8),
+            Some(NativeLifecycleAction::End(InactivityReason::DisplaySleep))
+        );
+        assert_eq!(
+            decode_native_lifecycle_event(2),
+            Some(NativeLifecycleAction::ResumeAll)
+        );
+        assert_eq!(
+            decode_native_lifecycle_event(6),
+            Some(NativeLifecycleAction::ResumeAll)
+        );
+    }
+
+    #[test]
+    fn continuous_deadline_saturates_and_finishes_at_the_deadline() {
+        assert_eq!(remaining_until(25.0, 20.0), 5.0);
+        assert_eq!(remaining_until(25.0, 25.0), 0.0);
+        assert_eq!(remaining_until(25.0, 30.0), 0.0);
+        assert!(!deadline_reached(25.0, 24.999));
+        assert!(deadline_reached(25.0, 25.0));
+    }
 }

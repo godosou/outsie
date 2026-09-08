@@ -1,6 +1,7 @@
 fn main() {
     #[cfg(target_os = "macos")]
     {
+        println!("cargo:rerun-if-changed=native/macos.m");
         cc::Build::new()
             .file("native/macos.m")
             .flag("-fobjc-arc")
@@ -12,6 +13,8 @@ fn main() {
     const COMMANDS: &[&str] = &[
         "set_status",
         "set_preferences",
+        "get_lifecycle_snapshot",
+        "acknowledge_lifecycle_interval",
         "postpone_break",
         "notify_user",
         "open_security_settings",

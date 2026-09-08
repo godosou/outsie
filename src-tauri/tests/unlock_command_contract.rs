@@ -1,4 +1,4 @@
-use repose_lite_lib::unlock::{
+use repose_lib::unlock::{
     CalibrationPhase, ComponentHealth, UnlockBackend, UnlockCapability, UnlockCommandError,
     UnlockCommandService, UnlockDiagnostics, UnlockErrorCode, UnlockSnapshot,
     closed_unlock_diagnostics, closed_unlock_snapshot,
@@ -231,6 +231,34 @@ fn tauri_surface_and_acl_are_exactly_scoped() {
     }
     assert!(UNLOCK_CAPABILITY.contains(r#""windows": ["main"]"#));
     assert!(DEFAULT_CAPABILITY.contains(r#""windows": ["main", "break-*"]"#));
+}
+
+#[test]
+fn lifecycle_commands_remain_available_to_the_timer_renderer() {
+    let capability: serde_json::Value =
+        serde_json::from_str(DEFAULT_CAPABILITY).expect("valid default capability");
+    let windows = capability["windows"]
+        .as_array()
+        .expect("capability windows");
+    assert!(windows.iter().any(|window| window == "main"));
+    let permissions = capability["permissions"]
+        .as_array()
+        .expect("capability permissions");
+
+    // Registering the phone-key app manifest enables command ACL enforcement for
+    // the timer too. Both replay and acknowledgement must survive that change.
+    for command in ["get_lifecycle_snapshot", "acknowledge_lifecycle_interval"] {
+        assert!(LIB_SOURCE.contains(command), "missing handler {command}");
+        assert!(
+            BUILD_SOURCE.contains(&format!("\"{command}\"")),
+            "lifecycle command missing from app ACL manifest: {command}"
+        );
+        let permission = format!("allow-{}", command.replace('_', "-"));
+        assert!(
+            permissions.iter().any(|entry| entry == &permission),
+            "timer renderer lacks lifecycle permission: {permission}"
+        );
+    }
 }
 
 #[test]
