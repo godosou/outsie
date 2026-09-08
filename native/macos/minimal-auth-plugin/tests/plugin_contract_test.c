@@ -16,6 +16,11 @@
  *
  * It touches nothing outside /tmp and never modifies the authorization
  * database, so it is safe to run on a normal machine.
+ *
+ * On DidDeactivate: it is the reply to a Deactivate request from the engine,
+ * not an announcement that Invoke has finished. An earlier version of both the
+ * plugin and this test had Invoke call it, which would hand the engine two
+ * replies to one request. The assertions below pin the correct split.
  */
 
 #include <Security/AuthorizationPlugin.h>
@@ -55,6 +60,9 @@ static int g_setResultCalls;
 static AuthorizationResult g_lastResult;
 static int g_didDeactivateCalls;
 static int g_requestInterruptCalls;
+/* DidDeactivate count sampled between Invoke returning and Deactivate being
+ * called, so the two can be told apart. */
+static int g_ddAfterInvoke;
 
 static void reset_engine(void)
 {
@@ -194,6 +202,10 @@ static void run_mechanism(const AuthorizationPluginInterface *iface,
     }
     iface->MechanismInvoke(mech);
     *elapsed_ms = now_ms() - t0;
+    /* Sample before Deactivate: DidDeactivate is the reply to a Deactivate
+     * request, so Invoke must not have called it yet. */
+    g_ddAfterInvoke = g_didDeactivateCalls;
+    iface->MechanismDeactivate(mech);
     iface->MechanismDestroy(mech);
 }
 
@@ -253,7 +265,10 @@ int main(int argc, char **argv)
         run_mechanism(iface, plugin, "log", &elapsed);
         check("log mechanism calls SetResult exactly once", g_setResultCalls == 1, NULL);
         check("log mechanism allows", g_lastResult == kAuthorizationResultAllow, NULL);
-        check("log mechanism calls DidDeactivate", g_didDeactivateCalls == 1, NULL);
+        check("log mechanism does not call DidDeactivate from Invoke",
+              g_ddAfterInvoke == 0, NULL);
+        check("MechanismDeactivate replies with exactly one DidDeactivate",
+              g_didDeactivateCalls == 1, NULL);
         check("log mechanism returns promptly", elapsed < 1000, NULL);
     }
 
@@ -280,7 +295,9 @@ int main(int argc, char **argv)
         run_mechanism(iface, plugin, "permit", &elapsed);
         check("permit mechanism denies when the permit never appears",
               g_lastResult == kAuthorizationResultDeny, NULL);
-        check("permit mechanism calls DidDeactivate even on deny",
+        check("permit mechanism does not call DidDeactivate from Invoke on deny",
+              g_ddAfterInvoke == 0, NULL);
+        check("denied mechanism still answers a Deactivate request",
               g_didDeactivateCalls == 1, NULL);
         char detail[64];
         snprintf(detail, sizeof detail, "waited %lldms", elapsed);
@@ -297,8 +314,8 @@ int main(int argc, char **argv)
         run_mechanism(iface, plugin, "definitely-not-a-real-mechanism", &elapsed);
         check("unrecognised mechanism id denies rather than allows",
               g_lastResult == kAuthorizationResultDeny, NULL);
-        check("unrecognised mechanism id still calls DidDeactivate",
-              g_didDeactivateCalls == 1, NULL);
+        check("unrecognised mechanism id does not call DidDeactivate from Invoke",
+              g_ddAfterInvoke == 0, NULL);
         check("unrecognised mechanism id does not sit through the permit timeout",
               elapsed < 1000, NULL);
     }

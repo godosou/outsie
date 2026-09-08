@@ -1,25 +1,26 @@
 #!/bin/bash
 # THE acceptance test for phone proximity unlock.
 #
-# This is the only test that measures progress on this feature. It is expected
-# to FAIL until the walking skeleton reaches Step 2, and it must keep passing
-# from then on. Unit tests going green is not progress; this going green is.
+# This is the only test that measures progress on this feature. Unit tests going
+# green is not progress; this going green is.
 #
 # The test states the product promise directly:
 #
-#   screen is locked -> phone leaves -> Mac stays locked
-#                    -> phone returns -> Mac unlocks within the deadline
+#   screen is locked -> phone leaves  -> Mac stays locked
+#                    -> phone returns -> waking the Mac unlocks it, no password
 #
-# The "phone leaves" and "phone returns" actions are injected, so the same
-# assertions survive every step of the plan without being rewritten:
+# Waking is part of the promise, not a shortcut. macOS only evaluates the
+# screensaver authorization when an unlock is actually attempted, which is also
+# how Apple Watch unlock behaves: the phone removes the typing, not the waking.
 #
-#   Step 2 (file-triggered plugin, no BLE, no crypto):
-#     REPOSE_LEAVE_CMD='rm -f /tmp/repose-permit'
-#     REPOSE_RETURN_CMD='touch /tmp/repose-permit'
-#   Step 3 (real BLE, no crypto):
-#     REPOSE_LEAVE_CMD='adb shell su -c "svc bluetooth disable"'
-#     REPOSE_RETURN_CMD='adb shell su -c "svc bluetooth enable"'
-#   Step 5 (real hardware): a human walks away and back.
+# The phone's actions are injected, so the same assertions survive every phase
+# without being rewritten:
+#
+#   A4 (simulated presence, real plugin, no BLE, no crypto):
+#     REPOSE_LEAVE_CMD='ssh vm rm -f /tmp/repose-permit'
+#     REPOSE_RETURN_CMD='ssh vm touch /tmp/repose-permit'
+#   B2 (real BLE, no crypto): the permit bridge drives the same two commands.
+#   B4 (durability): a human walks away and back.
 #
 # SAFETY: this script locks the screen. It refuses to do so unless
 # REPOSE_E2E_ALLOW_LOCK=1 is set. Run it on the throwaway VM, not on the Mac you
@@ -44,6 +45,17 @@ RETURN_CMD="${REPOSE_RETURN_CMD:-}"
 # with `pmset displaysleepnow` as the fallback if that is refused.
 LOCK_CMD="${REPOSE_LOCK_CMD:-open -a ScreenSaverEngine}"
 TARGET="${REPOSE_TARGET:-this machine}"
+
+# macOS does not evaluate system.login.screensaver while the machine sits
+# locked and idle. The evaluation -- and therefore MechanismInvoke -- starts
+# when the user wakes the machine and an unlock is actually attempted. A test
+# that never wakes the target would find the mechanism had never run, time out,
+# and read exactly like a plugin macOS refused to load.
+#
+# This is also how the feature behaves in practice, and how Apple Watch unlock
+# behaves: you wake the Mac, and then it unlocks without a password. The phone
+# removes the typing, not the waking.
+WAKE_CMD="${REPOSE_WAKE_CMD:-caffeinate -u -t 1}"
 
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
@@ -132,6 +144,7 @@ main() {
   say "  target        : ${TARGET}"
   say "  driven from   : $(hostname -s) / macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
   say "  lock via      : ${LOCK_CMD}"
+  say "  wake via      : ${WAKE_CMD}"
   say "  unlock budget : ${DEADLINE_MS} ms"
   say "  start state   : $(lock_state)"
   say ""
@@ -144,6 +157,7 @@ main() {
     say "     state after leave : $(lock_state)"
     run_hook "return" "$RETURN_CMD"
     say "     state after return: $(lock_state)"
+    run_hook "wake  " "$WAKE_CMD"
     say ""
     say "DRY RUN OK: oracle readable, both hooks executable. Wiring is sound."
     say "Set REPOSE_E2E_ALLOW_LOCK=1 and drop --dry-run to run the real test."
@@ -183,6 +197,10 @@ main() {
   local t0 t1
   t0="$(now_ms)"
   run_hook "return" "$RETURN_CMD"
+  # Waking is what starts the authorization evaluation. Without it the
+  # mechanism is never invoked and the wait below would time out against a
+  # plugin that is installed and working perfectly.
+  run_hook "wake  " "$WAKE_CMD"
   elapsed="$(wait_for_lock_state false "$DEADLINE_MS")"; rc=$?
   [ "$rc" = "3" ] && oracle_died "$elapsed"
   if [ "$rc" != "0" ]; then

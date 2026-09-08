@@ -49,6 +49,12 @@ export REPOSE_LOCKSTATE_CMD="${REPOSE_SSH} 'ioreg -n Root -d1 -a | plutil -extra
 # system.login.screensaver right the plugin hooks.
 export REPOSE_LOCK_CMD="${REPOSE_SSH} 'pmset displaysleepnow'"
 
+# Waking the guest is what starts the authorization evaluation; without it the
+# mechanism is never invoked and the test would time out against a working
+# plugin. caffeinate -u asserts user activity, which is exactly the signal a
+# keypress would produce.
+export REPOSE_WAKE_CMD="${REPOSE_SSH} 'caffeinate -u -t 1'"
+
 # The simulated presence source for the first phase. Phase two replaces these
 # two commands with the real BLE bridge and changes nothing else.
 export REPOSE_LEAVE_CMD="${REPOSE_SSH} 'rm -f /tmp/repose-permit'"

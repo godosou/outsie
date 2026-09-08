@@ -181,7 +181,12 @@ static OSStatus MechanismInvoke(AuthorizationMechanismRef inMechanism)
         return err;
     }
 
-    return mech->plugin->callbacks->DidDeactivate(mech->engine);
+    /* DidDeactivate does NOT belong here. It is the reply to a Deactivate
+     * request from the engine, not a way to announce that Invoke has finished.
+     * Calling it from Invoke means the engine gets two DidDeactivate calls for
+     * one Deactivate. SetResult is what tells the engine this mechanism has
+     * decided; returning success is what tells it Invoke is done. */
+    return errAuthorizationSuccess;
 }
 
 static OSStatus MechanismDeactivate(AuthorizationMechanismRef inMechanism)

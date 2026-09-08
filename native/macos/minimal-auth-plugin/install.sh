@@ -52,7 +52,6 @@ This will make the following changes to THIS machine:
        ${BACKUP}
   3. Create authorization right '${SUBRULE}' (evaluate-mechanisms):
        mechanism  ${MECHANISM}
-       requirement pinned to the installed bundle's ad-hoc cdhash
   4. Prepend '${SUBRULE}' to '${RIGHT}'. k-of-n is left exactly as it is; the
      install refuses unless it is already 1, so the spike runs first and the
      normal password path stays as the fallback.
@@ -75,9 +74,12 @@ rm -rf "${DEST_BUNDLE}"
 cp -R "${BUILT_BUNDLE}" "${DEST_BUNDLE}"
 chown -R root:wheel "${DEST_BUNDLE}"
 
+# Recorded so the log says which binary is actually in place, and read from the
+# installed copy rather than the build directory -- computing it before the copy
+# is how an earlier version ended up pinning a hash that matched nothing.
 CDHASH="$(codesign -dvvv "${DEST_BUNDLE}" 2>&1 | sed -n 's/^CDHash=//p')"
 [[ -n "${CDHASH}" ]] || { echo "Could not read installed cdhash." >&2; exit 1; }
-echo "    cdhash ${CDHASH}"
+echo "    installed cdhash ${CDHASH}"
 
 echo "==> Backing up ${RIGHT} to ${BACKUP}"
 mkdir -p "${BACKUP_DIR}"
@@ -100,6 +102,11 @@ else
     mv "${TMP_BACKUP}" "${BACKUP}"
 fi
 
+# No 'requirement' key. It does not constrain the plugin: authd discards the
+# value on write and never evaluates it during screensaver authorization, so a
+# cdhash written there is decoration that implies a guarantee nobody enforces.
+# The plugin's integrity rests on the directory being root-owned and on the
+# platform's own loading policy, which is exactly what milestone A measures.
 echo "==> Creating right ${SUBRULE}"
 security authorizationdb write "${SUBRULE}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -112,8 +119,6 @@ security authorizationdb write "${SUBRULE}" <<EOF
 	<array>
 		<string>${MECHANISM}</string>
 	</array>
-	<key>requirement</key>
-	<string>cdhash H"${CDHASH}"</string>
 	<key>shared</key>
 	<true/>
 	<key>tries</key>
