@@ -2,7 +2,7 @@
 
 一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。
 
-**[产品主页](https://godosou.github.io/outsie/)** · [下载 Mac 预览版](https://github.com/godosou/outsie/releases/tag/v0.6.3) · [主页源码](website/)
+**[产品主页](https://outsie.dev/)** · [下载 Mac 预览版](https://github.com/godosou/outsie/releases/tag/v0.6.3) · [主页源码](website/)
 
 Outsie 是产品对外使用的暂定名称，Mac 应用目前仍显示为 Repose（歇一会）。当前 `main` 包含 Rust / Tauri 0.6.3 应用，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。`electron/` 保留早期实现。
 
