@@ -2,7 +2,7 @@
 
 一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。
 
-**[产品主页](https://godosou.github.io/outsie/)** · [主页源码](website/)
+**[产品主页](https://godosou.github.io/outsie/)** · [下载 Mac 预览版](https://github.com/godosou/outsie/releases/tag/v0.6.2) · [主页源码](website/)
 
 Outsie 是产品对外使用的暂定名称，Mac 应用目前仍显示为 Repose（歇一会）。当前 `main` 包含 Rust / Tauri 0.6.2 应用，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。`electron/` 保留早期实现。
 
@@ -57,3 +57,15 @@ npm run build
 ```
 
 `npm run dev` 是浏览器中的界面预览；`npm run desktop` 启动 Tauri 开发版。
+
+## 公开安装包
+
+[GitHub Release v0.6.2](https://github.com/godosou/outsie/releases/tag/v0.6.2) 提供 Apple Silicon / macOS 14+ 的 DMG 与 SHA-256 校验文件。应用名仍为 Repose，当前包包含休息与拉伸功能；手机功能不在此包内。此版本为未经过 Apple 公证的预览版，安装说明见 [发布记录](docs/releases/v0.6.2.md)。
+
+为避免在二进制中保留个人编译路径，公开打包时使用路径映射：
+
+```sh
+RUSTFLAGS="--remap-path-prefix=$HOME=/build" CFLAGS="-ffile-prefix-map=$HOME=/build" npm run package:mac:release
+```
+
+发布前应检查安装包内容、签名、版本和校验和。打包脚本保留已存在的同版本产物；不要覆盖先前发布的文件。

@@ -244,6 +244,17 @@ svg {
   color: #6d896e;
   padding-inline: 3px;
 }
+.hero-download-note {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  color: #a7bba9;
+  text-underline-offset: 4px;
+}
+.hero-download-note:hover {
+  text-decoration: underline;
+}
 .primary-cta {
   height: auto !important;
   min-height: 54px;
@@ -1987,6 +1998,99 @@ svg {
 .status-tag.ready {
   color: #3b6039;
   background: #d6e1c5;
+}
+.download-section {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 64px;
+  padding-block: 74px;
+  border-block: 1px solid #63795d60;
+  scroll-margin-top: 24px;
+}
+.download-section .eyebrow {
+  color: #a1b49f;
+}
+.download-copy h2 {
+  font-size: clamp(2rem, 3.6vw, 2.8rem);
+  line-height: 1.4;
+  letter-spacing: -0.04em;
+  font-weight: 700;
+  margin: 20px 0 14px;
+}
+.download-copy > p:not(.eyebrow) {
+  color: #b5c7b3;
+  line-height: 1.9;
+}
+.download-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 22px;
+  margin-top: 26px;
+}
+.download-actions .primary-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.download-copy > .download-meta {
+  margin-top: 16px;
+  font-size: 0.8rem;
+}
+.download-copy > .download-scope {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  max-width: 490px;
+}
+.download-guide {
+  border-radius: 18px;
+  background: #ffffff06;
+  border: 1px solid #63795d50;
+  padding: 32px;
+  align-self: center;
+}
+.download-guide h3 {
+  font-size: 1.12rem;
+  font-weight: 650;
+  line-height: 1.6;
+}
+.download-guide ol {
+  list-style: decimal;
+  padding-left: 21px;
+  margin: 20px 0;
+  color: #d3dfcf;
+  font-size: 0.95rem;
+  line-height: 1.9;
+}
+.download-guide li + li {
+  margin-top: 10px;
+}
+.download-guide > p {
+  color: #a7bba9;
+  font-size: 0.85rem;
+  line-height: 1.9;
+}
+.download-help-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-top: 14px;
+  color: var(--lime);
+  font-size: 0.8rem;
+}
+.download-help-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+@media (max-width: 760px) {
+  .download-section {
+    grid-template-columns: 1fr;
+    gap: 30px;
+    padding-block: 48px;
+  }
+  .download-guide {
+    padding: 24px;
+  }
 }
 .faq-section {
   padding-block: 90px;

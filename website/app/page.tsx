@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { publicAsset } from '@/lib/public-asset';
+import { macRelease } from '@/lib/release';
 import { PhoneControls } from './phone-controls';
 import { HeroExperience } from './hero-experience';
 import { BreakDemo, StretchDemo, PhoneKeyDemo } from './product-demos';
@@ -10,6 +11,7 @@ import {
   ArrowRight,
   BarChart3,
   Check,
+  Download,
   Eye,
   Headphones,
   KeyRound,
@@ -69,7 +71,13 @@ export default function Home() {
       </a>
       <header className="site-header shell">
         <a className="wordmark" href="#main" aria-label="Outsie">
-          <Image src={publicAsset('/favicon.svg')} alt="" width={40} height={40} unoptimized />
+          <Image
+            src={publicAsset('/favicon.svg')}
+            alt=""
+            width={40}
+            height={40}
+            unoptimized
+          />
           outsie<span>.</span>
         </a>
         <nav aria-label={t('主导航', 'Main navigation')}>
@@ -77,7 +85,7 @@ export default function Home() {
           <a href="#stretch">{t('拉伸跟练', 'Stretching')}</a>
           <a href="#phone-key">{t('手机钥匙', 'Phone Key')}</a>
           <a href="#phone-controls">{t('手机工作台', 'Phone Controls')}</a>
-          <a href="#status">{t('功能一览', 'Features')}</a>
+          <a href="#download">{t('下载 Mac 版', 'Download for Mac')}</a>
         </nav>
         <div className="language-switch" aria-label={t('语言', 'Language')}>
           <Button
@@ -119,9 +127,9 @@ export default function Home() {
               )}
             </p>
             <div className="hero-actions">
-              <a className="primary-cta" href="#workspace-demo">
-                {t('体验手机控制', 'Try phone controls')}
-                <ArrowRight aria-hidden="true" />
+              <a className="primary-cta" href="#download">
+                {t('下载 Mac 版', 'Download for Mac')}
+                <Download size={18} aria-hidden="true" />
               </a>
               <Button
                 className="hero-rest-cta"
@@ -139,6 +147,10 @@ export default function Home() {
               <span aria-hidden="true">＋</span>
               <Headphones size={16} aria-hidden="true" /> {t('耳机', 'Headset')}
             </p>
+            <a className="hero-download-note" href="#download">
+              {t('现已提供', 'Available now:')} v{macRelease.version} · macOS
+              14+ · Apple Silicon
+            </a>
           </div>
           <HeroExperience
             lang={lang}
@@ -598,6 +610,80 @@ export default function Home() {
             </div>
           </div>
         </section>
+        <section
+          className="download-section shell"
+          id="download"
+          aria-labelledby="download-title"
+        >
+          <div className="download-copy">
+            <p className="eyebrow">A LITTLE SPACE, ON YOUR MAC.</p>
+            <h2 id="download-title">
+              {t('把休息，留进日常。', 'Make room for a daily pause.')}
+            </h2>
+            <p>
+              {t(
+                '下载 Mac 应用，让按时休息和起身拉伸，成为工作的一部分。',
+                'Bring scheduled breaks and guided stretches into your working day.',
+              )}
+            </p>
+            <div className="download-actions">
+              <a className="primary-cta" href={macRelease.downloadUrl}>
+                <Download size={18} aria-hidden="true" />
+                {t('下载 Mac 安装包', 'Download for Mac')}
+              </a>
+              <a className="text-link" href={macRelease.pageUrl}>
+                {t('查看发布说明', 'Release notes')}
+                <ArrowRight size={16} aria-hidden="true" />
+              </a>
+            </div>
+            <p className="download-meta">
+              v{macRelease.version} · {t('Mac 预览版', 'Mac preview')} · Apple
+              Silicon · macOS 14+
+            </p>
+            <p className="download-scope">
+              {t(
+                '安装后应用名为 Repose。本次安装包提供休息与拉伸功能；手机钥匙和手机工作台不包含在此版本中。',
+                'The installed app is named Repose. This download includes breaks and stretching; Phone Key and Phone Controls are not included in this version.',
+              )}
+            </p>
+          </div>
+          <div className="download-guide">
+            <h3>
+              {t(
+                '两步开始，给自己一点空白。',
+                'Two steps to a little breathing room.',
+              )}
+            </h3>
+            <ol>
+              <li>
+                {t(
+                  '打开 DMG，将 Repose 拖进“应用程序”。',
+                  'Open the DMG and drag Repose into Applications.',
+                )}
+              </li>
+              <li>
+                {t(
+                  '打开 Repose，按自己的节奏设置休息时间。',
+                  'Open Repose and choose your break schedule.',
+                )}
+              </li>
+            </ol>
+            <p>
+              {t(
+                '当前版本尚未经过 Apple 公证。首次打开若被系统拦截，请先确认下载来源，再参考 Apple 的打开指引。',
+                'This version is not notarized by Apple. If macOS blocks the first launch, confirm the download source and follow Apple’s opening instructions.',
+              )}
+            </p>
+            <div className="download-help-links">
+              <a href="https://support.apple.com/102445">
+                {t('Apple 打开指引', 'Apple’s opening guide')}
+              </a>
+              <a href={macRelease.checksumUrl}>
+                {t('SHA-256 校验文件', 'SHA-256 checksums')}
+              </a>
+            </div>
+          </div>
+        </section>
         <section className="faq-section shell">
           <div>
             <p className="eyebrow">HUMAN QUESTIONS</p>
@@ -656,8 +742,8 @@ export default function Home() {
                   'What devices do I need? Where can I download it?',
                 ),
                 t(
-                  'Mac 端需要 macOS 14 或更新版本。手机功能需要先与 Mac 配对，语音输入搭配带麦克风的耳机。公开下载尚未开放，可以先在主页体验休息和手机操作 Demo。',
-                  'The Mac app requires macOS 14 or later. Pair your phone with your Mac for phone features, and use a headset with a microphone for voice input. Public downloads are not yet available; try the break and phone-control demos here.',
+                  '从本页“下载 Mac 版”可获取安装包。目前提供 v0.6.2，适用于 Apple Silicon 芯片的 Mac，系统需为 macOS 14 或更新版本。安装后应用名为 Repose，包含休息与拉伸功能；手机钥匙和手机工作台不包含在此安装包中。',
+                  'Use “Download for Mac” on this page to get v0.6.2 for Apple Silicon Macs running macOS 14 or later. The installed app is named Repose and includes breaks and stretching. Phone Key and Phone Controls are not included in this download.',
                 ),
               ],
             ].map(([question, answer], i) => (
@@ -677,13 +763,11 @@ export default function Home() {
             <br />
             <em>{t('先给自己充个电。', 'recharge the human.')}</em>
           </h2>
-          <Button className="primary-cta" onClick={startDemo}>
-            {t('先歇 20 秒', 'Take 20 seconds')}
-            <ArrowRight aria-hidden="true" />
-          </Button>
-          <span>
-            {t('公开下载尚未开放', 'Public download not yet available')}
-          </span>
+          <a className="primary-cta" href="#download">
+            {t('下载 Mac 版', 'Download for Mac')}
+            <Download size={18} aria-hidden="true" />
+          </a>
+          <span>macOS 14+ · Apple Silicon · v{macRelease.version}</span>
         </section>
         <footer className="site-footer shell">
           <a className="wordmark" href="#main">
