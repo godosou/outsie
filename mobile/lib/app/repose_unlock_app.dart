@@ -19,8 +19,47 @@ class ReposeUnlockApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Repose Phone Key',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff375a7f)),
-        scaffoldBackgroundColor: const Color(0xfff5f7fa),
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xff5eead4),
+          brightness: Brightness.dark,
+          surface: const Color(0xff111c2e),
+        ),
+        scaffoldBackgroundColor: const Color(0xff08111f),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Colors.transparent,
+          foregroundColor: Color(0xfff8fafc),
+          elevation: 0,
+          centerTitle: false,
+        ),
+        cardTheme: CardThemeData(
+          color: const Color(0xff111c2e),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xff26364d)),
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0xff0c1727),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xff31445e)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xff31445e)),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(52),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+        ),
         useMaterial3: true,
       ),
       home: _CompanionHome(gateway: gateway),
@@ -43,6 +82,7 @@ class _CompanionHomeState extends State<_CompanionHome> {
   late final CalibrationController _calibration;
   late final Listenable _controllers;
   final _qrController = TextEditingController();
+  var _showAdditionalPairing = false;
 
   @override
   void initState() {
@@ -61,6 +101,7 @@ class _CompanionHomeState extends State<_CompanionHome> {
       _pairing,
       _calibration,
     ]);
+    _devices.addListener(_syncCalibrationFromAuthoritativeSnapshot);
     unawaited(_hydrateFromNative());
   }
 
@@ -74,11 +115,22 @@ class _CompanionHomeState extends State<_CompanionHome> {
       return;
     }
     _pairing.hydrateFromSnapshot(snapshot.pendingPairing);
+  }
+
+  void _syncCalibrationFromAuthoritativeSnapshot() {
+    final deviceState = _devices.state;
+    final snapshot = deviceState.snapshot;
+    if (!deviceState.isHydrated ||
+        deviceState.isMutationBusy ||
+        snapshot == null) {
+      return;
+    }
     _calibration.hydrateFromSnapshot(snapshot.calibration);
   }
 
   @override
   void dispose() {
+    _devices.removeListener(_syncCalibrationFromAuthoritativeSnapshot);
     _qrController.dispose();
     _calibration.dispose();
     _pairing.dispose();
@@ -89,11 +141,26 @@ class _CompanionHomeState extends State<_CompanionHome> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Repose Phone Key')),
+      appBar: AppBar(
+        title: const Text(
+          'Repose Key',
+          style: TextStyle(fontWeight: FontWeight.w700, letterSpacing: -0.4),
+        ),
+        actions: const <Widget>[
+          Padding(
+            padding: EdgeInsets.only(right: 20),
+            child: Icon(Icons.shield_outlined, size: 22),
+          ),
+        ],
+      ),
       body: AnimatedBuilder(
         animation: _controllers,
         builder: (context, _) {
           final deviceState = _devices.state;
+          final showPrimaryPairing =
+              deviceState.devices.isEmpty ||
+              (!_showAdditionalPairing &&
+                  _pairing.state.phase != PairingPhase.idle);
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
@@ -103,23 +170,58 @@ class _CompanionHomeState extends State<_CompanionHome> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      const _TargetCard(),
-                      const SizedBox(height: 12),
-                      _CapabilityCard(state: deviceState),
-                      const SizedBox(height: 12),
-                      _PairingCard(
-                        gate: deviceState.gate,
-                        controller: _pairing,
-                        qrController: _qrController,
+                      _PhoneKeyHero(
+                        state: deviceState,
+                        calibration: _calibration.state,
                       ),
                       const SizedBox(height: 12),
-                      _CalibrationCard(
-                        gate: deviceState.gate,
-                        hasPairedDevice: deviceState.devices.isNotEmpty,
-                        controller: _calibration,
+                      if (showPrimaryPairing) ...[
+                        _PairingCard(
+                          gate: deviceState.gate,
+                          controller: _pairing,
+                          qrController: _qrController,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (deviceState.devices.isNotEmpty) ...[
+                        _CalibrationCard(
+                          gate: deviceState.gate,
+                          hasPairedDevice: true,
+                          controller: _calibration,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      _SetupProgress(
+                        state: deviceState,
+                        calibration: _calibration.state,
                       ),
                       const SizedBox(height: 12),
-                      _DevicesCard(controller: _devices),
+                      if (deviceState.devices.isEmpty) ...[
+                        _CalibrationCard(
+                          gate: deviceState.gate,
+                          hasPairedDevice: false,
+                          controller: _calibration,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      _DevicesCard(
+                        controller: _devices,
+                        onAddDevice:
+                            deviceState.devices.isNotEmpty &&
+                                !_showAdditionalPairing
+                            ? () =>
+                                  setState(() => _showAdditionalPairing = true)
+                            : null,
+                      ),
+                      if (deviceState.devices.isNotEmpty &&
+                          _showAdditionalPairing) ...<Widget>[
+                        const SizedBox(height: 12),
+                        _PairingCard(
+                          gate: deviceState.gate,
+                          controller: _pairing,
+                          qrController: _qrController,
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       const Text(
                         'Password sign-in remains available if phone key is '
@@ -138,50 +240,288 @@ class _CompanionHomeState extends State<_CompanionHome> {
   }
 }
 
-class _TargetCard extends StatelessWidget {
-  const _TargetCard();
+class _PhoneKeyHero extends StatelessWidget {
+  const _PhoneKeyHero({required this.state, required this.calibration});
+
+  final DeviceState state;
+  final CalibrationState calibration;
 
   @override
   Widget build(BuildContext context) {
-    return const _SectionCard(
-      icon: Icons.phone_android,
-      title: 'Companion target',
+    final gate = state.gate;
+    final hasPairedDevice = state.devices.isNotEmpty;
+    final isCalibrated = calibration.phase == CalibrationPhase.complete;
+    final isReady = gate.canPair && hasPairedDevice && isCalibrated;
+    final (statusLabel, headline, detail) = switch ((
+      gate.canPair,
+      hasPairedDevice,
+      isCalibrated,
+    )) {
+      (false, _, _) => (
+        'PHONE KEY OFFLINE',
+        'Phone key unavailable',
+        gate.message ?? 'Phone key setup is paused.',
+      ),
+      (true, false, _) => (
+        'READY TO PAIR',
+        'Add your phone key',
+        'Pair this phone with your Mac to continue.',
+      ),
+      (true, true, false) => (
+        'CALIBRATION NEEDED',
+        'Set your unlock distance',
+        'Choose where your Mac should recognize this phone.',
+      ),
+      (true, true, true) => (
+        'SETUP COMPLETE',
+        'Phone key setup complete',
+        'Secure setup is complete on this device.',
+      ),
+    };
+    final accent = isReady ? const Color(0xff6ee7b7) : const Color(0xffffc857);
+    final capabilityStatus = gate.canPair
+        ? 'Phone key setup is ready'
+        : state.message ?? gate.message ?? 'Phone key is unavailable.';
+
+    return Container(
+      key: const Key('phoneKeyHero'),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[Color(0xff15263d), Color(0xff0a111d)],
+        ),
+        boxShadow: const <BoxShadow>[
+          BoxShadow(
+            color: Color(0x29000000),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: <Widget>[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: accent.withValues(alpha: 0.38)),
+              ),
+              child: Text(
+                statusLabel,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.25,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            key: const Key('proximityOrb'),
+            width: 96,
+            height: 96,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: accent.withValues(alpha: 0.06),
+              border: Border.all(color: accent.withValues(alpha: 0.16)),
+              boxShadow: <BoxShadow>[
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.12),
+                  blurRadius: 32,
+                  spreadRadius: 8,
+                ),
+              ],
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: accent.withValues(alpha: 0.12),
+                border: Border.all(color: accent.withValues(alpha: 0.46)),
+              ),
+              child: Icon(Icons.key_rounded, size: 34, color: accent),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            hasPairedDevice ? state.devices.first.displayName : 'THIS PHONE',
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: const Color(0xff8fa4bb),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.1,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            headline,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Semantics(
+            container: true,
+            liveRegion: true,
+            label: 'Phone key status\n$capabilityStatus',
+            child: ExcludeSemantics(
+              child: Column(
+                children: <Widget>[
+                  Text(
+                    detail,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xffaebed0),
+                      height: 1.4,
+                    ),
+                  ),
+                  if (capabilityStatus != detail) ...<Widget>[
+                    const SizedBox(height: 10),
+                    Text(
+                      capabilityStatus,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Color(0xff8fa4bb)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (gate.isPermanentlyUnsupported) ...<Widget>[
+            const SizedBox(height: 10),
+            const Text(
+              'No background polling fallback will be enabled.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xffffc857),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          if (gate.canPair) ...<Widget>[
+            const SizedBox(height: 8),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(Icons.shield_outlined, size: 16, color: Color(0xff8fa4bb)),
+                SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    'Protected by on-device security',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xff8fa4bb)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SetupProgress extends StatelessWidget {
+  const _SetupProgress({required this.state, required this.calibration});
+
+  final DeviceState state;
+  final CalibrationState calibration;
+
+  @override
+  Widget build(BuildContext context) {
+    final gate = state.gate;
+    return Container(
+      key: const Key('setupProgress'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xff0f1a2a),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xff26364d)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(
+            child: _ProgressStep(
+              icon: Icons.shield_outlined,
+              label: 'Secure',
+              isComplete: gate.canPair,
+            ),
+          ),
+          const _ProgressConnector(),
+          Expanded(
+            child: _ProgressStep(
+              icon: Icons.link_rounded,
+              label: 'Paired',
+              isComplete: state.devices.isNotEmpty,
+            ),
+          ),
+          const _ProgressConnector(),
+          Expanded(
+            child: _ProgressStep(
+              icon: Icons.radar_rounded,
+              label: 'Distance',
+              isComplete: calibration.phase == CalibrationPhase.complete,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProgressStep extends StatelessWidget {
+  const _ProgressStep({
+    required this.icon,
+    required this.label,
+    required this.isComplete,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isComplete;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isComplete
+        ? const Color(0xff5eead4)
+        : const Color(0xff71839a);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Text('Initial Android target: realme GT5 Pro · Android 16 (API 36)'),
-        SizedBox(height: 4),
-        Text('One shared companion UI for Android and iOS.'),
+        Icon(isComplete ? Icons.check_circle_rounded : icon, color: color),
+        const SizedBox(height: 7),
+        Text(
+          label,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
 }
 
-class _CapabilityCard extends StatelessWidget {
-  const _CapabilityCard({required this.state});
-
-  final DeviceState state;
+class _ProgressConnector extends StatelessWidget {
+  const _ProgressConnector();
 
   @override
   Widget build(BuildContext context) {
-    final gate = state.gate;
-    final status = gate.canPair
-        ? 'Native capabilities ready'
-        : state.message ?? gate.message ?? 'Phone key is unavailable.';
-    return _SectionCard(
-      icon: gate.canPair ? Icons.verified_user : Icons.shield_outlined,
-      title: 'Capability status',
-      trailing: state.isLoading
-          ? const SizedBox.square(
-              dimension: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : null,
-      children: <Widget>[
-        _LiveStatus(status),
-        if (gate.isPermanentlyUnsupported) ...<Widget>[
-          const SizedBox(height: 6),
-          const Text('No background polling fallback will be enabled.'),
-        ],
-      ],
+    return const Expanded(
+      child: Padding(
+        padding: EdgeInsets.only(top: 11),
+        child: Divider(color: Color(0xff31445e), height: 1),
+      ),
     );
   }
 }
@@ -206,10 +546,7 @@ class _PairingCard extends StatelessWidget {
       icon: Icons.qr_code_scanner,
       title: 'Pair this phone',
       children: <Widget>[
-        const Text(
-          'Scan or paste the one-time Mac QR payload. Repose checks expiry '
-          'again in the native service.',
-        ),
+        const Text('Paste the one-time pairing code shown on your Mac.'),
         const SizedBox(height: 10),
         TextField(
           key: const Key('pairingQrField'),
@@ -219,7 +556,7 @@ class _PairingCard extends StatelessWidget {
           enableSuggestions: false,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
-            labelText: 'One-time pairing QR payload',
+            labelText: 'One-time pairing code',
           ),
         ),
         const SizedBox(height: 8),
@@ -327,9 +664,10 @@ class _CalibrationCard extends StatelessWidget {
 }
 
 class _DevicesCard extends StatelessWidget {
-  const _DevicesCard({required this.controller});
+  const _DevicesCard({required this.controller, this.onAddDevice});
 
   final DeviceController controller;
+  final VoidCallback? onAddDevice;
 
   @override
   Widget build(BuildContext context) {
@@ -358,6 +696,15 @@ class _DevicesCard extends StatelessWidget {
                 icon: const Icon(Icons.link_off),
               ),
             ),
+        if (state.devices.isNotEmpty && onAddDevice != null) ...<Widget>[
+          const SizedBox(height: 4),
+          OutlinedButton.icon(
+            key: const Key('addAnotherKeyButton'),
+            onPressed: onAddDevice,
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add another key'),
+          ),
+        ],
         if (state.message != null) ...<Widget>[
           const SizedBox(height: 6),
           _LiveStatus(state.message!),
@@ -398,13 +745,11 @@ class _SectionCard extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.children,
-    this.trailing,
   });
 
   final IconData icon;
   final String title;
   final List<Widget> children;
-  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -425,7 +770,6 @@ class _SectionCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                ?trailing,
               ],
             ),
             const SizedBox(height: 10),

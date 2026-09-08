@@ -76,7 +76,7 @@ class PairingController extends ChangeNotifier {
       _replace(
         const PairingState(
           phase: PairingPhase.failed,
-          message: 'Scan a valid pairing QR code first.',
+          message: 'Paste a valid pairing code first.',
         ),
         token: token,
       );
@@ -220,7 +220,7 @@ class PairingController extends ChangeNotifier {
   PairingState _expired(PairingSession session) => PairingState(
     phase: PairingPhase.expired,
     session: session,
-    message: 'This pairing QR code has expired. Scan a new code.',
+    message: 'This pairing code has expired. Paste a new code.',
   );
 
   PairingState _unavailableState({PairingSession? session}) => PairingState(
@@ -245,14 +245,14 @@ class PairingController extends ChangeNotifier {
       return PairingState(
         phase: PairingPhase.expired,
         session: session,
-        message: 'This pairing QR code has expired. Scan a new code.',
+        message: 'This pairing code has expired. Paste a new code.',
       );
     }
     if (error.code == NativeErrorCode.qrAlreadyUsed) {
       return PairingState(
         phase: PairingPhase.failed,
         session: session,
-        message: 'This pairing QR code was already used. Scan a new code.',
+        message: 'This pairing code was already used. Paste a new code.',
       );
     }
     return PairingState(

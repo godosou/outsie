@@ -38,8 +38,9 @@ Guest、快速用户切换或远程登录。
 
 本节描述规范、纯逻辑实现和自动化测试所要求的控制，不表示每个生产 adapter 已接入。当前
 macOS 服务生产入口仍是经过 peer 验证的 deny-only/offline processor，没有连接 durable replay
-runtime 或许可 broker；Android 持久化 responder 已有固定向量、CAS 与编译证据，但真机
-Keystore/SQLite/GATT 尚未执行。真实系统、无线链路和平台后台行为仍受文末发布门禁约束。
+runtime 或许可 broker；Android 持久化 responder 已有固定向量、CAS 与编译证据，并在 RMX3888
+上通过测试专用 UID 的 5/5 Keystore/SQLite instrumentation。production app UID、Companion
+Presence 与 GATT 尚未执行。真实系统、无线链路和平台后台行为仍受文末发布门禁约束。
 
 ### 伪造手机或 Mac
 
@@ -120,7 +121,8 @@ Disabled，此限制必须与真机 provider/内存策略一起接受或消除�
 
 ### 尚未验证的平台行为
 
-GT5 Pro/realme UI 7 的完整后台与功耗矩阵、iPhone Core Bluetooth 恢复、macOS
+RMX3888 上的基础密钥/存储 primitive 已有部分真机证据，但 GT5 Pro/realme UI 7 的完整后台与
+功耗矩阵、iPhone Core Bluetooth 恢复、macOS
 AuthorizationHost 真实行为以及跨 macOS 版本兼容性均未完成。自动化夹具、模拟 adapter、
 ad-hoc 签名或成功编译不能替代这些证据。
 

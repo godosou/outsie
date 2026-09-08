@@ -21,9 +21,9 @@
 | macOS 授权规则变换与事务工具 | **自动化原型，apply 硬关闭** | plist fixture、fake adapter、故障/恢复与静态包验证 | 专用 Mac、签名、公证、真实 Authorization Services/launchd、断电恢复 |
 | macOS Authorization Plugin/IPC | **已编译原型，未加载系统** | 固定 wire、peer/超时/单次许可与 sanitizer 测试 | AuthorizationHost 无人操作重评估、密码 fallback/keychain、跨 OS 矩阵 |
 | Repose 设置页 | **自动化实现，后端关闭** | 纯 model、挂载 React 交互、窄 Tauri command 与 capability 测试 | 生产后端与真实配对/校准流程 |
-| Flutter 共享手机界面 | **Debug/test shell** | Dart controller/widget 测试、analyze、显式 Release gate | 商店签名、可发布配置、真机端到端 |
-| Android API 36 presence/Keystore | **已编译离线原型** | JVM 契约、AAR surface、lint/debug/APK 与 instrumentation 编译 | 物理 GT5 Pro 上的 presence、硬件 security level、后台/重启/功耗 |
-| Android BLE/响应器 | **自动化实现；生产角色 Disabled** | 94 个 Android JVM 测试中的 transport 26 个、responder 24 个；固定向量、分片/生命周期、持久化/CAS、lint、Debug 与 instrumentation APK 编译 | ADB 设备、真实 Keystore/SQLite/GATT、角色选择、30 次循环与端到端延迟 |
+| Flutter 共享手机界面 | **Debug/test shell** | Dart controller/widget 测试、analyze、车钥匙式状态 Hero、显式 Release gate；RMX3888 Debug 安装/启动 | 商店签名、可发布配置、真机端到端 |
+| Android API 36 presence/Keystore | **部分真机验证；production path 未接入** | JVM 契约、AAR surface、lint/debug；RMX3888 测试 UID 下 5/5 Keystore/SQLite instrumentation | 具体 TEE/StrongBox 枚举值、production UID、presence、后台/重启/功耗 |
+| Android BLE/响应器 | **自动化实现；生产角色 Disabled** | 94 个 Android JVM 测试中的 transport 26 个、responder 24 个；固定向量、分片/生命周期、持久化/CAS、lint、Debug 与 instrumentation APK 编译；真机 5/5 Keystore/SQLite 测试 | 真实 GATT/Companion Presence、角色选择、30 次循环与端到端延迟 |
 | macOS production durable runtime | **未接入 / deny-only** | core 抽象、memory/fake store 与 broker 并发契约 | 生产持久化 adapter、真实 session/BLE runtime 和私有 service wiring |
 | iOS 原生后台层 | **BLOCKED / NOT RUN** | Release/Archive compile-time gate | 支持 iOS 26 SDK 的完整 Xcode、模拟器、物理 iPhone 与恢复矩阵 |
 
@@ -36,8 +36,8 @@
 | iOS SDK | `iphoneos` SDK 不可用；iOS 测试 **NOT RUN** |
 | Flutter | 3.38.9 stable / Dart 3.10.8（缓存元数据与后续离线构建环境） |
 | Android | SDK platform/build-tools 36 已供自动化编译使用 |
-| 目标手机 | 用户指定 realme GT5 Pro、realme UI 7.0、Android 16 |
-| ADB | 2026-09-08 在允许访问本地 ADB daemon 的环境运行 `adb devices -l`，exit 0 但设备列表为空；GT5 Pro 验证 **NOT RUN** |
+| 目标手机 | 用户称 realme GT5 Pro / realme UI 7.0；设备自报 realme `RMX3888`、Android 16、API 36、build `RMX3888_16.0.10.500(CN01)` |
+| ADB | 2026-09-08 连接单台 `RMX3888`；完成 feature 查询、Debug APK 覆盖安装/启动与定向 instrumentation；记录不包含设备序列号 |
 | macOS 签名 | `security find-identity -v -p codesigning` 未找到有效 identity |
 
 更完整的逐平台记录见：
@@ -62,10 +62,12 @@
 | macOS prototype build | `./scripts/build-macos-auth-prototype.sh --configuration release --arch arm64 --sign ad-hoc` | **PASS**, exit 0；arm64 ad-hoc 原型，仅为未公证开发产物 |
 | macOS artifact verification | `./scripts/verify-macos-auth-artifacts.sh target/macos-auth/release` | **PASS**, exit 0；静态 artifact/本地 designated requirement 验证，不代表生产签名或系统加载 |
 | Flutter dependency resolution | `cd mobile && flutter pub get` | **PASS**, exit 0；依赖解析成功；报告 8 个受当前约束限制的较新版本及 locale warning |
-| Flutter static analysis | `cd mobile && flutter analyze` | **PASS**, exit 0；No issues found；仅重复 locale warning |
-| Flutter tests | `cd mobile && flutter test` | **PASS**, exit 0；58/58；仅重复 locale warning |
+| Flutter static analysis | `cd mobile && flutter analyze --no-pub` | **PASS**, exit 0；No issues found；仅重复 locale warning |
+| Flutter tests | `cd mobile && flutter test --no-pub` | **PASS**, exit 0；64/64；包含车钥匙式 Hero、权威状态同步、失败关闭、多钥匙配对、校准、粘贴配对码文案、live-region 与 300% 字号回归；仅重复 locale warning |
 | Android JVM/lint/debug | `cd mobile/android && ./gradlew --no-daemon clean testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest` | **PASS**, exit 0；clean 后 94/94 JVM tests；lint、app Debug APK 与 plugin Debug AAR 均成功；有 SDK XML 工具版本、Kotlin DSL 与 Gradle 9 deprecation warning |
-| Android instrumentation APK compile | 同上 `assembleDebugAndroidTest` | **PASS (COMPILE ONLY)**, exit 0；app/plugin instrumentation APK 编译成功；3 个 responder androidTest 与既有测试均未在设备执行 |
+| Android instrumentation APK compile | 同上 `assembleDebugAndroidTest` | **PASS**, exit 0；app/plugin instrumentation APK 编译成功 |
+| Android device instrumentation | `cd mobile/android && ./gradlew --no-daemon :repose_unlock_native:connectedDebugAndroidTest` | **PASS**, exit 0；RMX3888 上 5/5 methods、3 classes；测试专用包 `ai.repose.mobile.unlock.test`，不等价于 production UID 或 BLE E2E |
+| Android Debug install/launch | `adb install -r -t <app-debug.apk>` + `am start -W -n ai.repose.repose_unlock/.MainActivity` | **PASS**；`ai.repose.repose_unlock` 覆盖安装并启动，UI 在能力关闭时保持 fail-closed |
 | Android Release safety gate | `cd mobile/android && ./gradlew --no-daemon assembleRelease` | **EXPECTED DENY**, exit 1；在编译前以 `production signing is configured` 门禁拒绝，不是可发布产物 |
 | Timer scope audit | `git diff --exit-code 6a5b60e -- src/hooks/useBreakTimer.ts src/lib/timer.ts src/lib/timer.test.ts` | **PASS**, exit 0；既有休息计时器生命周期无改动 |
 | Secret/material scan | `git grep -n -I -E '(PRIVATE KEY|pairingSecret|sessionKey|recovery key)'` + PEM/keystore 扩展名扫描 + 人工误报复核 | **PASS**；命中仅为审计命令与 FileVault recovery 文档描述；没有 PEM 私钥标记或未跟踪 keystore/签名文件 |
@@ -75,7 +77,10 @@
 
 | 验证 | 结果 | 发布影响 |
 |---|---|---|
-| GT5 Pro manufacturer/model/API/BLE capability | **NOT RUN** | Android BLE role 不得启用 |
+| GT5 Pro manufacturer/model/OS/API | **PASS**：RMX3888 / Android 16 / API 36 / 已记录 build | 仅为设备身份，不选择 Android BLE 角色 |
+| GT5 Pro Bluetooth/BLE/Companion/Keystore feature 查询 | **PASS**：系统声明支持 | 仅是 feature 声明，不证明真实无线或后台行为 |
+| GT5 Pro Debug APK 安装/启动/fail-closed UI | **PASS** | 仅证明 shell 可运行，不代表自动解锁可用 |
+| GT5 Pro 测试 UID Keystore/SQLite instrumentation | **PASS**：5/5 | 不外推到 production UID、Companion Presence 或 GATT |
 | GT5 Pro 熄屏/UI 关闭/Doze/系统回收 | **NOT RUN** | 不得声称后台可靠 |
 | GT5 Pro force-stop/蓝牙切换/重启 | **NOT RUN** | 只允许密码 fallback；未量测恢复行为 |
 | GT5 Pro 口袋/背包 calibration 与 30 次循环 | **NOT RUN** | 不得声称距离精度或三秒目标 |

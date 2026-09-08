@@ -8,7 +8,37 @@ import 'package:repose_unlock/native/native_models.dart';
 import '../support/fake_native_gateway.dart';
 
 void main() {
-  testWidgets('identifies the realme Android 16 target and shared UI', (
+  testWidgets('ready phone key opens on a car-key status dashboard', (
+    tester,
+  ) async {
+    final gateway = FakeNativeGateway(
+      snapshot: UnlockSnapshot(
+        capability: CompanionCapability.ready,
+        devices: const <PairedDevice>[
+          PairedDevice(
+            id: 'realme-1',
+            displayName: 'realme GT5 Pro',
+            platform: CompanionPlatform.android,
+          ),
+        ],
+        calibration: const CalibrationSnapshot(
+          phase: CalibrationPhase.complete,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('phoneKeyHero')), findsOneWidget);
+    expect(find.byKey(const Key('proximityOrb')), findsOneWidget);
+    expect(find.text('SETUP COMPLETE'), findsOneWidget);
+    expect(find.text('Phone key setup complete'), findsOneWidget);
+    expect(find.text('Ready to unlock'), findsNothing);
+    expect(find.text('Protected by on-device security'), findsOneWidget);
+  });
+
+  testWidgets('paired phone key prioritizes calibration over developer copy', (
     tester,
   ) async {
     final gateway = FakeNativeGateway(
@@ -28,11 +58,21 @@ void main() {
     await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
     await tester.pumpAndSettle();
 
-    expect(find.text('Repose Phone Key'), findsOneWidget);
-    expect(find.textContaining('realme GT5 Pro'), findsWidgets);
-    expect(find.textContaining('Android 16 (API 36)'), findsOneWidget);
-    expect(find.textContaining('Android and iOS'), findsOneWidget);
-    expect(find.text('Native capabilities ready'), findsOneWidget);
+    expect(find.text('Repose Key'), findsOneWidget);
+    expect(find.byKey(const Key('phoneKeyHero')), findsOneWidget);
+    expect(find.byKey(const Key('setupProgress')), findsOneWidget);
+    expect(find.text('CALIBRATION NEEDED'), findsOneWidget);
+    expect(find.text('Set your unlock distance'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('phoneKeyHero')),
+        matching: find.text('realme GT5 Pro'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Android 16'), findsNothing);
+    expect(find.textContaining('Android and iOS'), findsNothing);
+    expect(find.textContaining('Native capabilities'), findsNothing);
   });
 
   testWidgets('unsupported capability is visible and actions fail closed', (
@@ -50,6 +90,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('unsupported'), findsOneWidget);
+    expect(find.text('PHONE KEY OFFLINE'), findsOneWidget);
+    expect(
+      find.text('No background polling fallback will be enabled.'),
+      findsOneWidget,
+    );
+    expect(find.text('Protected by on-device security'), findsNothing);
     expect(
       tester
           .widget<FilledButton>(find.byKey(const Key('beginPairingButton')))
@@ -112,7 +158,7 @@ void main() {
 
       expect(gateway.confirmedSessionIds, <String>['ui-first-pair']);
       expect(find.text('Pairing confirmed'), findsOneWidget);
-      expect(find.text('realme GT5 Pro'), findsOneWidget);
+      expect(find.text('realme GT5 Pro'), findsWidgets);
       expect(gateway.snapshotReadCount, 2);
       expect(
         tester
@@ -124,6 +170,37 @@ void main() {
       );
     },
   );
+
+  testWidgets('paired dashboard can reveal an add-another-key flow', (
+    tester,
+  ) async {
+    final gateway = FakeNativeGateway(
+      snapshot: UnlockSnapshot(
+        capability: CompanionCapability.ready,
+        devices: const <PairedDevice>[
+          PairedDevice(
+            id: 'realme-1',
+            displayName: 'realme GT5 Pro',
+            platform: CompanionPlatform.android,
+          ),
+        ],
+        calibration: const CalibrationSnapshot(
+          phase: CalibrationPhase.complete,
+        ),
+      ),
+    );
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('pairingQrField')), findsNothing);
+    final addAnother = find.byKey(const Key('addAnotherKeyButton'));
+    await tester.ensureVisible(addAnother);
+    await tester.tap(addAnother);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('pairingQrField')), findsOneWidget);
+    expect(find.byKey(const Key('beginPairingButton')), findsOneWidget);
+  });
 
   testWidgets('overlapping calibration samples show an explicit retry', (
     tester,
@@ -163,6 +240,44 @@ void main() {
     expect(find.textContaining('overlap'), findsOneWidget);
     expect(find.text('Retry calibration'), findsOneWidget);
     expect(find.text('Distance calibration complete'), findsNothing);
+  });
+
+  testWidgets('completed calibration promotes the hero without a restart', (
+    tester,
+  ) async {
+    final gateway = FakeNativeGateway(
+      snapshot: UnlockSnapshot(
+        capability: CompanionCapability.ready,
+        devices: const <PairedDevice>[
+          PairedDevice(
+            id: 'realme-1',
+            displayName: 'realme GT5 Pro',
+            platform: CompanionPlatform.android,
+          ),
+        ],
+        calibration: const CalibrationSnapshot(),
+      ),
+    );
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pumpAndSettle();
+
+    final start = find.byKey(const Key('startCalibrationButton'));
+    await tester.ensureVisible(start);
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+    final near = find.byKey(const Key('submitNearButton'));
+    await tester.ensureVisible(near);
+    await tester.tap(near);
+    await tester.pumpAndSettle();
+    final far = find.byKey(const Key('submitFarButton'));
+    await tester.ensureVisible(far);
+    await tester.tap(far);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Distance calibration complete.'), findsOneWidget);
+    expect(find.text('SETUP COMPLETE'), findsOneWidget);
+    expect(find.text('Phone key setup complete'), findsOneWidget);
+    expect(find.text('Ready to unlock'), findsNothing);
   });
 
   testWidgets('pair confirmation refresh failure closes the visible gate', (
@@ -320,9 +435,35 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.getSemantics(find.text('Native capabilities ready')),
+      tester.getSemantics(find.text('Phone key setup is ready')),
       matchesSemantics(
-        label: 'Capability status\nNative capabilities ready',
+        label: 'Phone key status\nPhone key setup is ready',
+        textDirection: TextDirection.ltr,
+        isLiveRegion: true,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('unavailable phone key reason is announced as a live region', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final gateway = FakeNativeGateway(
+      snapshot: UnlockSnapshot(
+        capability: CompanionCapability.bluetoothUnavailable,
+        devices: const <PairedDevice>[],
+        calibration: const CalibrationSnapshot(),
+      ),
+    );
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pumpAndSettle();
+
+    const reason = 'Bluetooth is unavailable. Turn it on to continue.';
+    expect(
+      tester.getSemantics(find.text(reason)),
+      matchesSemantics(
+        label: 'Phone key status\n$reason',
         textDirection: TextDirection.ltr,
         isLiveRegion: true,
       ),
@@ -377,6 +518,46 @@ void main() {
       contains(true),
     );
     semantics.dispose();
+  });
+
+  testWidgets('revoking the last key clears stale calibration presentation', (
+    tester,
+  ) async {
+    final gateway = FakeNativeGateway(
+      snapshot: UnlockSnapshot(
+        capability: CompanionCapability.ready,
+        devices: const <PairedDevice>[
+          PairedDevice(
+            id: 'realme-1',
+            displayName: 'realme GT5 Pro',
+            platform: CompanionPlatform.android,
+          ),
+        ],
+        calibration: const CalibrationSnapshot(
+          phase: CalibrationPhase.complete,
+        ),
+      ),
+    );
+    gateway.onRevoke = (_) {
+      gateway.snapshot = UnlockSnapshot(
+        capability: CompanionCapability.ready,
+        devices: const <PairedDevice>[],
+        calibration: const CalibrationSnapshot(),
+      );
+    };
+    await tester.pumpWidget(ReposeUnlockApp(gateway: gateway));
+    await tester.pumpAndSettle();
+
+    final revoke = find.byTooltip('Revoke realme GT5 Pro');
+    await tester.ensureVisible(revoke);
+    await tester.tap(revoke);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Revoke'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('READY TO PAIR'), findsOneWidget);
+    expect(find.text('No paired devices yet.'), findsOneWidget);
+    expect(find.text('Distance calibration complete.'), findsNothing);
   });
 
   testWidgets('narrow phone remains usable at 300% text scale', (tester) async {

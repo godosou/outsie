@@ -9,6 +9,38 @@ import 'support/fake_native_gateway.dart';
 
 void main() {
   group('PairingController', () {
+    test('pairing errors only point to the available paste flow', () async {
+      final now = DateTime.utc(2026, 9, 8, 10);
+      final gateway = FakeNativeGateway(snapshot: _readySnapshot());
+      final devices = await _hydratedDevices(gateway);
+      final controller = PairingController(
+        gateway: gateway,
+        deviceController: devices,
+        clock: () => now,
+      );
+
+      await controller.beginPairing('');
+      expect(controller.state.message, 'Paste a valid pairing code first.');
+
+      gateway.beginPairingError = const NativeGatewayException(
+        NativeErrorCode.qrExpired,
+      );
+      await controller.beginPairing('expired');
+      expect(
+        controller.state.message,
+        'This pairing code has expired. Paste a new code.',
+      );
+
+      gateway.beginPairingError = const NativeGatewayException(
+        NativeErrorCode.qrAlreadyUsed,
+      );
+      await controller.beginPairing('already-used');
+      expect(
+        controller.state.message,
+        'This pairing code was already used. Paste a new code.',
+      );
+    });
+
     test('marks an expired QR session and never confirms it', () async {
       final now = DateTime.utc(2026, 9, 8, 10);
       final gateway = FakeNativeGateway(

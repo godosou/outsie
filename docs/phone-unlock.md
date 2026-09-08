@@ -76,8 +76,11 @@ Mac 锁屏后先进入未武装状态。只有稳定远离或可靠断连才进�
 Android UI 使用 Flutter，后台 companion presence、BLE 和 Keystore 由原生 Kotlin 层负责，
 不依赖 Dart isolate 常驻。目标首机是真我 GT5 Pro、realme UI 7.0、Android 16/API 36。
 
-当前尚未完成该设备的连接与授权实测，因此以下内容仍需真机确认：熄屏、应用 UI 关闭、
-Doze、系统回收、蓝牙切换、重启、口袋/背包校准、30 次离开/返回循环、延迟、耗电和误判。
+已在设备自报为 `RMX3888` 的 Android 16/API 36、build `RMX3888_16.0.10.500(CN01)`
+手机上覆盖安装并启动 Debug 应用；界面按设计保持门禁关闭，测试专用 UID 下 5/5
+Keystore/SQLite instrumentation 通过。这不表示 Companion Presence、BLE 角色或自动解锁链路可用。
+以下内容仍需真机与匹配 Mac peer 共同确认：熄屏、应用 UI 关闭、Doze、系统回收、蓝牙切换、
+重启、口袋/背包校准、30 次离开/返回循环、延迟、耗电和误判。
 用户对应用执行“强行停止”后，Android 不应再被认为能够自动响应；在用户重新打开应用并恢复
 系统允许的运行状态前，Mac 必须退回密码解锁。OEM 电池策略可能进一步限制后台行为，不能
 依靠关闭系统安全机制来掩盖这种限制。
