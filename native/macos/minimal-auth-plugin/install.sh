@@ -63,6 +63,13 @@ EOF
 read -r -p "Proceed? [y/N] " reply
 [[ "${reply}" == "y" || "${reply}" == "Y" ]] || { echo "Aborted."; exit 0; }
 
+# Milestone A's entire verdict is "did a line appear in this log". A log left
+# over from a previous run would be read as a fresh success, so it is cleared
+# here rather than trusted to be empty. Same for a stale permit file, which
+# would silently turn the permit mechanism into an unconditional allow.
+echo "==> Clearing previous run evidence"
+rm -f /tmp/repose-plugin.log /tmp/repose-permit
+
 echo "==> Installing bundle"
 rm -rf "${DEST_BUNDLE}"
 cp -R "${BUILT_BUNDLE}" "${DEST_BUNDLE}"

@@ -68,7 +68,7 @@ sudo ./uninstall.sh
 `system.login.screensaver` and sets `k-of-n=1` so the spike runs first while the
 normal authentication path stays as a fallback. The full original
 `system.login.screensaver` is saved to
-`/tmp/repose-spike-system.login.screensaver.backup.plist` before any change.
+`/var/db/repose-spike/system.login.screensaver.backup.plist` before any change.
 
 `uninstall.sh` restores that backup verbatim, removes the `ai.repose.spike`
 right, and deletes the bundle. Both scripts print exactly what they will change

@@ -91,5 +91,11 @@ if [[ -d "${DEST_BUNDLE}" ]]; then
     rm -rf "${DEST_BUNDLE}"
 fi
 
+# The permit file is an unlock switch. Leaving it behind after the mechanism
+# that reads it is gone is harmless today and a trap the next time something
+# reads that path.
+rm -f /tmp/repose-permit
+echo "Diagnostics left at /tmp/repose-plugin.log (evidence; delete when done)."
+
 echo "Done. Current '${RIGHT}':"
 security authorizationdb read "${RIGHT}" 2>/dev/null | plutil -extract rule xml1 -o - - || true

@@ -14,6 +14,7 @@
 #include <Security/AuthorizationPlugin.h>
 #include <Security/AuthorizationTags.h>
 
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -67,8 +68,18 @@ static const char *mode_name(MechanismMode mode)
 
 static void repose_log(const char *fmt, ...)
 {
-    FILE *f = fopen(LOG_PATH, "a");
+    /* This runs as root and the log lives in a world-writable directory, so a
+     * plain fopen would happily follow a symlink a local user planted there and
+     * append root-owned output to a file of their choosing. O_NOFOLLOW refuses
+     * that, and 0600 keeps the log itself from being readable by whoever wants
+     * to know when the screen was unlocked. */
+    int fd = open(LOG_PATH, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        return;
+    }
+    FILE *f = fdopen(fd, "a");
     if (f == NULL) {
+        close(fd);
         return;
     }
 
@@ -95,7 +106,13 @@ static int wait_for_permit(void)
 {
     int waited_ms = 0;
     for (;;) {
-        if (access(PERMIT_PATH, F_OK) == 0) {
+        /* open rather than access: access() checks with the real uid, which
+         * is not necessarily the one this privileged mechanism runs as, and it
+         * follows symlinks. Neither subtlety belongs in the one check that
+         * decides whether a screen unlocks. */
+        int fd = open(PERMIT_PATH, O_RDONLY | O_NOFOLLOW);
+        if (fd >= 0) {
+            close(fd);
             repose_log("permit: %s present after %dms", PERMIT_PATH, waited_ms);
             return 1;
         }
