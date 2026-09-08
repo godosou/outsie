@@ -2,13 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   DEFAULT_SETTINGS,
   STORAGE_KEY,
-  advanceTimer,
+  advanceTimerBy,
+  applyInactivityInterval,
+  captureInactivity,
   changeTimerSettings,
   completeTimerBreak,
   deriveWeeklyStats,
+  getHourlyStats,
   getTodayStats,
   getPostponeSeconds,
   localDateKey,
+  monotonicElapsedSeconds,
   postponeTimerBreak,
   resetTimerState,
   restoreTimerState,
@@ -39,27 +43,76 @@ export function useBreakTimer() {
   const [state, setState] = useState<TimerState>(loadState)
   const stateRef = useRef(state)
   const savedAt = useRef(0)
+  const monotonicAt = useRef(performance.now())
+  const inactivityRef = useRef<{
+    intervalId: string
+    context: ReturnType<typeof captureInactivity>
+  } | null>(null)
   stateRef.current = state
 
+  const commit = useCallback((transform: (previous: TimerState) => TimerState) => {
+    const next = transform(stateRef.current)
+    stateRef.current = next
+    setState(next)
+    return next
+  }, [])
+
+  const sampleActiveTime = useCallback((wallNow = Date.now()) => {
+    const current = performance.now()
+    const elapsed = monotonicElapsedSeconds(monotonicAt.current, current, inactivityRef.current !== null)
+    monotonicAt.current = current
+    if (elapsed <= 0) return stateRef.current
+    return commit(previous => advanceTimerBy(previous, elapsed, wallNow))
+  }, [commit])
+
+  const checkpoint = useCallback((next: TimerState) => {
+    saveState(next)
+    savedAt.current = Date.now()
+  }, [])
+
   useEffect(() => {
-    const tick = () => setState((previous) => advanceTimer(previous, Date.now()))
+    const tick = () => sampleActiveTime()
     const interval = window.setInterval(tick, 1000)
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') tick()
     }
-    const onPageHide = () => saveState(advanceTimer(stateRef.current, Date.now()))
+    const onPageHide = () => checkpoint(sampleActiveTime())
+    const unsubscribeLifecycle = window.repose?.onLifecycle(event => {
+      if (event.type === 'inactive-start') {
+        if (inactivityRef.current) return
+        const frozen = sampleActiveTime(event.startedAt)
+        inactivityRef.current = {
+          intervalId: event.intervalId,
+          context: captureInactivity(frozen),
+        }
+        checkpoint(frozen)
+        return
+      }
+
+      const active = inactivityRef.current
+      const context = active?.intervalId === event.intervalId
+        ? active.context
+        : captureInactivity(stateRef.current)
+      const next = commit(previous => applyInactivityInterval(previous, context, event))
+      if (!active || active.intervalId === event.intervalId) inactivityRef.current = null
+      // performance.now() may include sleep on some platforms. Reset the sample
+      // boundary so the lifecycle interval is the only source of inactive time.
+      monotonicAt.current = performance.now()
+      checkpoint(next)
+      void window.repose?.acknowledgeLifecycle(event.intervalId)
+    })
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('pagehide', onPageHide)
     return () => {
       window.clearInterval(interval)
+      unsubscribeLifecycle?.()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('pagehide', onPageHide)
     }
-  }, [])
+  }, [checkpoint, commit, sampleActiveTime])
 
-  // The countdown is reconstructed from wall-clock time, so writing the whole
-  // history every second only creates needless background I/O. Page exit still
-  // persists immediately; while running, a 15-second checkpoint is sufficient.
+  // Monotonic samples update memory every second. A 15-second storage checkpoint
+  // avoids needless background I/O; lifecycle edges and page exit persist at once.
   useEffect(() => {
     const now = Date.now()
     if (now - savedAt.current < 15_000) return
@@ -67,18 +120,53 @@ export function useBreakTimer() {
     savedAt.current = now
   }, [state])
 
-  const toggleRunning = useCallback(() => setState((previous) => toggleTimer(previous)), [])
-  const startBreak = useCallback((type: 'short' | 'long') => setState((previous) => startTimerBreak(previous, type)), [])
-  const completeBreak = useCallback(() => setState((previous) => completeTimerBreak(previous)), [])
-  const skipBreak = useCallback(() => setState((previous) => skipTimerBreak(previous)), [])
-  const postponeBreak = useCallback(() => setState((previous) => postponeTimerBreak(previous)), [])
+  const toggleRunning = useCallback(() => {
+    const wasRunning = stateRef.current.running
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => toggleTimer(previous, now, wasRunning))
+  }, [commit, sampleActiveTime])
+  const startBreak = useCallback((type: 'short' | 'long') => {
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => startTimerBreak(previous, type, now))
+  }, [commit, sampleActiveTime])
+  const completeBreak = useCallback((expectedBreakId: string) => {
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => completeTimerBreak(previous, expectedBreakId, now))
+  }, [commit, sampleActiveTime])
+  const skipBreak = useCallback(() => {
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => skipTimerBreak(previous, now))
+  }, [commit, sampleActiveTime])
+  const postponeBreak = useCallback(() => {
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => postponeTimerBreak(previous, now))
+  }, [commit, sampleActiveTime])
   const updateSettings = useCallback((partial: Partial<TimerSettings>) => {
-    setState((previous) => changeTimerSettings(previous, partial))
-  }, [])
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => changeTimerSettings(previous, partial, now))
+  }, [commit, sampleActiveTime])
   const resetSettings = useCallback(() => {
-    setState((previous) => changeTimerSettings(previous, DEFAULT_SETTINGS))
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => changeTimerSettings(previous, DEFAULT_SETTINGS, now))
+  }, [commit, sampleActiveTime])
+  const resetTimer = useCallback(() => {
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => resetTimerState(previous, now))
+  }, [commit, sampleActiveTime])
+  const getStatsForDate = useCallback((timestamp: number) => getTodayStats(stateRef.current, timestamp), [])
+  const getHourlyStatsForDate = useCallback((timestamp: number) => getHourlyStats(stateRef.current, timestamp), [])
+  const getHistoryForDate = useCallback((timestamp: number) => {
+    const key = localDateKey(timestamp)
+    return stateRef.current.history.filter(entry => localDateKey(entry.completedAt) === key)
   }, [])
-  const resetTimer = useCallback(() => setState((previous) => resetTimerState(previous)), [])
 
   const now = Date.now()
   const today = localDateKey(now)
@@ -97,6 +185,9 @@ export function useBreakTimer() {
     history: state.history.filter((entry) => localDateKey(entry.completedAt) === today),
     completedCycles: state.completedCycles,
     weeklyStats: deriveWeeklyStats(state, now),
+    getStatsForDate,
+    getHourlyStatsForDate,
+    getHistoryForDate,
     toggleRunning,
     startBreak,
     completeBreak,
