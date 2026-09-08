@@ -1,0 +1,154 @@
+#!/bin/bash
+# THE acceptance test for phone proximity unlock.
+#
+# This is the only test that measures progress on this feature. It is expected
+# to FAIL until the walking skeleton reaches Step 2, and it must keep passing
+# from then on. Unit tests going green is not progress; this going green is.
+#
+# The test states the product promise directly:
+#
+#   screen is locked -> phone leaves -> Mac stays locked
+#                    -> phone returns -> Mac unlocks within the deadline
+#
+# The "phone leaves" and "phone returns" actions are injected, so the same
+# assertions survive every step of the plan without being rewritten:
+#
+#   Step 2 (file-triggered plugin, no BLE, no crypto):
+#     REPOSE_LEAVE_CMD='rm -f /tmp/repose-permit'
+#     REPOSE_RETURN_CMD='touch /tmp/repose-permit'
+#   Step 3 (real BLE, no crypto):
+#     REPOSE_LEAVE_CMD='adb shell su -c "svc bluetooth disable"'
+#     REPOSE_RETURN_CMD='adb shell su -c "svc bluetooth enable"'
+#   Step 5 (real hardware): a human walks away and back.
+#
+# SAFETY: this script locks the screen. It refuses to do so unless
+# REPOSE_E2E_ALLOW_LOCK=1 is set. Run it on the throwaway VM, not on the Mac you
+# need to keep working on. Use --dry-run to validate the wiring without locking
+# anything.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCKSTATE="${HERE}/lockstate.sh"
+
+DEADLINE_MS="${REPOSE_UNLOCK_DEADLINE_MS:-3000}"
+LOCK_WAIT_S="${REPOSE_LOCK_WAIT_S:-20}"
+STAY_LOCKED_S="${REPOSE_STAY_LOCKED_S:-5}"
+LEAVE_CMD="${REPOSE_LEAVE_CMD:-}"
+RETURN_CMD="${REPOSE_RETURN_CMD:-}"
+
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+now_ms() { perl -MTime::HiRes=time -e 'printf "%.0f\n", time()*1000'; }
+say() { printf '%s\n' "$*"; }
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+lock_state() { "$LOCKSTATE"; }
+is_locked() { "$LOCKSTATE" --is-locked; }
+
+# Poll until `is_locked` matches $1 ("true"/"false"), or $2 milliseconds pass.
+# Prints the elapsed milliseconds. Returns 1 on timeout.
+wait_for_lock_state() {
+  local want="$1" budget_ms="$2" start now
+  start="$(now_ms)"
+  while :; do
+    if is_locked; then [ "$want" = "true" ] && break
+    else [ "$want" = "false" ] && break
+    fi
+    now="$(now_ms)"
+    if [ $((now - start)) -ge "$budget_ms" ]; then
+      printf '%s' "$((now - start))"
+      return 1
+    fi
+    sleep 0.1
+  done
+  now="$(now_ms)"
+  printf '%s' "$((now - start))"
+}
+
+run_hook() {
+  local name="$1" cmd="$2"
+  say "  -> ${name}: ${cmd}"
+  if ! bash -c "$cmd"; then
+    fail "${name} hook exited non-zero: ${cmd}"
+  fi
+}
+
+preflight() {
+  [ -x "$LOCKSTATE" ] || fail "missing oracle: ${LOCKSTATE}"
+  "$LOCKSTATE" --raw >/dev/null 2>&1 || fail "lock-state oracle unreadable on this host"
+  [ -n "$LEAVE_CMD" ] || fail "REPOSE_LEAVE_CMD is not set (see header for per-step values)"
+  [ -n "$RETURN_CMD" ] || fail "REPOSE_RETURN_CMD is not set (see header for per-step values)"
+  if is_locked; then
+    fail "screen is already locked; this test must start from an unlocked session"
+  fi
+}
+
+main() {
+  say "repose phone-unlock acceptance test"
+  say "  host          : $(hostname -s) / macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
+  say "  unlock budget : ${DEADLINE_MS} ms"
+  say "  start state   : $(lock_state)"
+  say ""
+
+  preflight
+
+  if [ "$DRY_RUN" = "1" ]; then
+    say "DRY RUN: exercising hooks and oracle only, never locking the screen."
+    run_hook "leave " "$LEAVE_CMD"
+    say "     state after leave : $(lock_state)"
+    run_hook "return" "$RETURN_CMD"
+    say "     state after return: $(lock_state)"
+    say ""
+    say "DRY RUN OK: oracle readable, both hooks executable. Wiring is sound."
+    say "Set REPOSE_E2E_ALLOW_LOCK=1 and drop --dry-run to run the real test."
+    exit 0
+  fi
+
+  if [ "${REPOSE_E2E_ALLOW_LOCK:-}" != "1" ]; then
+    fail "refusing to lock the screen. Set REPOSE_E2E_ALLOW_LOCK=1 to arm, or pass --dry-run."
+  fi
+
+  say "Locking the screen in 5 seconds (ctrl-c to abort)..."
+  sleep 5
+
+  # 1. Lock, and confirm the system actually reached the locked state.
+  open -a ScreenSaverEngine
+  local elapsed
+  if ! elapsed="$(wait_for_lock_state true $((LOCK_WAIT_S * 1000)))"; then
+    fail "screen did not lock within ${LOCK_WAIT_S}s (elapsed ${elapsed}ms).
+      Check: System Settings > Lock Screen > 'Require password after screen saver
+      begins' must be 'Immediately'. Without that there is nothing to unlock."
+  fi
+  say "[1/3] locked after ${elapsed}ms"
+
+  # 2. Phone leaves. The Mac must NOT unlock. Without this assertion a plugin
+  #    that unlocks unconditionally would pass the test.
+  run_hook "leave " "$LEAVE_CMD"
+  if elapsed="$(wait_for_lock_state false $((STAY_LOCKED_S * 1000)))"; then
+    fail "Mac unlocked ${elapsed}ms after the phone LEFT. Unlock is not gated on presence."
+  fi
+  say "[2/3] stayed locked for ${STAY_LOCKED_S}s while the phone was away"
+
+  # 3. Phone returns. This is the promise.
+  local t0 t1
+  t0="$(now_ms)"
+  run_hook "return" "$RETURN_CMD"
+  if ! elapsed="$(wait_for_lock_state false "$DEADLINE_MS")"; then
+    say ""
+    fail "Mac did NOT unlock within ${DEADLINE_MS}ms of the phone returning (still locked).
+      This is the expected failure until Step 2 lands a loadable Authorization
+      Plugin. Password entry is unaffected."
+  fi
+  t1="$(now_ms)"
+  say "[3/3] unlocked ${elapsed}ms after the phone returned"
+  say ""
+  say "PASS  end-to-end unlock latency: $((t1 - t0)) ms (budget ${DEADLINE_MS} ms)"
+}
+
+# Sourcing the script exposes the helpers without running the test, so the
+# polling/timeout logic can be verified on its own (see harness_selftest.sh).
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main "$@"
+fi
