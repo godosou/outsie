@@ -8,9 +8,10 @@
 # This script only stages and prints. It never installs anything: the install
 # runs inside the VM, where a snapshot rollback is the recovery path.
 #
-# Prerequisites:
-#   tart clone ghcr.io/cirruslabs/macos-sonoma-vanilla:latest repose-spike
-#   (cirruslabs images log in as admin / admin)
+# Prerequisites: a VM created from Apple's IPSW and set up by hand once --
+# see FIRST-BOOT.md. ghcr.io's prebuilt images were abandoned because the pull
+# ran at under 1 MB/s from here; Apple's CDN is faster and yields a guest on the
+# exact build this host runs, so results transfer without a version caveat.
 
 set -uo pipefail
 
@@ -24,7 +25,9 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 command -v tart >/dev/null || die "tart is not installed"
 tart list 2>/dev/null | grep -q "[[:space:]]${VM}[[:space:]]" \
-  || die "VM '${VM}' not found. Run: tart clone ghcr.io/cirruslabs/macos-sonoma-vanilla:latest ${VM}"
+  || die "VM '${VM}' not found. Create it with:
+    tart create --from-ipsw latest ${VM}
+  then follow tools/vm-spike/FIRST-BOOT.md for the one-time manual setup."
 
 # The bundle must exist and must be ad-hoc signed before it is worth copying.
 [ -d "${PLUGIN_DIR}/build/ReposeSpike.bundle" ] \
@@ -54,7 +57,8 @@ SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLeve
 
 echo "-> copying the experiment to ${VM_USER}@${IP}:${REMOTE_DIR}"
 ssh "${SSH_OPTS[@]}" "${VM_USER}@${IP}" "rm -rf ${REMOTE_DIR} && mkdir -p ${REMOTE_DIR}" \
-  || die "ssh failed. Password for cirruslabs images is 'admin'."
+  || die "ssh failed. Check Remote Login is on in the guest and that the
+  account matches REPOSE_VM_USER (default 'admin'); see FIRST-BOOT.md."
 scp -q -r "${SSH_OPTS[@]}" "$PLUGIN_DIR" "${VM_USER}@${IP}:${REMOTE_DIR}/" || die "scp of plugin failed"
 scp -q -r "${SSH_OPTS[@]}" "${REPO}/tests" "${VM_USER}@${IP}:${REMOTE_DIR}/" || die "scp of tests failed"
 
@@ -63,12 +67,34 @@ ssh "${SSH_OPTS[@]}" "${VM_USER}@${IP}" \
   "codesign -dvvv ${REMOTE_DIR}/minimal-auth-plugin/build/ReposeSpike.bundle 2>&1 | grep -E 'Signature|CDHash'" \
   || die "the copied bundle does not verify inside the VM"
 
+# The contract test binary is copied rather than rebuilt: a vanilla macOS image
+# has no developer tools. Running it in the guest before installing anything
+# proves the plugin still behaves correctly on that machine, so a silent
+# milestone A cannot be blamed on a bundle damaged in transit.
+if [ -x "${PLUGIN_DIR}/build/plugin_contract_test" ]; then
+  echo "-> running the plugin contract test inside the VM (takes ~10s)"
+  if ssh "${SSH_OPTS[@]}" "${VM_USER}@${IP}" \
+      "cd ${REMOTE_DIR}/minimal-auth-plugin && ./build/plugin_contract_test \
+       build/ReposeSpike.bundle/Contents/MacOS/ReposeSpike" ; then
+    echo "   the plugin behaves correctly in the guest"
+  else
+    die "the contract test fails inside the VM. Fix that before installing:
+      a milestone A that logs nothing would be our bug, not macOS's answer."
+  fi
+else
+  echo "-> WARNING: no contract test binary; run 'make test' on the host first"
+fi
+
 cat <<EOF
 
 === staged. Run these INSIDE the VM window (not over ssh) ===
 
 The screensaver needs a real GUI session, so drive milestone A from the VM's
 own Terminal:
+
+  The contract test above already passed in this guest, so the plugin's own
+  logic is not in question. Anything that goes wrong from here is either the
+  install or macOS itself.
 
   1. System Settings > Lock Screen > "Require password after screen saver
      begins" -> Immediately.   Without this there is nothing to unlock.
@@ -93,8 +119,9 @@ own Terminal:
        REPOSE_RETURN_CMD='touch /tmp/repose-permit' \\
        REPOSE_E2E_ALLOW_LOCK=1 ./unlock_acceptance.sh
 
-  5. Whatever happens, roll back:
-       tart stop ${VM} && tart delete ${VM}   (then re-clone)
+  5. Whatever happens, roll back to the clean snapshot:
+       tart stop ${VM} && tart delete ${VM}
+       tart clone repose-spike-clean ${VM}
 
 If step 3 produces no log line, work down the ladder in
 docs/product-tech-research/2026-09-08-securityagent-plugin-loading.md rather
