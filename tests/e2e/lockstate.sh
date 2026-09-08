@@ -20,9 +20,21 @@
 
 set -euo pipefail
 
+# The machine being locked is not always the machine running the test: the
+# walking skeleton locks a throwaway VM while the harness drives it from the
+# host. REPOSE_LOCKSTATE_CMD substitutes the read, so one oracle serves both.
+# ioreg needs no GUI session and no TCC grant, so it works fine over ssh.
+LOCKSTATE_CMD="${REPOSE_LOCKSTATE_CMD:-}"
+
 read_raw() {
   local raw
-  if ! raw="$(ioreg -n Root -d1 -a 2>/dev/null | plutil -extract IOConsoleLocked raw -o - - 2>/dev/null)"; then
+  if [ -n "$LOCKSTATE_CMD" ]; then
+    if ! raw="$(bash -c "$LOCKSTATE_CMD" 2>/dev/null)"; then
+      echo "lockstate: REPOSE_LOCKSTATE_CMD failed: ${LOCKSTATE_CMD}" >&2
+      return 2
+    fi
+    raw="$(printf '%s' "$raw" | tr -d '[:space:]')"
+  elif ! raw="$(ioreg -n Root -d1 -a 2>/dev/null | plutil -extract IOConsoleLocked raw -o - - 2>/dev/null)"; then
     echo "lockstate: could not read IOConsoleLocked from IOKit" >&2
     return 2
   fi

@@ -9,7 +9,15 @@ BUNDLE_NAME="ReposeSpike"
 DEST_BUNDLE="/Library/Security/SecurityAgentPlugins/${BUNDLE_NAME}.bundle"
 RIGHT="system.login.screensaver"
 SUBRULE="ai.repose.spike"
-BACKUP="/tmp/repose-spike-${RIGHT}.backup.plist"
+# Must match install.sh. These drifted apart once already: install.sh moved its
+# backup to /var/db so a rollback survives a reboot, this script kept looking in
+# /tmp, and the result was an uninstall that silently never restored the rule.
+BACKUP_DIR="/var/db/repose-spike"
+BACKUP="${BACKUP_DIR}/${RIGHT}.backup.plist"
+LEGACY_BACKUP="/tmp/repose-spike-${RIGHT}.backup.plist"
+# Fall back to the old location so a machine installed by the earlier script can
+# still be restored precisely.
+[[ -f "${BACKUP}" ]] || [[ ! -f "${LEGACY_BACKUP}" ]] || BACKUP="${LEGACY_BACKUP}"
 
 [[ $EUID -eq 0 ]] || { echo "Must run as root (sudo $0)." >&2; exit 1; }
 
@@ -34,8 +42,37 @@ if [[ -f "${BACKUP}" ]]; then
     echo "==> Restoring ${RIGHT} from ${BACKUP}"
     security authorizationdb write "${RIGHT}" < "${BACKUP}"
     rm -f "${BACKUP}"
+else
+    # No backup: surgically drop our entry instead of leaving the rule pointing
+    # at a right we are about to delete. A dangling reference is how a machine
+    # ends up with a screensaver rule naming a rule that no longer exists.
+    echo "==> No backup; removing '${SUBRULE}' from ${RIGHT} surgically"
+    CLEANED="/tmp/${RIGHT}.uninstall.plist"
+    security authorizationdb read "${RIGHT}" > "${CLEANED}" 2>/dev/null
+    python3 - "${CLEANED}" "${SUBRULE}" <<'PY' || { echo "Refusing to write." >&2; exit 1; }
+import plistlib, sys
+path, sub = sys.argv[1], sys.argv[2]
+with open(path, 'rb') as fh:
+    d = plistlib.load(fh)
+after = [r for r in d.get('rule', []) if r != sub]
+if not after:
+    sys.exit("REFUSING: removing %s would leave an empty rule array" % sub)
+if 'use-login-window-ui' not in after:
+    sys.exit("REFUSING: result has no 'use-login-window-ui'; no password path")
+d['rule'] = after
+with open(path, 'wb') as fh:
+    plistlib.dump(d, fh)
+PY
+    security authorizationdb write "${RIGHT}" < "${CLEANED}"
+    rm -f "${CLEANED}"
 fi
 
+# Only safe once nothing references it.
+if security authorizationdb read "${RIGHT}" 2>/dev/null | grep -q "${SUBRULE}"; then
+    echo "ERROR: ${RIGHT} still references ${SUBRULE}; leaving the right in place" >&2
+    echo "Inspect: security authorizationdb read ${RIGHT}" >&2
+    exit 1
+fi
 echo "==> Removing right ${SUBRULE}"
 security authorizationdb remove "${SUBRULE}" 2>/dev/null || true
 

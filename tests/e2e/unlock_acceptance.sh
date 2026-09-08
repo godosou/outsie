@@ -37,6 +37,14 @@ STAY_LOCKED_S="${REPOSE_STAY_LOCKED_S:-5}"
 LEAVE_CMD="${REPOSE_LEAVE_CMD:-}"
 RETURN_CMD="${REPOSE_RETURN_CMD:-}"
 
+# Locking is the one action that must happen on the machine under test rather
+# than the machine running the test. `open -a ScreenSaverEngine` only works from
+# inside the target's GUI session, so driving a VM over ssh needs
+#   launchctl asuser $(id -u admin) open -a ScreenSaverEngine
+# with `pmset displaysleepnow` as the fallback if that is refused.
+LOCK_CMD="${REPOSE_LOCK_CMD:-open -a ScreenSaverEngine}"
+TARGET="${REPOSE_TARGET:-this machine}"
+
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
@@ -87,7 +95,9 @@ preflight() {
 
 main() {
   say "repose phone-unlock acceptance test"
-  say "  host          : $(hostname -s) / macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
+  say "  target        : ${TARGET}"
+  say "  driven from   : $(hostname -s) / macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion))"
+  say "  lock via      : ${LOCK_CMD}"
   say "  unlock budget : ${DEADLINE_MS} ms"
   say "  start state   : $(lock_state)"
   say ""
@@ -114,7 +124,7 @@ main() {
   sleep 5
 
   # 1. Lock, and confirm the system actually reached the locked state.
-  open -a ScreenSaverEngine
+  run_hook "lock  " "$LOCK_CMD"
   local elapsed
   if ! elapsed="$(wait_for_lock_state true $((LOCK_WAIT_S * 1000)))"; then
     fail "screen did not lock within ${LOCK_WAIT_S}s (elapsed ${elapsed}ms).
