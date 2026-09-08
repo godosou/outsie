@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-console-status"
+description = "Enables the console_status command without any pre-configured scope."
+commands.allow = ["console_status"]
+
+[[permission]]
+identifier = "deny-console-status"
+description = "Denies the console_status command without any pre-configured scope."
+commands.deny = ["console_status"]

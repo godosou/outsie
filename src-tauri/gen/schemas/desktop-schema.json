@@ -201,6 +201,54 @@
           "markdownDescription": "Enables the confirm_pairing command without any pre-configured scope."
         },
         {
+          "description": "Enables the console_accessibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-accessibility",
+          "markdownDescription": "Enables the console_accessibility command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-cancel",
+          "markdownDescription": "Enables the console_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_reset command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-reset",
+          "markdownDescription": "Enables the console_reset command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_run command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-run",
+          "markdownDescription": "Enables the console_run command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_save command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-save",
+          "markdownDescription": "Enables the console_save command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-start",
+          "markdownDescription": "Enables the console_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-status",
+          "markdownDescription": "Enables the console_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the console_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-console-stop",
+          "markdownDescription": "Enables the console_stop command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_lifecycle_snapshot command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-lifecycle-snapshot",
@@ -277,6 +325,54 @@
           "type": "string",
           "const": "deny-confirm-pairing",
           "markdownDescription": "Denies the confirm_pairing command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_accessibility command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-accessibility",
+          "markdownDescription": "Denies the console_accessibility command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_cancel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-cancel",
+          "markdownDescription": "Denies the console_cancel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_reset command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-reset",
+          "markdownDescription": "Denies the console_reset command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_run command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-run",
+          "markdownDescription": "Denies the console_run command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_save command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-save",
+          "markdownDescription": "Denies the console_save command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-start",
+          "markdownDescription": "Denies the console_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-status",
+          "markdownDescription": "Denies the console_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the console_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-console-stop",
+          "markdownDescription": "Denies the console_stop command without any pre-configured scope."
         },
         {
           "description": "Denies the get_lifecycle_snapshot command without any pre-configured scope.",

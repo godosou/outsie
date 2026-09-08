@@ -24,6 +24,8 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Repose connects to your Mac on your local network to run the App shortcuts you configure.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Repose uses the camera only to scan the one-time pairing QR code shown on your Mac.</string>
 	<key>UILaunchStoryboardName</key>

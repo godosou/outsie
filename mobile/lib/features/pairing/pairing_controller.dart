@@ -37,6 +37,7 @@ class PairingController extends ChangeNotifier {
   PairingState _state = const PairingState();
   var _epoch = 0;
   var _disposed = false;
+  var _pendingReadInFlight = false;
 
   PairingState get state => _state;
 
@@ -61,6 +62,52 @@ class PairingController extends ChangeNotifier {
       ),
       token: token,
     );
+  }
+
+  /// Read pending status without putting DeviceController in its loading gate.
+  /// Confirmation and new pairing increment the epoch, invalidating this read.
+  Future<void> refreshPendingPairing() async {
+    final session = _state.session;
+    if (_disposed ||
+        _pendingReadInFlight ||
+        _state.phase != PairingPhase.awaitingConfirmation ||
+        session == null) {
+      return;
+    }
+    final token = _epoch;
+    _pendingReadInFlight = true;
+    try {
+      final snapshot = await _gateway.getSnapshot();
+      if (!_isCurrent(token) ||
+          _state.phase != PairingPhase.awaitingConfirmation) {
+        return;
+      }
+      if (_isExpired(session)) {
+        _replace(_expired(session), token: token);
+      } else if (snapshot.pendingPairing?.sessionId != session.sessionId) {
+        _replace(
+          const PairingState(
+            phase: PairingPhase.failed,
+            message: 'Pairing connection ended. Scan a new QR code.',
+          ),
+          token: token,
+        );
+      } else if (!CapabilityGate.from(snapshot.capability).canPair) {
+        _replace(_unavailableState(session: session), token: token);
+      }
+    } catch (_) {
+      if (_isCurrent(token)) {
+        _replace(
+          const PairingState(
+            phase: PairingPhase.failed,
+            message: 'Pairing connection ended. Scan a new QR code.',
+          ),
+          token: token,
+        );
+      }
+    } finally {
+      _pendingReadInFlight = false;
+    }
   }
 
   Future<bool> beginPairing(String qrPayload) async {

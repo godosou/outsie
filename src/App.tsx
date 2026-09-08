@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
+import { WorkConsolePanel } from './components/WorkConsolePanel'
+import './components/WorkConsolePanel.css'
 import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
@@ -7,7 +9,7 @@ import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
 import { localDateKey } from './lib/timer'
 import { getShortBreakVoice } from './lib/reposeVoice'
 
-type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phoneKey' | 'settings'
+type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phoneKey' | 'workConsole' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
@@ -25,6 +27,7 @@ const navigation: { id: Page; label: string; icon: typeof Eye }[] = [
   { id: 'ideas', label: '休息灵感', icon: Flower2 },
   { id: 'activity', label: '我的记录', icon: BarChart3 },
   { id: 'phoneKey', label: '手机钥匙', icon: KeyRound },
+  { id: 'workConsole', label: 'App 工作台', icon: Monitor },
 ]
 const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }> = {
   overview: { title: '让休息，自然发生。', subtitle: '专注于热爱的事，也留一点时间，好好照顾自己。', eyebrow: 'A LITTLE PAUSE, A BETTER DAY' },
@@ -32,6 +35,7 @@ const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }>
   ideas: { title: '小小休息，大有不同。', subtitle: '离开屏幕的这一刻，可以用来做很多美好的小事。', eyebrow: 'SMALL MOMENTS, BIG DIFFERENCE' },
   activity: { title: '每一次停顿，都算数。', subtitle: '慢慢积累的好习惯，正在成为生活的一部分。', eyebrow: 'A KINDER WAY TO KEEP GOING' },
   phoneKey: { title: '手机钥匙与 BLE 调试。', subtitle: '在这里生成配对二维码，联调手机连接，并校准适合你的靠近距离。', eyebrow: 'PAIR, CONNECT, CALIBRATE' },
+  workConsole: { title: '常用操作，触手可及。', subtitle: '为每个 App 配置快捷键与键盘序列，手机点一下就能执行。', eyebrow: 'YOUR APPS, ONE TAP AWAY' },
   settings: { title: '让 Repose 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
 }
 
@@ -377,6 +381,8 @@ export default function App() {
           {activityHistory.length ? <div className="history-list">{activityHistory.map(item => <div className="history-row" key={item.id}><span className={`stat-icon ${item.type === 'short' ? 'sage' : 'peach'}`}>{item.type === 'short' ? <Leaf size={18} /> : <Coffee size={18} />}</span><div><h3>{item.type === 'short' ? '片刻小憩' : '好好放松'}</h3><p>{new Date(item.completedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</p></div><span>{item.duration < 60 ? `${item.duration} 秒` : `${Math.round(item.duration / 60 * 10) / 10} 分钟`}</span><span className="history-complete"><CheckCircle2 size={14} />已完成</span></div>)}</div> : <div className="empty-state"><div className="empty-flower"><Sprout size={34} strokeWidth={1.2} /></div><h3>好习惯，从一个小小的停顿开始。</h3><p>{activityIsToday ? '完成第一次休息，让今天的留白在这里生根。' : '这一天没有完成的休息足迹。'}</p>{activityIsToday ? <button className="text-button" onClick={() => beginBreak('short')}>现在，歇一会<ArrowRight size={15} /></button> : <button className="text-button" onClick={() => chooseActivityDate(todayNoon)}>回到今天<ArrowRight size={15} /></button>}</div>}
         </section>
       </div>}
+
+      {page === 'workConsole' && <WorkConsolePanel />}
 
       {page === 'phoneKey' && <div className="page-enter phone-key-page"><UnlockSettingsPanel bridge={window.repose?.unlock} /></div>}
 

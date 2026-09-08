@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-console-reset"
+description = "Enables the console_reset command without any pre-configured scope."
+commands.allow = ["console_reset"]
+
+[[permission]]
+identifier = "deny-console-reset"
+description = "Denies the console_reset command without any pre-configured scope."
+commands.deny = ["console_reset"]

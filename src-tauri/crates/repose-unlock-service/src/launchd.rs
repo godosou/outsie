@@ -465,11 +465,17 @@ mod platform {
 
         impl TempSocket {
             fn new() -> Self {
+                static NEXT_SOCKET: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let sequence = NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let unique = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("clock after epoch")
                     .as_nanos();
-                let directory = PathBuf::from(format!("/tmp/rld-{}-{unique}", std::process::id()));
+                let directory = PathBuf::from(format!(
+                    "/tmp/rld-{}-{unique}-{sequence}",
+                    std::process::id()
+                ));
                 fs::create_dir(&directory).expect("create protected socket directory");
                 fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
                     .expect("protect socket directory");

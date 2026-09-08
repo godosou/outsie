@@ -204,15 +204,18 @@ use tauri::{
 };
 
 pub mod build_unlock_backend;
+pub mod console_transport;
 pub mod debug_bluetooth_pairing;
 pub mod debug_pairing_material;
 #[cfg(target_os = "macos")]
 pub mod macos_bluetooth_pairing;
 pub mod unlock;
+pub mod work_console;
 use unlock::{
     ProductionUnlockCommandService, begin_calibration, begin_pairing, confirm_pairing,
     open_unlock_diagnostics, revoke_device, unlock_status,
 };
+use work_console::*;
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
@@ -227,7 +230,7 @@ unsafe extern "C" {
 fn continuous_seconds() -> f64 {
     #[cfg(target_os = "macos")]
     unsafe {
-        return repose_continuous_seconds();
+        repose_continuous_seconds()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -415,6 +418,9 @@ extern "C" fn handle_native_lifecycle(event_code: i32) {
         (started, completed, restore_break)
     };
     if let Some(started) = started {
+        if let Some(console) = context.app.try_state::<Arc<WorkConsole>>() {
+            console.cancel();
+        }
         close_break_windows(&context.app);
         let _ = context.app.emit("repose-lifecycle", started);
     }
@@ -538,6 +544,7 @@ fn start_strict_break(app: &AppHandle, shared: &SharedState, status: &TimerStatu
         return;
     }
     let continuous_now = continuous_seconds();
+    let mut started = false;
     let should_create = {
         let mut state = shared.runtime.lock().expect("state poisoned");
         if state.strict_break.is_some()
@@ -550,6 +557,7 @@ fn start_strict_break(app: &AppHandle, shared: &SharedState, status: &TimerStatu
             let postponed = state.postponed_break_ids.contains(&break_id);
             let duration = status.remaining.ceil() as u32;
             let inactive = state.lifecycle.is_inactive();
+            started = true;
             state.strict_break = Some(StrictBreak {
                 phase: status.phase.clone(),
                 break_id,
@@ -566,6 +574,9 @@ fn start_strict_break(app: &AppHandle, shared: &SharedState, status: &TimerStatu
             !inactive
         }
     };
+    if started && let Some(console) = app.try_state::<Arc<WorkConsole>>() {
+        console.cancel();
+    }
     if should_create && create_break_windows(app).is_err() {
         let mut state = shared.runtime.lock().expect("state poisoned");
         state.strict_break = None;
@@ -887,6 +898,14 @@ pub fn run() {
         .manage(shared.clone())
         .manage(unlock_service)
         .invoke_handler(tauri::generate_handler![
+            console_status,
+            console_save,
+            console_reset,
+            console_start,
+            console_stop,
+            console_run,
+            console_cancel,
+            console_accessibility,
             set_status,
             set_preferences,
             get_lifecycle_snapshot,
@@ -927,6 +946,18 @@ pub fn run() {
                 }
                 return Ok(());
             }
+            let gate = shared.clone();
+            let console = WorkConsole::new(
+                app.path().app_data_dir()?.join("work-console-v1.json"),
+                Arc::new(MacKeyboard),
+                Arc::new(move || {
+                    let runtime = gate.runtime.lock().unwrap();
+                    gate.quitting.load(Ordering::Relaxed)
+                        || runtime.lifecycle.is_inactive()
+                        || runtime.strict_break.is_some()
+                }),
+            );
+            app.manage(console);
             setup_tray(app)?;
             setup_lifecycle(app.handle(), shared.clone());
             run_break_monitor(app.handle().clone(), shared.clone());

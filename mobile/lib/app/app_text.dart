@@ -169,6 +169,7 @@ const _zh = <String, String>{
   'Pairing could not be started.': '配对暂时无法开始，请重试。',
   'Pairing confirmation could not refresh authoritative state.':
       '还无法确认配对结果，请刷新状态后重试。',
+  'Pairing connection ended. Scan a new QR code.': '配对连接已结束，请扫描新的二维码。',
   'Pairing confirmation failed.': '配对确认失败，请重试。',
   'Pairing is unavailable until native capability recovers.':
       '手机钥匙恢复可用后，才能继续配对。',

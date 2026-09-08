@@ -11,6 +11,7 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
+  crypto: ^3.0.6
   mobile_scanner: ^7.4.0
   permission_handler: 12.0.1
   repose_unlock_native:

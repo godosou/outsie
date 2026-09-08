@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'app_text.dart';
 import 'repose_theme.dart';
 import '../features/settings/settings_page.dart';
+import '../features/work_console/work_console_page.dart';
 
 import '../features/calibration/calibration_controller.dart';
 import '../features/devices/device_controller.dart';
@@ -67,6 +68,7 @@ class _CompanionHomeState extends State<_CompanionHome> {
   late final Listenable _controllers;
   var _showAdditionalPairing = false;
   var _openingScanner = false;
+  Timer? _pairingPoll;
 
   @override
   void initState() {
@@ -86,6 +88,7 @@ class _CompanionHomeState extends State<_CompanionHome> {
       _calibration,
     ]);
     _devices.addListener(_syncCalibrationFromAuthoritativeSnapshot);
+    _pairing.addListener(_syncPairingPolling);
     unawaited(_hydrateFromNative());
   }
 
@@ -101,6 +104,17 @@ class _CompanionHomeState extends State<_CompanionHome> {
     _pairing.hydrateFromSnapshot(snapshot.pendingPairing);
   }
 
+  void _syncPairingPolling() {
+    if (_pairing.state.phase == PairingPhase.awaitingConfirmation) {
+      _pairingPoll ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        unawaited(_pairing.refreshPendingPairing());
+      });
+    } else {
+      _pairingPoll?.cancel();
+      _pairingPoll = null;
+    }
+  }
+
   void _syncCalibrationFromAuthoritativeSnapshot() {
     final deviceState = _devices.state;
     final snapshot = deviceState.snapshot;
@@ -114,6 +128,8 @@ class _CompanionHomeState extends State<_CompanionHome> {
 
   @override
   void dispose() {
+    _pairingPoll?.cancel();
+    _pairing.removeListener(_syncPairingPolling);
     _devices.removeListener(_syncCalibrationFromAuthoritativeSnapshot);
     _calibration.dispose();
     _pairing.dispose();
@@ -289,6 +305,13 @@ class _CompanionHomeState extends State<_CompanionHome> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: consoleText(context, 'App controls', 'App 快捷操作'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const WorkConsolePage()),
+            ),
+            icon: const Icon(Icons.dashboard_customize_outlined, size: 22),
+          ),
           IconButton(
             tooltip: tr(context, 'Permissions & background'),
             onPressed: _openSettings,
