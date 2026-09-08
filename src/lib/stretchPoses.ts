@@ -6,6 +6,8 @@ export const JOINT_NAMES = [
   'chest',
   'neck',
   'head',
+  'leftClavicle',
+  'rightClavicle',
   'leftShoulder',
   'rightShoulder',
   'leftElbow',
@@ -24,6 +26,7 @@ export type StretchPose = {
   joints: Record<JointName, Rotation>
   rootPosition: Rotation
   cameraYaw: number
+  headRetraction: number
 }
 
 const rotation = (x = 0, y = 0, z = 0): Rotation => [x, y, z]
@@ -36,17 +39,19 @@ type PoseContext = {
   joints: Record<JointName, Rotation>
   wave: number
   pulse: number
+  orbit: number
   cameraYaw: number
+  headRetraction: number
   rootPosition: Rotation
 }
 
 type PoseFactory = (context: PoseContext) => void
 
 const poseFactories: Record<StretchExerciseId, PoseFactory> = {
-  'chin-tuck': ({ joints, pulse }) => {
-    joints.neck = rotation(-0.04 - pulse * 0.08)
-    joints.head = rotation(0.08 + pulse * 0.12)
-    joints.chest = rotation(-0.02 - pulse * 0.025)
+  'chin-tuck': context => {
+    context.headRetraction = -0.1 * context.pulse
+    context.joints.neck = rotation(-0.025 * context.pulse)
+    context.joints.head = rotation(0.025 * context.pulse)
   },
   'neck-side-stretch': ({ joints, wave }) => {
     joints.neck = rotation(0, 0, wave * 0.15)
@@ -54,8 +59,10 @@ const poseFactories: Record<StretchExerciseId, PoseFactory> = {
     joints.leftShoulder = rotation(0, 0, -Math.max(0, wave) * 0.08)
     joints.rightShoulder = rotation(0, 0, Math.min(0, wave) * 0.08)
   },
-  'shoulder-rolls': ({ joints, wave, pulse }) => {
-    const lift = (pulse - 0.5) * 0.16
+  'shoulder-rolls': ({ joints, wave, orbit }) => {
+    const lift = orbit * 0.14
+    joints.leftClavicle = rotation(0, wave * 0.12, -(orbit + 1) * 0.065)
+    joints.rightClavicle = rotation(0, -wave * 0.12, (orbit + 1) * 0.065)
     joints.leftShoulder = rotation(-wave * 0.22, 0, -0.08 + lift)
     joints.rightShoulder = rotation(-wave * 0.22, 0, 0.08 - lift)
     joints.chest = rotation(wave * 0.025)
@@ -63,10 +70,10 @@ const poseFactories: Record<StretchExerciseId, PoseFactory> = {
   'upper-trapezius': ({ joints, wave }) => {
     const side = wave >= 0 ? 1 : -1
     const reach = Math.abs(wave)
-    joints.neck = rotation(0, -side * 0.03, side * reach * 0.12)
-    joints.head = rotation(0, -side * 0.04, side * reach * 0.32)
-    joints.leftShoulder = rotation(side > 0 ? 0.32 * reach : 0, side > 0 ? -0.18 : 0, -0.05)
-    joints.rightShoulder = rotation(side < 0 ? 0.32 * reach : 0, side < 0 ? 0.18 : 0, 0.05)
+    joints.neck = rotation(0, -wave * 0.03, wave * 0.12)
+    joints.head = rotation(0, -wave * 0.04, wave * 0.32)
+    joints.leftShoulder = rotation(side > 0 ? 0.32 * reach : 0, side > 0 ? -0.18 * reach : 0, -0.05)
+    joints.rightShoulder = rotation(side < 0 ? 0.32 * reach : 0, side < 0 ? 0.18 * reach : 0, 0.05)
     joints.leftElbow = rotation(side > 0 ? -0.18 * reach : 0)
     joints.rightElbow = rotation(side < 0 ? -0.18 * reach : 0)
   },
@@ -79,7 +86,6 @@ const poseFactories: Record<StretchExerciseId, PoseFactory> = {
     joints.rightElbow = rotation(-open * 0.42, 0, open * 0.22)
   },
   'upper-back-rotation': ({ joints, wave }) => {
-    joints.root = rotation(0, wave * 0.08)
     joints.torso = rotation(0, wave * 0.18)
     joints.chest = rotation(0, wave * 0.34)
     joints.neck = rotation(0, -wave * 0.12)
@@ -89,22 +95,19 @@ const poseFactories: Record<StretchExerciseId, PoseFactory> = {
     joints.rightElbow = rotation(0, 0, 1.18)
   },
   'wrist-forearm': ({ joints, wave }) => {
-    const side = wave >= 0 ? 1 : -1
-    const reach = 0.65 + Math.abs(wave) * 0.35
-    joints.leftShoulder = rotation(side > 0 ? -1.12 * reach : -0.18, 0, side > 0 ? -0.2 : -0.05)
-    joints.rightShoulder = rotation(side < 0 ? -1.12 * reach : -0.18, 0, side < 0 ? 0.2 : 0.05)
-    joints.leftElbow = rotation(0, 0, side > 0 ? -0.08 : -1.02)
-    joints.rightElbow = rotation(0, 0, side < 0 ? 0.08 : 1.02)
-    joints.leftWrist = rotation(side > 0 ? 0.62 * reach : 0, 0, side > 0 ? 0 : -0.2)
-    joints.rightWrist = rotation(side < 0 ? 0.62 * reach : 0, 0, side < 0 ? 0 : 0.2)
+    const left = Math.max(0, wave)
+    const right = Math.max(0, -wave)
+    joints.leftShoulder = rotation(-1.4 * left, 0, -0.08)
+    joints.rightShoulder = rotation(-1.4 * right, 0, 0.08)
+    joints.leftWrist = rotation(0.5 * left)
+    joints.rightWrist = rotation(0.5 * right)
   },
   'standing-side-bend': ({ joints, wave }) => {
-    joints.root = rotation(0, 0, wave * 0.06)
     joints.torso = rotation(0, 0, wave * 0.2)
     joints.chest = rotation(0, 0, wave * 0.18)
     joints.neck = rotation(0, 0, -wave * 0.12)
-    joints.leftShoulder = rotation(0, 0, -2.78)
-    joints.rightShoulder = rotation(0, 0, 2.78)
+    joints.leftShoulder = rotation(0, 0, -2.9 * Math.max(0, -wave))
+    joints.rightShoulder = rotation(0, 0, 2.9 * Math.max(0, wave))
     joints.leftElbow = rotation(0, 0, -0.08)
     joints.rightElbow = rotation(0, 0, 0.08)
   },
@@ -113,14 +116,21 @@ const poseFactories: Record<StretchExerciseId, PoseFactory> = {
 export function getStretchPose(id: StretchExerciseId, phase: number, reducedMotion = false): StretchPose {
   const safePhase = Number.isFinite(phase) ? phase : 0
   const wrappedPhase = ((safePhase % 1) + 1) % 1
-  const animatedWave = Math.sin(wrappedPhase * Math.PI * 2)
+  const sidePhase = (wrappedPhase * 2) % 1
+  const ramp = Math.min(1, Math.max(0, Math.min(sidePhase / 0.3, (1 - sidePhase) / 0.3)))
+  const ease = ramp * ramp * (3 - 2 * ramp)
+  const animatedWave = id === 'shoulder-rolls'
+    ? Math.sin(wrappedPhase * Math.PI * 2)
+    : ease * (wrappedPhase < 0.5 ? 1 : -1)
   const wave = reducedMotion ? 1 : animatedWave
-  const pulse = (wave + 1) / 2
+  const pulse = Math.max(0, wave)
   const context: PoseContext = {
     joints: neutralJoints(),
     wave,
     pulse,
-    cameraYaw: id === 'upper-back-rotation' ? -0.2 : id === 'chest-opener' ? 0.12 : 0,
+    orbit: reducedMotion ? 0 : Math.cos(wrappedPhase * Math.PI * 2),
+    headRetraction: 0,
+    cameraYaw: id === 'chin-tuck' ? 0.95 : id === 'upper-back-rotation' ? -0.4 : id === 'chest-opener' ? 0.65 : 0.15,
     rootPosition: rotation(0, 0, 0),
   }
   poseFactories[id](context)
@@ -128,5 +138,6 @@ export function getStretchPose(id: StretchExerciseId, phase: number, reducedMoti
     joints: context.joints,
     rootPosition: context.rootPosition,
     cameraYaw: context.cameraYaw,
+    headRetraction: context.headRetraction,
   }
 }

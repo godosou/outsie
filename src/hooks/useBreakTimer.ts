@@ -90,6 +90,7 @@ export function useBreakTimer() {
     postponeSeconds: getPostponeSeconds(state.deferredBreak?.type ?? (state.phase === 'long' ? 'long' : 'short')),
     running: state.running,
     remaining: Math.ceil(state.remaining),
+    phaseDuration: state.phaseDuration,
     progress: Math.max(0, Math.min(1, 1 - state.remaining / state.phaseDuration)),
     settings: state.settings,
     stats: getTodayStats(state, now),

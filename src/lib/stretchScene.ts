@@ -1,314 +1,222 @@
 import * as THREE from 'three'
+import humanUrl from '../assets/stretch-human.json?url'
 import { getStretchPose, type JointName } from './stretchPoses.ts'
 import type { StretchExerciseId } from './stretchRoutine.ts'
+import { advanceStretchPlayback } from './stretchPlayback.ts'
 
 export type StretchScene = {
+  ready: Promise<void>
   setExercise: (id: StretchExerciseId) => void
   setReducedMotion: (value: boolean) => void
+  setRunning: (value: boolean) => void
   dispose: () => void
 }
-
-type Rig = {
-  avatar: THREE.Group
-  joints: Record<JointName, THREE.Group>
-  chestBody: THREE.Mesh
+type HumanAsset = {
+  positions: number[]; indices: number[]; skinIndices: number[]; skinWeights: number[]
+  bones: { name: string; parent: string | null; position: [number, number, number] }[]
+}
+const JOINT_MAP: Record<JointName, string> = {
+  root: 'root', torso: 'spine04', chest: 'spine01', neck: 'neck01', head: 'head',
+  leftClavicle: 'clavicle.R', rightClavicle: 'clavicle.L',
+  leftShoulder: 'upperarm01.R', rightShoulder: 'upperarm01.L',
+  leftElbow: 'lowerarm01.R', rightElbow: 'lowerarm01.L',
+  leftWrist: 'wrist.R', rightWrist: 'wrist.L',
+  leftHip: 'upperleg01.R', rightHip: 'upperleg01.L',
+  leftKnee: 'lowerleg01.R', rightKnee: 'lowerleg01.L',
 }
 
-const COLORS = {
-  skin: 0xdcae91,
-  skinShadow: 0xc89174,
-  top: 0x758f65,
-  topLight: 0x91a981,
-  shorts: 0x526a50,
-  leggings: 0xc7b6a1,
-  shoes: 0xf4efe4,
-  hair: 0x4b403a,
-  eyes: 0x302f2b,
+// Approximate surface regions, not segmented anatomical muscles.
+function regionWeight(id: StretchExerciseId, x: number, y: number, z: number) {
+  const spot = (cx: number, cy: number, cz: number, rx: number, ry: number, rz: number) =>
+    Math.exp(-2 * (((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 + ((z - cz) / rz) ** 2))
+  const neck = spot(0, 3.83, 0.05, 0.34, 0.25, 0.5)
+  const shoulders = spot(0.4, 3.54, 0, 0.3, 0.23, 0.6) + spot(-0.4, 3.54, 0, 0.3, 0.23, 0.6)
+  switch (id) {
+    case 'chin-tuck': return neck
+    case 'neck-side-stretch': return neck + shoulders * 0.2
+    case 'upper-trapezius': return neck * 0.65 + shoulders * 0.9 + spot(0, 3.45, -0.18, 0.5, 0.38, 0.18)
+    case 'shoulder-rolls': return shoulders + spot(0, 3.43, -0.17, 0.48, 0.3, 0.18)
+    case 'chest-opener': return spot(0, 3.36, 0.21, 0.6, 0.3, 0.2)
+    case 'upper-back-rotation': return spot(0, 3.28, -0.18, 0.5, 0.5, 0.2)
+    case 'wrist-forearm': return spot(0.56, 2.57, 0.09, 0.2, 0.43, 0.2) + spot(-0.56, 2.57, 0.09, 0.2, 0.43, 0.2)
+    case 'standing-side-bend': return spot(0.31, 2.91, 0, 0.22, 0.43, 0.3) + spot(-0.31, 2.91, 0, 0.22, 0.43, 0.3)
+  }
 }
-
-function clay(color: number, roughness = 0.84) {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 })
-}
-
-function capsule(radius: number, length: number, material: THREE.Material, segments = 18) {
-  const mesh = new THREE.Mesh(new THREE.CapsuleGeometry(radius, length, 8, segments), material)
+function createHuman(asset: HumanAsset) {
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(asset.positions, 3))
+  geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(asset.skinIndices, 4))
+  geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(asset.skinWeights, 4))
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(asset.positions.length), 3))
+  geometry.setIndex(asset.indices)
+  geometry.computeVertexNormals()
+  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.66, metalness: 0.02 })
+  // Shade the garment in bind space: crisp hems that follow skinning, without
+  // jagged per-vertex color boundaries or a separate clipping-prone shorts mesh.
+  material.onBeforeCompile = shader => {
+    shader.vertexShader = `varying vec3 guideBindPosition;\n${shader.vertexShader}`
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nguideBindPosition = position;')
+    shader.fragmentShader = `varying vec3 guideBindPosition;\n${shader.fragmentShader}`
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float garment = step(1.87, guideBindPosition.y) * step(guideBindPosition.y, 2.57) * step(abs(guideBindPosition.x), 0.49);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.053, 0.067, 0.082), garment);
+      `)
+  }
+  const mesh = new THREE.SkinnedMesh(geometry, material)
+  mesh.frustumCulled = false
   mesh.castShadow = true
   mesh.receiveShadow = true
-  return mesh
-}
-
-function sphere(radius: number, material: THREE.Material, width = 24, height = 18) {
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, width, height), material)
-  mesh.castShadow = true
-  mesh.receiveShadow = true
-  return mesh
-}
-
-function addArm(
-  chest: THREE.Group,
-  side: 'left' | 'right',
-  materials: { skin: THREE.Material; top: THREE.Material },
-  joints: Partial<Record<JointName, THREE.Group>>,
-) {
-  const direction = side === 'left' ? -1 : 1
-  const shoulderName = `${side}Shoulder` as JointName
-  const elbowName = `${side}Elbow` as JointName
-  const wristName = `${side}Wrist` as JointName
-  const shoulder = new THREE.Group()
-  shoulder.position.set(direction * 0.58, 0.43, 0)
-  chest.add(shoulder)
-  joints[shoulderName] = shoulder
-
-  const sleeve = capsule(0.175, 0.24, materials.top)
-  sleeve.position.y = -0.25
-  shoulder.add(sleeve)
-  const upperArm = capsule(0.135, 0.29, materials.skin)
-  upperArm.position.y = -0.61
-  shoulder.add(upperArm)
-
-  const elbow = new THREE.Group()
-  elbow.position.y = -0.86
-  shoulder.add(elbow)
-  joints[elbowName] = elbow
-  const elbowJoint = sphere(0.14, materials.skin)
-  elbow.add(elbowJoint)
-  const forearm = capsule(0.125, 0.42, materials.skin)
-  forearm.position.y = -0.34
-  elbow.add(forearm)
-
-  const wrist = new THREE.Group()
-  wrist.position.y = -0.7
-  elbow.add(wrist)
-  joints[wristName] = wrist
-  const hand = capsule(0.11, 0.15, materials.skin, 14)
-  hand.position.y = -0.16
-  hand.scale.set(0.85, 1, 0.55)
-  wrist.add(hand)
-}
-
-function addLeg(
-  avatar: THREE.Group,
-  side: 'left' | 'right',
-  materials: { leggings: THREE.Material; skin: THREE.Material; shoes: THREE.Material },
-  joints: Partial<Record<JointName, THREE.Group>>,
-) {
-  const direction = side === 'left' ? -1 : 1
-  const hipName = `${side}Hip` as JointName
-  const kneeName = `${side}Knee` as JointName
-  const hip = new THREE.Group()
-  hip.position.set(direction * 0.245, -0.16, 0)
-  avatar.add(hip)
-  joints[hipName] = hip
-
-  const thigh = capsule(0.205, 0.58, materials.leggings)
-  thigh.position.y = -0.48
-  hip.add(thigh)
-  const knee = new THREE.Group()
-  knee.position.y = -0.96
-  hip.add(knee)
-  joints[kneeName] = knee
-  knee.add(sphere(0.19, materials.leggings))
-  const shin = capsule(0.17, 0.58, materials.skin)
-  shin.position.y = -0.48
-  knee.add(shin)
-  const shoe = capsule(0.18, 0.25, materials.shoes, 14)
-  shoe.rotation.x = Math.PI / 2
-  shoe.scale.set(1, 1.25, 0.72)
-  shoe.position.set(0, -0.91, 0.12)
-  knee.add(shoe)
-}
-
-function createRig(): Rig {
-  const materials = {
-    skin: clay(COLORS.skin, 0.9),
-    skinShadow: clay(COLORS.skinShadow, 0.9),
-    top: clay(COLORS.top),
-    topLight: clay(COLORS.topLight),
-    shorts: clay(COLORS.shorts),
-    leggings: clay(COLORS.leggings),
-    shoes: clay(COLORS.shoes),
-    hair: clay(COLORS.hair, 0.92),
-    eyes: clay(COLORS.eyes, 0.72),
+  const bones = asset.bones.map(def => { const bone = new THREE.Bone(); bone.name = def.name; bone.position.fromArray(def.position); return bone })
+  const byName = Object.fromEntries(bones.map(bone => [bone.name, bone]))
+  asset.bones.forEach((def, i) => (def.parent ? byName[def.parent] : mesh).add(bones[i]))
+  mesh.updateMatrixWorld(true)
+  const skeleton = new THREE.Skeleton(bones)
+  mesh.bind(skeleton)
+  const joints = Object.fromEntries(Object.entries(JOINT_MAP).map(([key, name]) => [key, byName[name]])) as Record<JointName, THREE.Bone>
+  const headRest = joints.head.position.clone()
+  const rootRest = joints.root.position.clone()
+  const ivory = new THREE.Color('#dcdeda'), red = new THREE.Color('#c74943')
+  const color = new THREE.Color()
+  function highlight(id: StretchExerciseId) {
+    const colors = geometry.getAttribute('color')
+    for (let i = 0; i < asset.positions.length / 3; i++) {
+      const x = asset.positions[i * 3], y = asset.positions[i * 3 + 1], z = asset.positions[i * 3 + 2]
+      color.copy(ivory).lerp(red, THREE.MathUtils.smoothstep(regionWeight(id, x, y, z), 0.07, 0.7))
+      colors.setXYZ(i, color.r, color.g, color.b)
+    }
+    colors.needsUpdate = true
   }
-  const avatar = new THREE.Group()
-  const partialJoints: Partial<Record<JointName, THREE.Group>> = { root: avatar }
-
-  const pelvis = capsule(0.38, 0.24, materials.shorts)
-  pelvis.scale.set(1.08, 0.9, 0.82)
-  avatar.add(pelvis)
-
-  const torso = new THREE.Group()
-  torso.position.y = 0.2
-  avatar.add(torso)
-  partialJoints.torso = torso
-  const waist = capsule(0.39, 0.42, materials.top)
-  waist.position.y = 0.38
-  waist.scale.set(0.92, 1, 0.74)
-  torso.add(waist)
-
-  const chest = new THREE.Group()
-  chest.position.y = 0.76
-  torso.add(chest)
-  partialJoints.chest = chest
-  const chestBody = capsule(0.47, 0.42, materials.topLight)
-  chestBody.position.y = 0.2
-  chestBody.scale.set(1, 1, 0.75)
-  chest.add(chestBody)
-
-  const neck = new THREE.Group()
-  neck.position.y = 0.76
-  chest.add(neck)
-  partialJoints.neck = neck
-  const neckMesh = capsule(0.115, 0.17, materials.skin, 14)
-  neckMesh.position.y = 0.08
-  neck.add(neckMesh)
-
-  const head = new THREE.Group()
-  head.position.y = 0.31
-  neck.add(head)
-  partialJoints.head = head
-  const face = sphere(0.34, materials.skin)
-  face.scale.set(0.9, 1.06, 0.91)
-  head.add(face)
-  const hair = sphere(0.355, materials.hair)
-  hair.scale.set(0.94, 0.78, 0.95)
-  hair.position.set(0, 0.13, -0.06)
-  head.add(hair)
-  const bun = sphere(0.16, materials.hair, 18, 14)
-  bun.position.set(0.23, 0.29, -0.09)
-  head.add(bun)
-  for (const x of [-0.1, 0.1]) {
-    const eye = sphere(0.025, materials.eyes, 12, 10)
-    eye.position.set(x, 0.035, 0.303)
-    eye.scale.y = 1.15
-    head.add(eye)
-  }
-  const nose = sphere(0.035, materials.skinShadow, 12, 10)
-  nose.scale.set(0.72, 1, 0.72)
-  nose.position.set(0, -0.025, 0.337)
-  head.add(nose)
-
-  addArm(chest, 'left', materials, partialJoints)
-  addArm(chest, 'right', materials, partialJoints)
-  addLeg(avatar, 'left', materials, partialJoints)
-  addLeg(avatar, 'right', materials, partialJoints)
-
-  const joints = partialJoints as Record<JointName, THREE.Group>
-  return { avatar, joints, chestBody }
-}
-
-function disposeObject(root: THREE.Object3D) {
-  const materials = new Set<THREE.Material>()
-  const geometries = new Set<THREE.BufferGeometry>()
-  root.traverse(object => {
-    if (!(object instanceof THREE.Mesh)) return
-    geometries.add(object.geometry)
-    const meshMaterials = Array.isArray(object.material) ? object.material : [object.material]
-    meshMaterials.forEach(material => materials.add(material))
-  })
-  geometries.forEach(geometry => geometry.dispose())
-  materials.forEach(material => material.dispose())
+  return { mesh, skeleton, joints, headRest, rootRest, highlight }
 }
 
 export function createStretchScene(container: HTMLElement, initialId: StretchExerciseId): StretchScene {
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'low-power' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.08
+  renderer.toneMappingExposure = 1.12
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.domElement.className = 'stretch-canvas'
   renderer.domElement.setAttribute('aria-hidden', 'true')
+  container.dataset.state = 'loading'
   container.append(renderer.domElement)
-
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(29, 1, 0.1, 30)
-  const rig = createRig()
-  rig.avatar.position.y = -0.08
-  scene.add(rig.avatar)
-
-  const hemisphere = new THREE.HemisphereLight(0xfff9ec, 0x829077, 2.8)
-  scene.add(hemisphere)
-  const key = new THREE.DirectionalLight(0xfff2db, 4.3)
-  key.position.set(-3.5, 6, 5)
+  const camera = new THREE.OrthographicCamera(-2, 2, 2.5, -2.5, 0.1, 30)
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x9c9da2, 2))
+  const key = new THREE.DirectionalLight(0xffffff, 3.1)
+  key.position.set(-3, 7, 5)
   key.castShadow = true
   key.shadow.mapSize.set(1024, 1024)
-  key.shadow.camera.left = -4
-  key.shadow.camera.right = 4
-  key.shadow.camera.top = 5
-  key.shadow.camera.bottom = -4
+  Object.assign(key.shadow.camera, { left: -3, right: 3, top: 5, bottom: -2 })
   key.shadow.bias = -0.0004
+  key.shadow.normalBias = 0.025
   scene.add(key)
-  const rim = new THREE.DirectionalLight(0xcde1bb, 2.1)
-  rim.position.set(4, 2, -3)
+  const rim = new THREE.DirectionalLight(0xe5ebf1, 2)
+  rim.position.set(3, 5, -4)
   scene.add(rim)
-
-  const groundMaterial = new THREE.ShadowMaterial({ color: 0x31432c, opacity: 0.17 })
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(2.35, 64), groundMaterial)
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.ShadowMaterial({ color: 0x404750, opacity: 0.14 }))
   ground.rotation.x = -Math.PI / 2
-  ground.position.y = -2.08
+  ground.position.y = -0.015
   ground.receiveShadow = true
   scene.add(ground)
-
-  const haloMaterial = new THREE.MeshBasicMaterial({ color: 0xdbe7cf, transparent: true, opacity: 0.46, side: THREE.DoubleSide })
-  const halo = new THREE.Mesh(new THREE.TorusGeometry(2.02, 0.018, 8, 96), haloMaterial)
-  halo.position.set(0, 0.15, -0.75)
-  scene.add(halo)
-
+  let rig: ReturnType<typeof createHuman> | undefined
   let exerciseId = initialId
-  let exerciseStartedAt = performance.now()
+  let elapsed = 0
+  let previousFrame = performance.now()
+  let running = true
   let reducedMotion = false
   let disposed = false
   let frame = 0
-
+  const controller = new AbortController()
+  const schedule = () => { if (!disposed && !frame) frame = requestAnimationFrame(render) }
   const resize = () => {
-    const width = Math.max(1, container.clientWidth)
-    const height = Math.max(1, container.clientHeight)
-    renderer.setSize(width, height, false)
-    camera.aspect = width / height
-    camera.updateProjectionMatrix()
+    renderer.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight), false)
+    schedule()
   }
-  const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize)
-  resizeObserver?.observe(container)
-  window.addEventListener('resize', resize)
-  resize()
-
-  const render = (now: number) => {
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(container)
+  const ready = fetch(humanUrl, { signal: controller.signal }).then(response => {
+    if (!response.ok) throw new Error('Human asset unavailable')
+    return response.json() as Promise<HumanAsset>
+  }).then(asset => {
     if (disposed) return
-    const phase = reducedMotion ? 0.25 : ((now - exerciseStartedAt) / 5200) % 1
-    const pose = getStretchPose(exerciseId, phase, reducedMotion)
-    for (const [name, rotation] of Object.entries(pose.joints) as [JointName, readonly [number, number, number]][]) {
-      rig.joints[name].rotation.set(rotation[0], rotation[1], rotation[2])
+    rig = createHuman(asset)
+    rig.highlight(exerciseId)
+    scene.add(rig.mesh)
+    container.dataset.state = 'ready'
+    previousFrame = performance.now()
+    schedule()
+  }).catch(error => {
+    if (disposed) return
+    container.dataset.state = 'error'
+    throw error
+  })
+  function render(now: number) {
+    frame = 0
+    if (disposed) return
+    const delta = now - previousFrame
+    previousFrame = now
+    const moving = running && !reducedMotion && !document.hidden
+    elapsed = advanceStretchPlayback(elapsed, delta, moving && !!rig)
+    const pose = getStretchPose(exerciseId, reducedMotion ? 0.25 : (elapsed / 16000) % 1, reducedMotion)
+    if (rig) {
+      const blend = reducedMotion || !running ? 1 : 1 - Math.exp(-Math.min(delta, 50) / 140)
+      for (const name of Object.keys(JOINT_MAP) as JointName[]) {
+        const rotation = pose.joints[name], joint = rig.joints[name]
+        joint.rotation.x += (rotation[0] - joint.rotation.x) * blend
+        joint.rotation.y += (rotation[1] - joint.rotation.y) * blend
+        joint.rotation.z += (rotation[2] - joint.rotation.z) * blend
+      }
+      rig.joints.head.position.copy(rig.headRest)
+      rig.joints.head.position.z += pose.headRetraction * 0.55
+      rig.joints.root.position.copy(rig.rootRest).add(new THREE.Vector3(...pose.rootPosition))
     }
-    rig.avatar.position.set(pose.rootPosition[0], pose.rootPosition[1] - 0.08, pose.rootPosition[2])
-    const breath = reducedMotion ? 0 : Math.sin(now / 950) * 0.012
-    rig.chestBody.scale.set(1 + breath * 0.4, 1 + breath, 0.75 + breath * 0.3)
-    const cameraYaw = pose.cameraYaw
-    camera.position.set(Math.sin(cameraYaw) * 9.8, 0.12, Math.cos(cameraYaw) * 9.8)
-    camera.lookAt(0, 0.1, 0)
-    halo.rotation.z = reducedMotion ? 0.08 : 0.08 + Math.sin(now / 2600) * 0.025
-    renderer.render(scene, camera)
-    frame = requestAnimationFrame(render)
+    const back = exerciseId === 'upper-back-rotation' || exerciseId === 'upper-trapezius' || exerciseId === 'shoulder-rolls'
+    const yaw = back ? 2.8 : exerciseId === 'chin-tuck' ? 1.2 : exerciseId === 'wrist-forearm' ? 0.9 : exerciseId === 'chest-opener' ? 0.65 : 0.12
+    const fullBody = exerciseId === 'standing-side-bend'
+    const viewHeight = fullBody ? 6.25 : 3.35
+    const targetY = fullBody ? 2.75 : 3.05
+    const aspect = Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight)
+    camera.left = -viewHeight * aspect / 2
+    camera.right = viewHeight * aspect / 2
+    camera.top = viewHeight / 2
+    camera.bottom = -viewHeight / 2
+    camera.updateProjectionMatrix()
+    camera.position.set(Math.sin(yaw) * 9, targetY + 0.12, Math.cos(yaw) * 9)
+    camera.lookAt(0, targetY, 0)
+    if (!document.hidden) renderer.render(scene, camera)
+    if (moving && rig) schedule()
   }
-  frame = requestAnimationFrame(render)
-
+  const onVisibilityChange = () => { previousFrame = performance.now(); schedule() }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  resize()
   return {
+    ready,
     setExercise(id) {
       if (id === exerciseId) return
       exerciseId = id
-      exerciseStartedAt = performance.now()
+      elapsed = 0
+      rig?.highlight(id)
+      schedule()
     },
-    setReducedMotion(value) {
-      reducedMotion = value
-    },
+    setReducedMotion(value) { reducedMotion = value; schedule() },
+    setRunning(value) { running = value; previousFrame = performance.now(); schedule() },
     dispose() {
       if (disposed) return
       disposed = true
+      controller.abort()
       cancelAnimationFrame(frame)
-      resizeObserver?.disconnect()
-      window.removeEventListener('resize', resize)
-      disposeObject(scene)
+      resizeObserver.disconnect()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      rig?.skeleton.dispose()
+      scene.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) return
+        object.geometry.dispose()
+        const materials = Array.isArray(object.material) ? object.material : [object.material]
+        materials.forEach(material => material.dispose())
+      })
+      key.shadow.dispose()
       renderer.dispose()
       renderer.forceContextLoss()
       renderer.domElement.remove()
