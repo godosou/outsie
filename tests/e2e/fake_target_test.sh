@@ -120,6 +120,40 @@ else
   no "refuses to run when the target is unreachable" "it reported success"
 fi
 
+# 6. The oracle dying part way through, which is what a dropped ssh connection
+#    looks like. The final step waits for "not locked", so an unreadable poll
+#    treated as "not locked" would print PASS with nothing unlocked. This is the
+#    single most dangerous failure mode of the whole harness.
+reset
+COUNTER="${WORK}/calls"
+echo 0 > "$COUNTER"
+FLAKY="${WORK}/flaky.sh"
+cat > "$FLAKY" <<EOF
+#!/bin/bash
+n=\$(cat "${COUNTER}")
+echo \$((n + 1)) > "${COUNTER}"
+# Answer honestly for the first few polls so preflight and the lock step pass,
+# then start failing the way a severed connection does.
+if [ "\$n" -lt 4 ]; then cat "${STATE}"; exit 0; fi
+exit 255
+EOF
+chmod +x "$FLAKY"
+
+out="$(env \
+  REPOSE_TARGET="fake target" REPOSE_E2E_ALLOW_LOCK=1 \
+  REPOSE_LOCK_WAIT_S=5 REPOSE_STAY_LOCKED_S=1 REPOSE_UNLOCK_DEADLINE_MS=1500 \
+  REPOSE_LOCKSTATE_CMD="$FLAKY" \
+  REPOSE_LOCK_CMD="echo true > ${STATE}" \
+  REPOSE_LEAVE_CMD="true" REPOSE_RETURN_CMD="true" \
+  "$ACCEPT" 2>&1)"
+rc=$?
+if [ "$rc" -ne 0 ] && grep -q "stopped being readable" <<< "$out"; then
+  ok "an oracle that dies mid-run voids the run instead of reporting unlocked"
+else
+  no "an oracle that dies mid-run voids the run instead of reporting unlocked" "rc=$rc"
+  sed 's/^/       /' <<< "$out" | tail -4
+fi
+
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

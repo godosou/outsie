@@ -53,17 +53,40 @@ say() { printf '%s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 lock_state() { "$LOCKSTATE"; }
-is_locked() { "$LOCKSTATE" --is-locked; }
+
+# Three states, never two. lockstate.sh exits 0 for locked, 1 for unlocked and 2
+# when it could not read at all. Collapsing 2 into "not locked" is how a dropped
+# ssh connection turns into a reported unlock: the final step of this test waits
+# for "not locked", so one unreadable poll at the wrong moment would print PASS
+# with nothing having been unlocked.
+is_locked() {
+  "$LOCKSTATE" --is-locked
+  return $?
+}
 
 # Poll until `is_locked` matches $1 ("true"/"false"), or $2 milliseconds pass.
-# Prints the elapsed milliseconds. Returns 1 on timeout.
+# Prints the elapsed milliseconds.
+#   0 = reached the wanted state
+#   1 = timed out
+#   3 = the oracle stopped being readable; the run is void, not failed
+#
+# 3 is a separate code because this runs inside a command substitution, where a
+# plain exit would only leave the subshell and read back as an ordinary timeout.
 wait_for_lock_state() {
-  local want="$1" budget_ms="$2" start now
+  local want="$1" budget_ms="$2" start now rc
   start="$(now_ms)"
   while :; do
-    if is_locked; then [ "$want" = "true" ] && break
-    else [ "$want" = "false" ] && break
-    fi
+    is_locked
+    rc=$?
+    case "$rc" in
+      0) [ "$want" = "true" ] && break ;;
+      1) [ "$want" = "false" ] && break ;;
+      *)
+        now="$(now_ms)"
+        printf '%s' "$((now - start))"
+        return 3
+        ;;
+    esac
     now="$(now_ms)"
     if [ $((now - start)) -ge "$budget_ms" ]; then
       printf '%s' "$((now - start))"
@@ -73,6 +96,14 @@ wait_for_lock_state() {
   done
   now="$(now_ms)"
   printf '%s' "$((now - start))"
+}
+
+# Wrapper that turns an unreadable oracle into an immediate abort at the call
+# site, where exiting actually works.
+oracle_died() {
+  fail "the lock-state oracle stopped being readable ${1}ms into this step.
+      The result is void, not a pass or a fail: an unreadable target must never
+      be reported as unlocked. Check the connection to ${TARGET} and rerun."
 }
 
 run_hook() {
@@ -128,8 +159,10 @@ main() {
 
   # 1. Lock, and confirm the system actually reached the locked state.
   run_hook "lock  " "$LOCK_CMD"
-  local elapsed
-  if ! elapsed="$(wait_for_lock_state true $((LOCK_WAIT_S * 1000)))"; then
+  local elapsed rc
+  elapsed="$(wait_for_lock_state true $((LOCK_WAIT_S * 1000)))"; rc=$?
+  [ "$rc" = "3" ] && oracle_died "$elapsed"
+  if [ "$rc" != "0" ]; then
     fail "screen did not lock within ${LOCK_WAIT_S}s (elapsed ${elapsed}ms).
       Check: System Settings > Lock Screen > 'Require password after screen saver
       begins' must be 'Immediately'. Without that there is nothing to unlock."
@@ -139,7 +172,9 @@ main() {
   # 2. Phone leaves. The Mac must NOT unlock. Without this assertion a plugin
   #    that unlocks unconditionally would pass the test.
   run_hook "leave " "$LEAVE_CMD"
-  if elapsed="$(wait_for_lock_state false $((STAY_LOCKED_S * 1000)))"; then
+  elapsed="$(wait_for_lock_state false $((STAY_LOCKED_S * 1000)))"; rc=$?
+  [ "$rc" = "3" ] && oracle_died "$elapsed"
+  if [ "$rc" = "0" ]; then
     fail "Mac unlocked ${elapsed}ms after the phone LEFT. Unlock is not gated on presence."
   fi
   say "[2/3] stayed locked for ${STAY_LOCKED_S}s while the phone was away"
@@ -148,7 +183,9 @@ main() {
   local t0 t1
   t0="$(now_ms)"
   run_hook "return" "$RETURN_CMD"
-  if ! elapsed="$(wait_for_lock_state false "$DEADLINE_MS")"; then
+  elapsed="$(wait_for_lock_state false "$DEADLINE_MS")"; rc=$?
+  [ "$rc" = "3" ] && oracle_died "$elapsed"
+  if [ "$rc" != "0" ]; then
     say ""
     fail "Mac did NOT unlock within ${DEADLINE_MS}ms of the phone returning (still locked).
       This is the expected failure until Step 2 lands a loadable Authorization
