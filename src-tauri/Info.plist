@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSBluetoothAlwaysUsageDescription</key>
-  <string>Repose uses Bluetooth to discover and pair your phone key with this Mac.</string>
+  <string>Repose uses Bluetooth to pair your phone with this Mac and receive the App shortcuts you choose on your phone.</string>
 </dict>
 </plist>

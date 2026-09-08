@@ -180,6 +180,49 @@ void main() {
     },
   );
   testWidgets(
+    'a tap during a slow heartbeat waits once without overlapping BLE requests',
+    (tester) async {
+      final transport = FakeTransport();
+      final controller = ConsoleController(transportFactory: (_) => transport);
+      await controller.connect(macId);
+      final pending = Completer<ConsoleStatus>();
+      transport.pending = pending;
+      await tester.pump(const Duration(seconds: 1));
+      expect(transport.messages.length, 2);
+      expect(controller.canControl, isTrue);
+      final execution = controller.execute('split');
+      expect(controller.busy, isTrue);
+      expect(transport.messages.length, 2);
+      transport.pending = null;
+      pending.complete(ConsoleStatus.fromJson(statusJson()));
+      await execution;
+      expect(transport.messages.map((m) => m['type']), [
+        'status',
+        'status',
+        'execute',
+      ]);
+      expect(controller.busy, isFalse);
+      controller.dispose();
+    },
+  );
+  testWidgets('disconnect discards a command waiting behind a heartbeat', (
+    tester,
+  ) async {
+    final transport = FakeTransport();
+    final controller = ConsoleController(transportFactory: (_) => transport);
+    await controller.connect(macId);
+    final pending = Completer<ConsoleStatus>();
+    transport.pending = pending;
+    await tester.pump(const Duration(seconds: 1));
+    final execution = controller.execute('split');
+    controller.disconnect();
+    pending.complete(ConsoleStatus.fromJson(statusJson()));
+    await execution;
+    expect(transport.messages.map((m) => m['type']), ['status', 'status']);
+    expect(controller.connected, isFalse);
+    controller.dispose();
+  });
+  testWidgets(
     'sequence and shortcut buttons can move; arrange mode never executes',
     (tester) async {
       final transport = FakeTransport();

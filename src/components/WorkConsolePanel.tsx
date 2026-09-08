@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { ArrowDown, ArrowUp, Check, Keyboard, Plus, RotateCcw, Smartphone, Square, Trash2 } from 'lucide-react'
-import { createConsoleBridge, formatConsoleSequence, formatConsoleStep, MODIFIERS, MODIFIER_LABELS, moveConsoleStep, recordConsoleKey, validateConsoleConfig, type ConsoleAction, type ConsoleApp, type ConsoleConfig, type ConsoleStatus, type ConsoleStep, type WorkConsoleBridge } from '../lib/workConsole'
+import { createConsoleBridge, consoleConnectionLabel, consoleBluetoothHint, formatConsoleSequence, formatConsoleStep, MODIFIERS, MODIFIER_LABELS, moveConsoleStep, recordConsoleKey, validateConsoleConfig, type ConsoleAction, type ConsoleApp, type ConsoleConfig, type ConsoleStatus, type ConsoleStep, type WorkConsoleBridge } from '../lib/workConsole'
 
 const nativeBridge = isTauri() ? createConsoleBridge(invoke) : undefined
 const blankStep = (): ConsoleStep => ({ key: 'Enter', modifiers: [], delayMs: 0 })
@@ -119,11 +119,11 @@ export function WorkConsolePanel({ bridge = nativeBridge, onOpenPairing }: { bri
     {error && <div className="wc-message wc-error" role="alert">{error}<button type="button" aria-label="关闭错误" onClick={() => setError('')}>×</button></div>}
     {notice && <p className="wc-message" role="status"><Check size={16} />{notice}</p>}
     <section className="panel wc-panel wc-connection">
-      <div className="wc-heading"><div><h2><Smartphone size={19} />手机连接</h2><p>沿用「手机钥匙」的蓝牙配对，在手机工作台选择已配对的 Mac。</p></div><span className={`wc-badge ${status?.connected ? 'online' : ''}`}>{status?.connected ? '手机已连接' : status?.enabled ? '等待手机' : '通道未开启'}</span></div>
+      <div className="wc-heading"><div><h2><Smartphone size={19} />手机连接</h2><p>沿用「手机钥匙」的蓝牙配对，在手机工作台选择已配对的 Mac。</p></div><span className={`wc-badge ${status?.connected ? 'online' : ''}`}>{consoleConnectionLabel(status)}</span></div>
       {!status ? <p role="status">正在读取 Mac 配置…</p> : <>
-        <div className="wc-connect-controls">{status.enabled ? <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.stop(), '蓝牙控制已关闭，当前操作已停止。')}>关闭蓝牙控制</button> : <button className="wc-button primary" disabled={busy} onClick={() => void perform(() => bridge.start(), '蓝牙控制已开启，请在已配对手机中选择此 Mac。')}>开启蓝牙控制</button>}{onOpenPairing && <button className="wc-button" disabled={busy} onClick={onOpenPairing}>前往手机钥匙配对</button>}</div>
+        <div className="wc-connect-controls">{status.enabled ? <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.stop(), '蓝牙控制已关闭，当前操作已停止。')}>关闭蓝牙控制</button> : <button className="wc-button primary" disabled={busy} onClick={() => void perform(() => bridge.start(), '已启用蓝牙控制，请查看下方连接状态。')}>开启蓝牙控制</button>}{onOpenPairing && <button className="wc-button" disabled={busy} onClick={onOpenPairing}>前往手机钥匙配对</button>}</div>
         <p className="wc-hint">先在「手机钥匙」完成两端配对确认，再开启蓝牙控制。手机靠近 Mac 后选择连接。</p>
-        {status.bluetoothReady === false && <p className="wc-hint">请确认 Mac 蓝牙已开启，并允许 Repose 使用蓝牙。</p>}
+        {consoleBluetoothHint(status) && <p className="wc-hint" role="status">{consoleBluetoothHint(status)}</p>}
         {status.pairedDevices && <div className="wc-paired-devices">{status.pairedDevices.length ? status.pairedDevices.map(device => <span className="wc-badge" key={device.id}>{device.name}</span>) : <span>还没有完成授权的手机，请先前往「手机钥匙」配对。</span>}</div>}
         <div className="wc-permission"><span>{status.accessibility ? '✓ 辅助功能权限已开启' : '执行快捷键需要辅助功能权限'}</span>{!status.accessibility && <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.accessibility())}>打开权限设置</button>}{status.blocked && <strong>锁屏、休眠或强制休息中，操作已暂停。</strong>}</div>
         {(status.running || status.lastError) && <div className="wc-run-status" role="status"><span>{status.running ? '键盘序列执行中…' : status.lastError}</span>{status.running && <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.cancel(), '已停止剩余步骤。')}><Square size={14} />停止执行</button>}</div>}

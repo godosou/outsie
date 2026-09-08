@@ -183,6 +183,13 @@ static NSString *ReposeSafeDisplayName(NSString *value) {
   }];
 }
 
+- (void)peripheralManagerDidStartAdvertising:(CBPeripheralManager *)peripheral error:(NSError *)error {
+  if (!self.startRequested && !self.consoleEnabled) return;
+  if (error) self.radioState = ReposeBluetoothRadioFailed;
+  else if (peripheral.state == CBManagerStatePoweredOn) self.radioState = ReposeBluetoothRadioReady;
+  [self notifyConsoleRadio];
+}
+
 - (void)peripheralManager:(CBPeripheralManager *)peripheral
     didReceiveReadRequest:(CBATTRequest *)request {
   if ([request.characteristic.UUID isEqual:[CBUUID UUIDWithString:ReposeConsoleChallengeUUID]]) {
@@ -299,6 +306,7 @@ static NSString *ReposeSafeDisplayName(NSString *value) {
   [self clearConsoleConnection];
   self.consoleCallback = callback;
   self.consoleEnabled = YES;
+  if (self.manager.state == CBManagerStatePoweredOn) self.radioState = ReposeBluetoothRadioReady;
   [self notifyConsoleRadio];
   [self publishAndAdvertise];
   return YES;
@@ -306,6 +314,9 @@ static NSString *ReposeSafeDisplayName(NSString *value) {
 
 - (void)notifyConsoleRadio {
   uint8_t state = (uint8_t)self.radioState;
+  // A powered-on adapter alone does not mean the service can be discovered.
+  if (state == ReposeBluetoothRadioReady && self.consoleEnabled &&
+      (!self.serviceReady || !self.manager.isAdvertising)) state = 6;
   if (self.consoleCallback) self.consoleCallback("", 4, &state, 1);
 }
 

@@ -3,7 +3,31 @@ export type ConsoleStep = { key: string; modifiers: ConsoleModifier[]; delayMs: 
 export type ConsoleAction = { id: string; name: string; icon: string; kind: 'hotkey' | 'sequence'; steps: ConsoleStep[] }
 export type ConsoleApp = { id: string; name: string; bundleId: string; actions: ConsoleAction[] }
 export type ConsoleConfig = { revision: number; apps: ConsoleApp[] }
-export type ConsoleStatus = { config: ConsoleConfig; enabled: boolean; connected: boolean; running: boolean; activeAppId: string | null; lastError: string | null; accessibility: boolean; blocked: boolean; transport?: 'bluetooth'; pairedDevices?: { id: string; name: string }[]; bluetoothReady?: boolean }
+export type ConsoleStatus = { config: ConsoleConfig; enabled: boolean; connected: boolean; running: boolean; activeAppId: string | null; lastError: string | null; accessibility: boolean; blocked: boolean; transport?: 'bluetooth'; pairedDevices?: { id: string; name: string }[]; bluetoothReady?: boolean; bluetoothState?: 'unknown' | 'ready' | 'poweredOff' | 'unauthorized' | 'unsupported' | 'failed' | 'starting' }
+export function consoleConnectionLabel(status: ConsoleStatus | null): string {
+  if (!status?.enabled) return '通道未开启'
+  if (status.bluetoothState === 'unauthorized') return '蓝牙权限未授权'
+  if (status.bluetoothState === 'poweredOff') return 'Mac 蓝牙已关闭'
+  if (status.bluetoothState === 'unsupported') return '蓝牙不受支持'
+  if (status.bluetoothState === 'failed') return '蓝牙服务启动失败'
+  if (status.bluetoothState === 'starting') return '正在发布蓝牙服务'
+  if (status.bluetoothReady === false) return '正在检查蓝牙'
+  if (status.connected) return '手机已连接'
+  return status.pairedDevices?.length === 0 ? '等待手机配对' : '等待手机连接'
+}
+
+export function consoleBluetoothHint(status: ConsoleStatus): string | null {
+  if (!status.enabled) return null
+  switch (status.bluetoothState) {
+    case 'unauthorized': return '请在系统设置 → 隐私与安全性 → 蓝牙中允许 Repose，然后重新开启蓝牙控制。'
+    case 'poweredOff': return 'Mac 蓝牙已关闭。请在系统设置 → 蓝牙中开启，服务会在蓝牙恢复后继续启动。'
+    case 'unsupported': return '此 Mac 的蓝牙不可用，无法连接手机工作台。'
+    case 'failed': return '蓝牙服务发布失败。请关闭后重新开启蓝牙控制。'
+    case 'starting': return '正在发布蓝牙服务，完成后手机才能发现此 Mac。'
+    default: return status.bluetoothReady === false ? '正在等待系统返回蓝牙状态；如出现权限提示，请允许 Repose 使用蓝牙。' : null
+  }
+}
+
 export interface WorkConsoleBridge {
   status(): Promise<ConsoleStatus>
   save(config: ConsoleConfig): Promise<ConsoleStatus>

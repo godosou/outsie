@@ -51,6 +51,7 @@ class ConsoleController extends ChangeNotifier {
 
   ConsoleTransport? _transport;
   Timer? _heartbeat;
+  Future<void>? _pendingRequest;
   bool _disposed = false;
   int _generation = 0;
   bool busy = false;
@@ -86,7 +87,7 @@ class ConsoleController extends ChangeNotifier {
       await _request({'type': 'status'});
       if (!_disposed && generation == _generation && connected) {
         _heartbeat = Timer.periodic(const Duration(seconds: 1), (_) {
-          if (!busy) unawaited(_request({'type': 'status'}));
+          if (!busy) unawaited(_request({'type': 'status'}, background: true));
         });
       }
     } catch (_) {
@@ -96,13 +97,23 @@ class ConsoleController extends ChangeNotifier {
     }
   }
 
-  Future<bool> _request(Map<String, dynamic> message) async {
+  Future<bool> _request(
+    Map<String, dynamic> message, {
+    bool background = false,
+  }) async {
     final transport = _transport;
     if (transport == null || busy || _disposed) return false;
-    busy = true;
+    if (background && _pendingRequest != null) return false;
+    final previous = _pendingRequest;
+    final completion = Completer<void>();
+    _pendingRequest = completion.future;
+    if (!background) busy = true;
     final generation = _generation;
-    _notify();
+    if (!background) _notify();
     try {
+      // A heartbeat must not swallow a tap, nor overlap the one native BLE RPC.
+      if (previous != null) await previous;
+      if (_disposed || generation != _generation) return false;
       final next = await transport.request(message);
       if (_disposed || generation != _generation) return false;
       status = next;
@@ -128,7 +139,13 @@ class ConsoleController extends ChangeNotifier {
       }
       return false;
     } finally {
-      if (!_disposed && generation == _generation) busy = false;
+      completion.complete();
+      if (!_disposed && generation == _generation) {
+        if (!background) busy = false;
+        if (identical(_pendingRequest, completion.future)) {
+          _pendingRequest = null;
+        }
+      }
       _notify();
     }
   }
@@ -198,6 +215,7 @@ class ConsoleController extends ChangeNotifier {
     _generation++;
     _heartbeat?.cancel();
     _heartbeat = null;
+    _pendingRequest = null;
     _transport?.close();
     _transport = null;
     status = null;

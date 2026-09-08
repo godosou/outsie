@@ -53,6 +53,7 @@ pub struct Status {
     pub transport: &'static str,
     pub paired_devices: Vec<console_bluetooth::PairedConsoleDevice>,
     pub bluetooth_ready: bool,
+    pub bluetooth_state: &'static str,
 }
 
 fn step(key: &str, modifiers: &[&str], delay_ms: u64) -> Step {
@@ -413,6 +414,7 @@ impl WorkConsole {
             transport: "bluetooth",
             paired_devices: console_bluetooth::paired_devices(),
             bluetooth_ready: console_bluetooth::bluetooth_ready(),
+            bluetooth_state: console_bluetooth::bluetooth_state(),
         }
     }
     fn persist(&self, config: &Config) -> Result<(), String> {

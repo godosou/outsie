@@ -154,6 +154,24 @@ test('a poll started before a completed command cannot restore obsolete runtime 
   })
 })
 
+test('Bluetooth authorization and publication failures are never presented as waiting for a phone', async () => {
+  await mountTest(async (renderer, context) => {
+    for (const [bluetoothState, expected] of [
+      ['unauthorized', '蓝牙权限未授权'], ['poweredOff', 'Mac 蓝牙已关闭'],
+      ['unsupported', '蓝牙不受支持'], ['failed', '蓝牙服务启动失败'],
+      ['starting', '正在发布蓝牙服务'], ['unknown', '正在检查蓝牙'],
+    ] as const) {
+      context.changeStatus({ ...status, enabled: true, bluetoothReady: false, bluetoothState })
+      await act(async () => context.tick())
+      assert.match(textOf(renderer.root), new RegExp(expected))
+      assert.doesNotMatch(textOf(renderer.root), /等待手机连接/)
+    }
+    context.changeStatus({ ...status, enabled: true, bluetoothReady: true, bluetoothState: 'ready', pairedDevices: [] })
+    await act(async () => context.tick())
+    assert.match(textOf(renderer.root), /等待手机配对/)
+  })
+})
+
 test('window focus loss ends recording and server execution errors appear on next status poll', async () => {
   await mountTest(async (renderer, context) => {
     const root = renderer.root

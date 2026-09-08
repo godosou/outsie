@@ -143,6 +143,18 @@ int main(void) {
     [peripheral peripheralManagerDidUpdateState:(id)manager];
     NSCAssert(peripheral.consoleCentral == nil && peripheral.currentPublishedService == nil, @"Radio off invalidates challenge and publication");
     NSCAssert([events.lastObject[@"event"] intValue] == 4 && ((const uint8_t *)[events.lastObject[@"data"] bytes])[0] == 2, @"Radio off emits new cached readiness");
+    manager.state = CBManagerStatePoweredOn;
+    manager.isAdvertising = NO;
+    [peripheral peripheralManagerDidUpdateState:(id)manager];
+    NSCAssert(((const uint8_t *)[events.lastObject[@"data"] bytes])[0] == 6, @"Adapter on is not service ready");
+    [peripheral peripheralManager:(id)manager didAddService:peripheral.currentPublishedService error:nil];
+    [peripheral peripheralManagerDidStartAdvertising:(id)manager error:[NSError errorWithDomain:@"test" code:1 userInfo:nil]];
+    NSCAssert(((const uint8_t *)[events.lastObject[@"data"] bytes])[0] == 5, @"Advertisement failure is reported");
+    [peripheral peripheralManagerDidStartAdvertising:(id)manager error:nil];
+    NSCAssert(((const uint8_t *)[events.lastObject[@"data"] bytes])[0] == 1, @"Published and advertising service is ready");
+    manager.state = CBManagerStateUnauthorized;
+    [peripheral peripheralManagerDidUpdateState:(id)manager];
+    NSCAssert(((const uint8_t *)[events.lastObject[@"data"] bytes])[0] == 3, @"Authorization failure stays distinct from radio off");
     [peripheral stopConsole];
     NSCAssert(peripheral.startRequested, @"Console stop preserves pairing ownership");
     [peripheral stopSession];

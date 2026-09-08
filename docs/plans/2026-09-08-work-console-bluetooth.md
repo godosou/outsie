@@ -26,9 +26,9 @@ plaintext UTF8 JSON：请求沿用work-console implementation文档 status/activ
 
 native导出：`repose_ble_console_start(callback)` -> bool；`repose_ble_console_stop()`；`repose_ble_console_send(centralUtf8, bytes, len)` -> bool；`repose_ble_console_revoke(centralUtf8, expectedChallenge, len)` -> bool。revoke仅接受16字节challenge，在主队列内同时检查central和当前challenge再清除连接；旧worker不能撤销同central的新订阅。send拒绝零长度；非空响应也校验header中的当前challenge。CoreBluetooth peripheral无法主动物理断开central，逻辑撤销后拒绝读写，手机需重新订阅获取新challenge。
 
-callback签名 `void(const char *central, int event, const uint8_t *data, size_t len)`。event1=subscribe带challenge16；event2=完整密文；event3=unsubscribe/radiooff；event4=radioState，central为空字符串、data为1字节0–5枚举，start和radio变化时发出。回调不阻塞主队列，Rust复制数据后入队处理。native组装分片，限制单central，TX排队背压。native send发异步通知，返回是否受理。不能持有Rust工作台state锁调用同步主队列方法。
+callback签名 `void(const char *central, int event, const uint8_t *data, size_t len)`。event1=subscribe带challenge16；event2=完整密文；event3=unsubscribe/radiooff；event4=radioState，central为空字符串、data为1字节枚举：0未知、1服务已发布且广播中、2蓝牙关闭、3未授权、4不支持、5发布/广播失败、6正在发布。start、radio变化和广播回调时发出。回调不阻塞主队列，Rust复制数据后入队处理。native组装分片，限制单central，TX排队背压。native send发异步通知，返回是否受理。不能持有Rust工作台state锁调用同步主队列方法。
 
-Rust WorkConsole transport替换Bluetooth adapter，不启用TLS。start命令不再需要host，返回Status。status增加transport:"bluetooth"及pairedDevices:[{id,name}]、bluetoothReady（若暂不可加UI只显示enabled即可）。Mac配对确认授权桥由root实现。
+Rust WorkConsole transport替换Bluetooth adapter，不启用TLS。start命令不再需要host，返回Status。status增加transport:"bluetooth"及pairedDevices:[{id,name}]、bluetoothReady、bluetoothState（unknown/ready/poweredOff/unauthorized/unsupported/failed/starting）。Mac配对确认授权桥由root实现。
 
 ## Android/Flutter接口
 

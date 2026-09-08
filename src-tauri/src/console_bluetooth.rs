@@ -8,7 +8,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
         mpsc::{self, SyncSender},
     },
     thread,
@@ -26,12 +26,26 @@ fn credentials() -> &'static Mutex<HashMap<[u8; 16], Credential>> {
     DATA.get_or_init(Default::default)
 }
 static LINK_GENERATION: AtomicU64 = AtomicU64::new(1);
-static RADIO_READY: AtomicBool = AtomicBool::new(false);
+static RADIO_STATE: AtomicU8 = AtomicU8::new(0);
 pub fn link_generation() -> u64 {
     LINK_GENERATION.load(Ordering::SeqCst)
 }
 pub fn bluetooth_ready() -> bool {
-    RADIO_READY.load(Ordering::Relaxed)
+    RADIO_STATE.load(Ordering::Relaxed) == 1
+}
+pub fn bluetooth_state() -> &'static str {
+    radio_state_name(RADIO_STATE.load(Ordering::Relaxed))
+}
+fn radio_state_name(value: u8) -> &'static str {
+    match value {
+        1 => "ready",
+        2 => "poweredOff",
+        3 => "unauthorized",
+        4 => "unsupported",
+        5 => "failed",
+        6 => "starting",
+        _ => "unknown",
+    }
 }
 #[derive(Clone, Serialize)]
 pub struct PairedConsoleDevice {
@@ -187,7 +201,7 @@ extern "C" fn native_event(
 ) {
     if kind == 4 {
         if !data.is_null() && len == 1 {
-            RADIO_READY.store(unsafe { *data } == 1, Ordering::Relaxed);
+            RADIO_STATE.store(unsafe { *data }, Ordering::Relaxed);
         }
         return;
     }
@@ -348,6 +362,21 @@ impl Drop for BluetoothTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn radio_states_preserve_actionable_failure_reasons() {
+        for (value, name) in [
+            (0, "unknown"),
+            (1, "ready"),
+            (2, "poweredOff"),
+            (3, "unauthorized"),
+            (4, "unsupported"),
+            (5, "failed"),
+            (6, "starting"),
+            (255, "unknown"),
+        ] {
+            assert_eq!(radio_state_name(value), name);
+        }
+    }
     #[test]
     fn unpaired_and_revoked_keys_cannot_control() {
         let secret = [44; 32];
