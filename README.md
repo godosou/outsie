@@ -1,8 +1,17 @@
-# Repose · 歇一会
+# Outsie · AI 时代，先照顾好自己。
 
 一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。
 
-当前分支是更轻量的 Rust / Tauri 0.2.0 版本，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。Electron 0.1.1 基线保留在 `main` 分支。
+**[产品主页](https://godosou.github.io/outsie/)** · [主页源码](website/)
+
+Outsie 是产品对外使用的暂定名称，Mac 应用目前仍显示为 Repose（歇一会）。当前 `main` 包含 Rust / Tauri 0.6.2 应用，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。`electron/` 保留早期实现。
+
+手机相关功能保留在独立分支：
+
+- [`codex/phone-work-console`](https://github.com/godosou/outsie/tree/codex/phone-work-console)：手机 App 工作台、快捷键及按键序列。
+- [`codex/phone-proximity-unlock`](https://github.com/godosou/outsie/tree/codex/phone-proximity-unlock)：手机钥匙、靠近与离开、蓝牙配对。
+
+分支中的原生功能和真机验证状态以各分支文档为准。主页 Demo 在浏览器中模拟交互，不执行系统锁屏、手机配对或真实 AI 指令。
 
 ## 打开 Mac 应用
 
