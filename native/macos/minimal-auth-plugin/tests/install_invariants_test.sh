@@ -25,10 +25,12 @@ line_of() { grep -n -- "$2" "$1" | head -1 | cut -d: -f1; }
 echo "install/uninstall invariants"
 
 # 1. The cdhash must be read from the INSTALLED bundle, after the copy.
-#    Reading it from the build directory is what produced a screensaver rule on
-#    a real machine pinning 38ea648b... while the installed bundle hashed to
-#    a7c8340c..., leaving a plugin that was never trusted and a validation
-#    document claiming nothing had been installed at all.
+#    It is only a record of which binary is in place -- authd overwrites any
+#    requirement you write with the csreq of whatever process wrote the rule, so
+#    a cdhash there pins nothing. Reading it before the copy would still make
+#    that record a lie, which is worth preventing: an install log that names a
+#    binary other than the installed one is exactly the kind of evidence that
+#    sends an investigation down the wrong path for a day.
 cp_line="$(line_of "$INSTALL" 'cp -R "${BUILT_BUNDLE}" "${DEST_BUNDLE}"')"
 hash_line="$(line_of "$INSTALL" 'CDHASH=')"
 if [ -n "$cp_line" ] && [ -n "$hash_line" ]; then

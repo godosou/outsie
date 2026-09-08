@@ -41,13 +41,23 @@ export REPOSE_TARGET="${VM} (${VM_USER}@${VM_IP})"
 # over ssh.
 export REPOSE_LOCKSTATE_CMD="${REPOSE_SSH} 'ioreg -n Root -d1 -a | plutil -extract IOConsoleLocked raw -o - -'"
 
-# `open -a ScreenSaverEngine` only works from inside the target's Aqua session,
-# which an ssh session is not part of. `launchctl asuser` would bridge that but
-# needs root, and passwordless sudo is not guaranteed on a VM whose account was
-# created by hand. `pmset displaysleepnow` needs neither: waking the display
-# with "require password immediately" set goes through the same
-# system.login.screensaver right the plugin hooks.
-export REPOSE_LOCK_CMD="${REPOSE_SSH} 'pmset displaysleepnow'"
+# Locking has to produce a genuinely locked session, not a dark screen.
+#
+# An earlier version used `pmset displaysleepnow` because it needs no root. That
+# was wrong in a way that would have wasted a whole experiment: displaysleepnow
+# only sleeps the display. Whether the session locks depends entirely on the
+# screen-lock delay. With a non-zero delay the session is not locked at all
+# during the grace period, the oracle reads unlocked, and with the plugin
+# installed you get the worst possible observation -- a plugin log line proving
+# the mechanism ran, alongside IOConsoleLocked=false. A contradiction like that
+# is exactly how this project talks itself into a confident wrong answer.
+#
+# So: assert the precondition, then drive the real screensaver inside the Aqua
+# session. `sysadminctl -screenLock status` reads the delay without root or a
+# password (verified on 14.6.1), which turns "remember to set it" into something
+# the harness can check.
+export REPOSE_LOCK_PRECHECK_CMD="${REPOSE_SSH} 'sysadminctl -screenLock status 2>&1'"
+export REPOSE_LOCK_CMD="${REPOSE_SSH} 'sudo launchctl asuser \$(stat -f %u /dev/console) open -a /System/Library/CoreServices/ScreenSaverEngine.app'"
 
 # Waking the guest is what starts the authorization evaluation; without it the
 # mechanism is never invoked and the test would time out against a working
@@ -69,6 +79,20 @@ repose_vm_check() {
   fi
   printf 'lock state  '
   eval "${REPOSE_LOCKSTATE_CMD}" 2>&1 || echo "oracle unreadable"
+  printf 'screen lock '
+  local delay
+  delay="$(eval "${REPOSE_LOCK_PRECHECK_CMD}" 2>&1 | tail -1)"
+  echo "${delay}"
+  case "${delay}" in
+    *immediate*) ;;
+    *) echo "  ^^ NOT immediate. Locking will only dim the screen and leave the"
+       echo "     session unlocked during the grace period. Fix it first:"
+       echo "     ssh in and run: sysadminctl -screenLock immediate -password <pw>" ;;
+  esac
+  printf 'passwordless sudo '
+  eval "${REPOSE_SSH} 'sudo -n true'" >/dev/null 2>&1 \
+    && echo "yes" \
+    || echo "NO -- REPOSE_LOCK_CMD needs it; see FIRST-BOOT.md"
   printf 'guest os    '
   eval "${REPOSE_SSH} 'sw_vers -productVersion; sw_vers -buildVersion'" 2>&1 | tr '\n' ' '
   echo

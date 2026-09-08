@@ -53,11 +53,23 @@
 | `ai.repose.unlock` | 已写入 authorizationdb，并被 `system.login.screensaver` 引用 |
 | `ReposeUnlock.bundle` | 已装入 `/Library/Security/SecurityAgentPlugins/` |
 
-当时没有发生自动解锁，原因是巧合而非设计：规则 pin 的 cdhash 是
-`38ea648b...`，而实际安装的 bundle 是 `a7c8340c...`，两者不匹配，插件不被信任，
-规则失败后回落到 `use-login-window-ui`。**根因是先算 cdhash 再安装**；
-`native/macos/minimal-auth-plugin/install.sh` 改为从已安装的 bundle 读取 cdhash，
-避免同类错误。
+当时没有发生自动解锁。**此处最初的解释是错的，现更正**：我曾认为规则里的
+`cdhash H"38ea648b..."` 是一个失效的 pin（与实际 bundle 的 `a7c8340c...` 不符），
+因而插件不被信任。查阅 Apple 开源的 authd 源码后确认并非如此 ——
+`OSX/authd/rule.c` 的 `rule_sql_commit` 会**无条件用写入者进程的 csreq 覆盖**
+requirement 字段，而 `engine.c` 的求值路径从不读取该字段。
+
+所以那串 cdhash 极可能就是 `repose-unlockctl` 自己的签名标识，由 authd 自动记录，
+不是任何人写上去的 pin；拿它与插件的 cdhash 比较本身就是在比较两个不同的二进制。
+同机 OpenAI 规则里的 `identifier "com.apple.security" and anchor apple` 是同一现象
+的佐证 —— 那是 `/usr/bin/security` 的身份，因为其安装流程调用了该命令。
+
+更可能的真实原因是：插件被正常加载并调用，但因 permit 条件不满足而主动 Deny，
+按 `k-of-n=1` 回落到密码路径。**这意味着「ad-hoc 签名插件能否在 macOS 14.6.1 上被
+加载」可能已经有过一次肯定的实例**，只是当时没有日志留存，无法据以定论 —— A1 仍需实测。
+
+两件相关的产物已据此修正：`install.sh` 不再写 `requirement` 键（它是无效的安全剧场），
+但仍从已安装的 bundle 读取 cdhash 记入日志，作为「装的到底是哪个二进制」的凭据。
 
 清理由 `tools/uninstall-legacy-unlock/` 的两个脚本完成，已执行并独立复核：
 

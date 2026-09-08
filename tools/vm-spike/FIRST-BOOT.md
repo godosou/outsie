@@ -43,8 +43,35 @@ tart run repose-spike
 
 系统设置 → 锁定屏幕 → **「在屏幕保护程序开始后要求输入密码」→ 立即**。
 
-**这一步最容易漏，漏了整个实验就没有意义** —— 没有密码要求就没有可解的锁。
-macOS 14 已经读不到这个设置的 defaults 键，只能靠实际锁屏来验证。
+**这一步最容易漏，漏了整个实验就没有意义**，而且失败方式很隐蔽：延迟不为零时，
+锁屏只是把屏幕变暗，会话在宽限期内**根本没有锁定**。装上插件后会出现最坏的一种观测 ——
+插件日志里有调用记录，而 `IOConsoleLocked` 读到 false。这种自相矛盾正是最容易让人
+得出错误结论的场景。
+
+可以直接读，不用靠感觉（`defaults` 读不到这个键，但 `sysadminctl` 可以，免 root 免密码）：
+
+```bash
+sysadminctl -screenLock status      # 应输出 screenLock delay is immediate
+```
+
+不是 immediate 就设置它：
+
+```bash
+sysadminctl -screenLock immediate -password <你的密码>
+```
+
+## 4.5 开启免密 sudo
+
+宿主机要在 VM 的图形会话里触发真正的屏保锁定，用的是
+`sudo launchctl asuser ... open -a ScreenSaverEngine.app`，需要免密 sudo。
+在 VM 里执行：
+
+```bash
+echo "admin ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/admin
+sudo chmod 440 /etc/sudoers.d/admin
+```
+
+这是一台一次性、可回滚的实验机，免密 sudo 在这里是合理的；不要在日常机上这么做。
 
 ## 5. 回到宿主机验证连通
 
@@ -53,7 +80,8 @@ source tools/vm-spike/vm-env.sh
 repose_vm_check
 ```
 
-应该看到 ssh 可达、锁屏状态可读、guest 版本是 `14.6.1 / 23G93`。
+应该看到 ssh 可达、锁屏状态可读、**screen lock 是 immediate**、**免密 sudo 为 yes**、
+guest 版本是 `14.6.1 / 23G93`。这四项任何一项不对，都不要开始 A1。
 
 ## 6. 立刻打快照
 
@@ -96,8 +124,8 @@ eval "$REPOSE_LOCKSTATE_CMD"    # 应输出 true
 ## 已知的坑
 
 - **关窗口 = 关机。** 长时间实验要让窗口一直开着。
-- `pmset displaysleepnow` 在 VM 里的行为需要实测。`vm-env.sh` 默认用它触发锁屏，因为
-  `launchctl asuser` 需要 root 而手工创建的账户不保证有免密 sudo。如果它不触发锁屏，
-  退回到在 VM 窗口里手动 `open -a ScreenSaverEngine`。
+- **不要用 `pmset displaysleepnow` 当锁屏手段。** 它只让显示器睡眠，是否锁定完全取决于
+  上面第 4 步的延迟设置；延迟不为零时会产生「插件被调用但会话未锁」的半锁状态，
+  观测结果自相矛盾。`vm-env.sh` 已改为通过 `launchctl asuser` 驱动真正的屏保。
 - VM **没有蓝牙直通**。第一阶段全部用模拟存在源（ssh 写 permit 文件），真实 BLE 是
   第二阶段的事。
