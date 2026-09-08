@@ -1,6 +1,7 @@
 /* Shared visual language for both the React dialog and native break window. */
 .long-guide .stretch-visual,.stretch-trainer .stretch-visual{background:radial-gradient(ellipse at 48% 35%,#fff 0,#f5f5f3 64%,#e8eae8 100%);border:1px solid #dce0dd;border-radius:22px;box-shadow:0 14px 40px #25352f0b}
 .stretch-visual .stretch-canvas{filter:none}
+.stretch-visual .stretch-region-legend{bottom:8px}
 .stretch-visual .stretch-3d-badge,.stretch-visual .three-badge{color:#69716f;background:#ffffffcc;border-color:#dde1de;border-radius:6px;font-size:9px;letter-spacing:.8px;box-shadow:none}
 .stretch-region-legend{position:absolute;z-index:2;bottom:16px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:7px;color:#777f7b;font-size:9px;letter-spacing:.4px}
 .stretch-region-legend i{display:block;width:7px;height:7px;border-radius:50%;background:#c74943;box-shadow:0 0 0 3px #c7494314}

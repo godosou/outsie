@@ -22,8 +22,8 @@ main{position:relative;z-index:1;flex:1;min-height:0;display:flex;align-items:ce
 .eyebrow{font-size:9px;letter-spacing:2.7px;color:#829076;margin:18px 0}
 h1{font-size:42px;font-weight:500;letter-spacing:1.5px;line-height:1.22;margin:0 0 15px}
 p{margin:0;color:#85917e;font-size:14px;line-height:1.8}
-.long-guide{width:min(1050px,82vw);display:grid;grid-template-columns:minmax(390px,1.1fr) minmax(330px,.9fr);gap:54px;align-items:center;margin-bottom:8px}
-.stretch-visual{height:min(46vh,455px);min-height:330px;position:relative;overflow:hidden;border:1px solid #d7e3ce;border-radius:34px;background:radial-gradient(circle at 50% 42%,#fbfcf8 0 20%,#e9f1e1 63%,#dce9d2 100%);box-shadow:inset 0 1px 0 #fff,0 25px 65px #435b371b}
+.long-guide{width:min(1250px,90vw);display:grid;grid-template-columns:minmax(390px,1.4fr) minmax(300px,.85fr);gap:42px;align-items:center;margin-bottom:8px}
+.stretch-visual{height:min(54vh,570px);min-height:350px;position:relative;overflow:hidden;border:1px solid #d7e3ce;border-radius:34px;background:radial-gradient(circle at 50% 42%,#fbfcf8 0 20%,#e9f1e1 63%,#dce9d2 100%);box-shadow:inset 0 1px 0 #fff,0 25px 65px #435b371b}
 .stage-glow{position:absolute;left:14%;top:4%;width:72%;aspect-ratio:1;border-radius:50%;background:#fff9;filter:blur(12px);box-shadow:0 0 90px #fff}
 .stretch-stage{position:absolute;inset:0;z-index:1}
 .stretch-canvas{display:block;width:100%;height:100%;filter:drop-shadow(0 18px 20px #4c624522)}
@@ -67,5 +67,19 @@ footer{z-index:3}
 .fallback-person .leg.left{left:20px;transform:rotate(2deg)}
 .fallback-person .leg.right{right:20px;transform:rotate(-2deg)}
 @media(max-width:850px){body{padding:24px 28px}.long-guide{width:90vw;grid-template-columns:1fr;gap:20px}.stretch-visual{height:35vh;min-height:250px}.stretch-copy{text-align:center}.stretch-copy .eyebrow,.action-safety{display:none}.stretch-copy h1{font-size:32px;margin:12px 0 8px}.action-cue{min-height:auto;font-size:12px}.action-progress{margin:13px 0 8px}.action-navigation{margin-top:12px}.break-status{margin-top:8px}.countdown{font-size:49px}.hint{font-size:9px}}
-@media(max-height:760px) and (min-width:851px){body{padding-top:23px;padding-bottom:23px}.long-guide{gap:42px}.stretch-visual{height:42vh;min-height:285px}.stretch-copy h1{font-size:38px}.action-safety{margin-top:8px}.action-progress{margin-top:14px}.action-navigation{margin-top:14px}.break-status{margin-top:6px}.countdown{font-size:52px}.progress{margin-top:10px}}
+@media(max-height:760px) and (min-width:851px){body{padding-top:23px;padding-bottom:23px}.long-guide{gap:42px}.stretch-visual{height:48vh;min-height:310px}.stretch-copy h1{font-size:38px}.action-safety{margin-top:8px}.action-progress{margin-top:14px}.action-navigation{margin-top:14px}.break-status{margin-top:6px}.countdown{font-size:52px}.progress{margin-top:10px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}.stretch-canvas{filter:none}.short-mascot{animation:none}}
+
+@media(max-height:600px),(max-width:850px){html,body{height:auto;min-height:100%;overflow-y:auto}body{min-height:100dvh}main{flex-shrink:0;padding:18px 0}.short-guide{max-width:100%}footer{gap:16px;margin-top:12px}}
+
+/* The guide owns the left column; all instructions and timing share the right. */
+.long-guide{grid-template-columns:minmax(0,1.35fr) minmax(300px,1fr);margin-bottom:0}
+.long-guide .stretch-visual{height:min(76vh,800px);min-height:480px}
+.long-sidebar{min-width:0;display:flex;flex-direction:column;gap:24px}
+.long-sidebar .break-status{align-items:flex-start;text-align:left;margin:0;padding-top:22px;border-top:1px solid #cdd9c3}
+.long-sidebar .countdown{font-size:64px;margin-top:8px}
+.long-sidebar .progress{width:100%;margin:14px 0 12px}
+.long-sidebar .hint{max-width:38em;line-height:1.8}
+.long-sidebar .note{line-height:1.8}
+@media(max-height:760px) and (min-width:851px){.long-sidebar{gap:18px}.long-sidebar .break-status{padding-top:16px}.long-sidebar .countdown{font-size:56px}.long-sidebar .stretch-copy .eyebrow{margin:14px 0 10px}}
+@media(max-width:850px){.long-guide{grid-template-columns:1fr;width:100%}.long-guide .stretch-visual{height:48vh;min-height:300px}.long-sidebar{gap:20px}.long-sidebar .break-status{align-items:center;text-align:center}.long-sidebar .countdown{font-size:49px}}

@@ -1,0 +1,12 @@
+.eye-care-tip{width:min(100%,480px);margin:20px auto 0;padding:15px 20px;border:1px solid #d5dfcc;border-radius:14px;background:#ffffff80;text-align:left}
+.eye-care-label{display:block;margin-bottom:6px;color:#758369;font-size:10px;letter-spacing:1px}
+.eye-care-tip h3{margin:0 0 5px;color:#4d6541;font-size:16px;font-weight:550;line-height:1.5;letter-spacing:0}
+.eye-care-tip p{margin:0;color:#66745d;font-size:13px;line-height:1.8}
+.eye-care-tip small{display:block;margin-top:8px;color:#78836f;font-size:10px;line-height:1.6}
+[data-theme=dark] .eye-care-tip{background:#ffffff08;border-color:#4d6042}
+[data-theme=dark] .eye-care-tip h3{color:#c7d8b7}
+[data-theme=dark] .eye-care-tip p{color:#b4c4a7}
+[data-theme=dark] .eye-care-tip small,[data-theme=dark] .eye-care-label{color:#a0b28e}
+@media(max-height:760px){.eye-care-tip{margin-top:12px;padding:11px 16px}.short-guide .short-mascot{width:88px;height:88px}.short-guide .short-mascot img{width:80px;height:80px;border-radius:23px}.short-guide .eyebrow{margin:10px 0}.short-guide h1{font-size:clamp(24px,4vw,36px);margin-bottom:10px}.short-guide>p:not(.eyebrow){font-size:12px}}
+@media(max-width:480px){.eye-care-tip{padding:12px 14px}.eye-care-tip h3{font-size:15px}.eye-care-tip p{font-size:12px}}
+@media(max-height:760px){.break-content .short-break-mascot{height:84px;margin:8px 0 0}.short-break-mascot img{width:80px;height:80px;border-radius:23px}.break-modal:not(.long-break-modal) .break-timer{font-size:52px;margin:12px 0 8px}.break-modal:not(.long-break-modal) .break-total-label{margin-top:12px}.break-modal:not(.long-break-modal) .break-progress{margin:12px auto}.break-modal:not(.long-break-modal) .break-actions{margin-top:16px}}
