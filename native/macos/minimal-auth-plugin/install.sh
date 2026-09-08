@@ -108,18 +108,13 @@ EOF
 
 echo "==> Wiring ${SUBRULE} into ${RIGHT}"
 NEW_RULE="/tmp/repose-spike-${RIGHT}.new.plist"
-cp "${BACKUP}" "${NEW_RULE}"
-# Drop any stale copy from a previous run, then prepend and force k-of-n=1.
-python3 - "${NEW_RULE}" "${SUBRULE}" <<'PY'
-import plistlib, sys
-path, sub = sys.argv[1], sys.argv[2]
-d = plistlib.load(open(path, 'rb'))
-rule = [r for r in d.get('rule', []) if r != sub]
-d['rule'] = [sub] + rule
-d['k-of-n'] = 1
-plistlib.dump(d, open(path, 'wb'))
-PY
+# Build from the rule as it is now, not from the backup. The backup is the
+# pristine pre-spike state and is deliberately never overwritten, so using it
+# here would silently revert anything another tool added since.
+security authorizationdb read "${RIGHT}" > "${NEW_RULE}"
+"$(dirname "$0")/authdb-edit.py" add-subrule "${NEW_RULE}" "${SUBRULE}"
 security authorizationdb write "${RIGHT}" < "${NEW_RULE}"
+rm -f "${NEW_RULE}"
 
 echo "Done. New '${RIGHT}':"
 security authorizationdb read "${RIGHT}" 2>/dev/null | plutil -extract rule xml1 -o - -

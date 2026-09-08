@@ -31,6 +31,8 @@ verify: $(BUNDLE)
 test: $(BUNDLE)
 	clang $(TESTFLAGS) $(FRAMEWORKS) -o $(TEST_BIN) tests/plugin_contract_test.c
 	./$(TEST_BIN) $(BINARY)
+	@echo
+	./tests/authdb_edit_test.sh
 
 clean:
 	rm -rf build

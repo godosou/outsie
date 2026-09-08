@@ -49,20 +49,8 @@ else
     echo "==> No backup; removing '${SUBRULE}' from ${RIGHT} surgically"
     CLEANED="/tmp/${RIGHT}.uninstall.plist"
     security authorizationdb read "${RIGHT}" > "${CLEANED}" 2>/dev/null
-    python3 - "${CLEANED}" "${SUBRULE}" <<'PY' || { echo "Refusing to write." >&2; exit 1; }
-import plistlib, sys
-path, sub = sys.argv[1], sys.argv[2]
-with open(path, 'rb') as fh:
-    d = plistlib.load(fh)
-after = [r for r in d.get('rule', []) if r != sub]
-if not after:
-    sys.exit("REFUSING: removing %s would leave an empty rule array" % sub)
-if 'use-login-window-ui' not in after:
-    sys.exit("REFUSING: result has no 'use-login-window-ui'; no password path")
-d['rule'] = after
-with open(path, 'wb') as fh:
-    plistlib.dump(d, fh)
-PY
+    "$(dirname "$0")/authdb-edit.py" remove-subrule "${CLEANED}" "${SUBRULE}" \
+        || { echo "Refusing to write; restore from a backup instead." >&2; exit 1; }
     security authorizationdb write "${RIGHT}" < "${CLEANED}"
     rm -f "${CLEANED}"
 fi
