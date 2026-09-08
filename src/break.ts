@@ -7,6 +7,7 @@ import {
   moveStretchOffset,
 } from './lib/stretchRoutine.ts'
 import './break.css'
+import './stretch-anatomy.css'
 
 type BreakStatus = {
   phase: string
@@ -43,6 +44,7 @@ let pending = false
 let manualOffset = 0
 let lastStatus: BreakStatus | null = null
 let stretchScene: StretchScene | null = null
+const preview = !isTauri() || new URLSearchParams(location.search).has('preview')
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 for (const exercise of STRETCH_EXERCISES) {
@@ -60,7 +62,13 @@ function ensureStretchScene(initialId: (typeof STRETCH_EXERCISES)[number]['id'])
   if (stretchScene || !stretchFallback.hidden) return
   try {
     stretchScene = createStretchScene(stretchStage, initialId)
-    stretchScene.setReducedMotion(motionPreference.matches)
+    stretchScene.setReducedMotion(motionPreference.matches || (preview && new URLSearchParams(location.search).has('still')))
+    const loadingScene = stretchScene
+    void loadingScene.ready.catch(() => {
+      if (stretchScene !== loadingScene) return
+      stretchStage.hidden = true
+      stretchFallback.hidden = false
+    })
   } catch {
     stretchStage.hidden = true
     stretchFallback.hidden = false
@@ -68,6 +76,7 @@ function ensureStretchScene(initialId: (typeof STRETCH_EXERCISES)[number]['id'])
 }
 
 function renderStatus(status: BreakStatus) {
+  if (lastStatus?.breakId !== status.breakId) manualOffset = 0
   lastStatus = status
   const seconds = Math.max(0, Math.ceil(status.remaining))
   const duration = Math.max(1, status.duration)
@@ -94,6 +103,9 @@ function renderStatus(status: BreakStatus) {
     actionProgress.parentElement?.setAttribute('aria-label', `当前动作已完成 ${Math.round(step.progress * 100)}%`)
     actionTime.textContent = `${Math.max(1, Math.ceil(step.stepRemaining))} 秒后换动作`
     Array.from(actionDots.children).forEach((dot, index) => dot.classList.toggle('active', index === step.index))
+  } else if (stretchScene) {
+    stretchScene.dispose()
+    stretchScene = null
   }
 
   const available = status.canPostpone && !status.postponing
@@ -102,6 +114,12 @@ function renderStatus(status: BreakStatus) {
   postpone.textContent = status.postponing ? '正在延迟…' : `延迟 ${status.postponeSeconds / 60} 分钟 · 仅此一次`
   postponeNote.textContent = available ? '稍后将完整休息，届时不能再次延迟。' : '本次休息结束前不能退出。'
   kind.textContent = `强制${long ? '大' : '小'}休息 · ${available ? '可延迟一次' : '倒计时结束后恢复'}`
+  if (preview) {
+    postpone.hidden = true
+    postponeNote.textContent = '动作预览 · 可随时关闭此窗口'
+    kind.textContent = '拉伸动作预览'
+    hint.textContent = '动作以舒适为准；如有疼痛或眩晕，请立即停止。'
+  }
 }
 
 function move(direction: 'previous' | 'next') {
@@ -119,14 +137,22 @@ postpone.addEventListener('click', async () => {
   pending = true
   postpone.disabled = true
   postpone.textContent = '正在延迟…'
-  try { await invoke('postpone_break') } finally { pending = false }
+  try {
+    const accepted = await invoke<boolean>('postpone_break')
+    if (!accepted && lastStatus) renderStatus(lastStatus)
+  } catch {
+    if (lastStatus) renderStatus(lastStatus)
+    postponeNote.textContent = '延迟未成功，请重试或继续休息。'
+  } finally { pending = false }
 })
 
-if (isTauri()) {
+if (!preview) {
   void listen<BreakStatus>('repose-break-status', event => renderStatus(event.payload))
 } else {
   const previewLong = new URLSearchParams(location.search).get('preview') === 'long'
   const previewDuration = previewLong ? 300 : 20
+  const requestedExercise = new URLSearchParams(location.search).get('exercise')
+  const requestedIndex = STRETCH_EXERCISES.findIndex(exercise => exercise.id === requestedExercise)
   let previewRemaining = previewDuration
   const previewStatus = (): BreakStatus => ({
     phase: previewLong ? 'long' : 'short',
@@ -138,8 +164,9 @@ if (isTauri()) {
     postponing: false,
   })
   renderStatus(previewStatus())
+  if (requestedIndex >= 0) { manualOffset = requestedIndex; renderStatus(previewStatus()) }
   window.setInterval(() => {
-    previewRemaining = previewRemaining > 0 ? previewRemaining - 1 : previewDuration
+    if (!new URLSearchParams(location.search).has('still')) previewRemaining = previewRemaining > 0 ? previewRemaining - 1 : previewDuration
     renderStatus(previewStatus())
   }, 1000)
 }

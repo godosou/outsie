@@ -575,6 +575,17 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Inspect the packaged WKWebView renderer without starting timers,
+            // changing saved preferences or covering the user's monitors.
+            if std::env::var_os("REPOSE_STRETCH_PREVIEW").is_some() {
+                if let Some(window) = app.get_webview_window("main") {
+                    let mut url = window.url()?;
+                    url.set_path("/break.html");
+                    url.set_query(Some("preview=long"));
+                    window.navigate(url)?;
+                }
+                return Ok(());
+            }
             setup_tray(app)?;
             run_break_monitor(app.handle().clone(), shared.clone());
             run_idle_monitor(app.handle().clone(), shared.clone());

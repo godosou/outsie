@@ -31,6 +31,16 @@ npm run package:mac
 
 Rust 桌面实现位于 `src-tauri/src/lib.rs`，macOS AppKit/CoreGraphics 桥接位于 `src-tauri/native/macos.m`，前端桥接位于 `src/tauriBridge.ts`。
 
-3D 训练使用本地 Three.js 与程序化软陶人物，不依赖网络或外部模型。`prefers-reduced-motion` 会固定到代表性姿势；WebGL 初始化失败时显示静态人物和文字指导，且不会影响原生休息倒计时。
+3D 训练使用本地 Three.js 与打包的 CC0 MakeHuman 人体网格（约 1.2 MB），无需联网。灰白人体与红色表面区域提示借鉴解剖教学表达，红色不代表精确分割的肌肉。`prefers-reduced-motion` 会固定到代表性姿势；WebGL 初始化或模型加载失败时保留文字指导，不影响原生休息倒计时。素材和转换过程见 `src/assets/STRETCH-HUMAN-LICENSE.md`。
+
+## 验证打包后的拉伸界面
+
+运行以下命令可在真实 WKWebView 中预览拉伸动作，不启动休息计时、覆盖屏幕或闲置锁屏，也不修改已保存的偏好：
+
+```sh
+REPOSE_STRETCH_PREVIEW=1 "src-tauri/target/release/bundle/macos/Repose Lite.app/Contents/MacOS/repose-lite"
+```
+
+正常双击 App 时仍运行完整的休息提醒应用。前端双入口产物可使用 `npm run verify:build` 检查。
 
 实现依据：[Tauri 2](https://v2.tauri.app/start/)、[macOS 使用系统 WKWebView](https://v2.tauri.app/reference/webview-versions/)、[macOS App 打包](https://v2.tauri.app/distribute/macos-application-bundle/)。

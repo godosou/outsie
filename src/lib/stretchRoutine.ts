@@ -33,7 +33,7 @@ export const STRETCH_EXERCISES = [
     id: 'chest-opener',
     title: '胸肩打开',
     focus: '肩颈与上背',
-    cue: '双手在身后轻轻相扣，肩胛骨向中间靠近，胸口自然打开。',
+    cue: '双臂轻轻向身后伸展，肩胛骨向中间靠近，胸口自然打开。',
     safety: '腰部不要过度后仰，以肩前侧舒展为准。',
   },
   {
@@ -47,7 +47,7 @@ export const STRETCH_EXERCISES = [
     id: 'wrist-forearm',
     title: '手腕与前臂拉伸',
     focus: '手腕与前臂',
-    cue: '一只手臂向前伸直，另一只手轻轻带动手掌向下，左右交替。',
+    cue: '一只手臂向前伸展，手腕缓缓向下弯曲，再放松，左右交替。',
     safety: '手肘保持微松，手腕出现刺痛时立即停止。',
   },
   {
@@ -79,7 +79,7 @@ export function getStretchStep(remaining: number, duration: number, offset = 0) 
   const breakElapsed = safeDuration - safeRemaining
   const elapsedInStep = breakElapsed % STRETCH_STEP_SECONDS
   const automaticIndex = Math.floor(breakElapsed / STRETCH_STEP_SECONDS)
-  const index = modulo(automaticIndex + Math.trunc(offset), STRETCH_EXERCISES.length)
+  const index = modulo(automaticIndex + (Number.isFinite(offset) ? Math.trunc(offset) : 0), STRETCH_EXERCISES.length)
 
   return {
     index,
