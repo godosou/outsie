@@ -79,8 +79,8 @@
 ## 保留什么
 
 `codex/phone-proximity-unlock` 原封不动保留。它的密码学、状态机、防重放、许可 broker
-和 authorizationdb 变换都是有价值的、已测的资产 —— 只是接线顺序错了。Step 4 会把它们
-合并进来。本分支从 `main` 起步，是为了让 Step 2 的切片保持真正的最薄；带着 729 行的
+和 authorizationdb 变换都是有价值的、已测的资产 —— 只是接线顺序错了。A4 与 B3 会把它们
+合并进来。本分支从 `main` 起步，是为了让 A1 的切片保持真正的最薄；带着 729 行的
 `plugin.c` 会把工作重新拽回原来的顺序。
 
 ## 先拆掉环境卡点
@@ -93,7 +93,8 @@
   （当前 `security find-identity` 是 0 个身份）；
 - 装崩了回滚快照，日常机永远不会被锁在门外。
 
-这把 Task 8 从「永久阻塞」变成「半小时可做」。VM 没有蓝牙直通，但 Step 2 不需要蓝牙。
+这把 Task 8 从「永久阻塞」变成「半小时可做」。VM 没有蓝牙直通，但 A1 不需要蓝牙，
+第一阶段全程用模拟存在源。
 
 ### Developer ID 是个假门禁
 
@@ -119,7 +120,7 @@ SignaturePolicy::PinnedDeveloperId => Err(ArtifactError::ProductionGateClosed),
 代码本身**；即使购买了 Developer ID 证书，该分支也不会修改任何系统文件。
 
 真实的签名要求未知，且不应靠猜。Jamf Connect、NoMAD Login 等第三方 Authorization Plugin
-确实可用，因此 `authorizationhost` 必定没有启用 library validation。Step 2 在 VM 里按下列
+确实可用，因此 `authorizationhost` 必定没有启用 library validation。A1 在 VM 里按下列
 梯度实测，哪一级通过就说明真实要求是什么：
 
 1. ad-hoc 签名 + SIP 开启（最严，先试这个）
@@ -133,107 +134,132 @@ SignaturePolicy::PinnedDeveloperId => Err(ArtifactError::ProductionGateClosed),
 
 ---
 
-## Step 0：造一个能 assert 的 oracle — 已完成
+## 执行顺序（按风险与依赖重排）
 
-没有可执行的验收判据就没有 TDD。
+早先两版计划各犯过一个变体的错误：第一版把 8 小时耐久测量排在骨架跑通之前；第二版只
+规划到「技术链路打通」，没把功能交付到可用。正确的分界是 **功能完整交付（含 App 内引导
+安装、配对、校准、故障恢复）→ 再做耐久测试**。
 
-**文件：**
+交付标准：**先自己用**（ad-hoc 签名，不买 Developer ID），但安装器、错误处理、健康检查
+按可分发的质量写，只把签名这一层留作后续接入。交互流程重新设计，旧分支的**状态模型**
+值得复用，界面与流程不沿用。
 
-- 新增：`tests/e2e/lockstate.sh`
-- 新增：`tests/e2e/unlock_acceptance.sh`
-- 新增：`tests/e2e/harness_selftest.sh`
+排期约束：手机会被带走，因此按「需不需要手机」分成两段。Mac 侧的全部工作都不依赖手机，
+只要把「手机在不在」抽象成一个可替换的存在源。
 
-锁屏状态从 IOKit 读，零依赖（不需要 PyObjC / Swift / 签名）：
+---
 
-```bash
-ioreg -n Root -d1 -a | plutil -extract IOConsoleLocked raw -o - -
-```
+# 第一阶段：不需要手机
 
-**已验证（2026-09-08，MacBook-Pro-2 / macOS 14.6.1 23G93）：**
+## A0 阻塞项修复 — 已完成
 
-- oracle 在 unlocked 状态下四种模式全部正确；
-- harness 的轮询/超时逻辑自测 7/7 通过；
-- `--dry-run` 与两道安全闸（未设 `REPOSE_LEAVE_CMD` / 未设 `REPOSE_E2E_ALLOW_LOCK=1`）
-  行为正确；
-- **真实锁屏往返**：`open -a ScreenSaverEngine` 后 1038ms 观察到 `IOConsoleLocked=false
-  → true`，用户输入密码后观察到 `true → false`。oracle 两个方向都成立，且本机锁屏密码
-  确认为「立即」。
+| 项 | 状态 |
+|---|---|
+| `uninstall.sh` 备份路径与 install.sh 不一致，导致卸载永远不还原规则 | ✅ 已修，并新增无备份时的外科式移除路径 |
+| `lockstate.sh` 只能读本机 | ✅ 加 `REPOSE_LOCKSTATE_CMD` 注入点 |
+| `unlock_acceptance.sh` 锁屏动作写死本机 | ✅ 加 `REPOSE_LOCK_CMD` 注入点 |
+| SSH 握手开销污染 3 秒延迟测量 | ✅ `vm-env.sh` 用 ControlMaster 复用连接 |
 
-macOS 14 已经读不到 `defaults -currentHost read com.apple.screensaver askForPassword`，
-所以「锁屏密码是否立即」只能这样经验性地验证。测试 VM 上要重做一次这个往返，再开始
-Step 2。
+## A1 证明 macOS 会加载并听从插件 — 待 VM
 
-## Step 1：让北极星测试红起来
+**最大的未知。** 纯 VM 内进行，只用本地 `/tmp`，零共享目录零 SSH，先把这个未知单独隔离
+回答。
 
-`tests/e2e/unlock_acceptance.sh` 断言的就是产品承诺本身：
+1. `tart run repose-spike`，按 `tools/vm-spike/FIRST-BOOT.md` 人工过一遍初始设置。
+2. 打干净快照 `repose-spike-clean`，之后随时可回滚。
+3. **里程碑 A**：`sudo ./install.sh log` → 锁屏 → `cat /tmp/repose-plugin.log`。
+   有行即证明 `authorizationhost` 会加载并调用 ad-hoc 签名的第三方插件。
+   `log` 模式无条件放行，配合 `k-of-n=1` 会**直接无密码解锁**，这正是测试目的。
+4. **里程碑 B**：`uninstall.sh && install.sh permit`，文件触发跑验收测试。
+5. A 不过就按 `docs/product-tech-research/2026-09-08-securityagent-plugin-loading.md`
+   的梯度下探（ad-hoc + SIP 开 → 关 library validation → 关 SIP）。
 
-```
-锁屏 → 手机离开 → Mac 保持锁定 → 手机返回 → 3 秒内解锁
-```
+**产出不只是「行/不行」，而是「安装需要用户做哪几步」** —— 这是 A2 设计的直接输入。三种
+结果对应三种完全不同的引导形态，最后一种（必须关 SIP）甚至要重新评估这个功能值不值得做。
 
-「离开」和「返回」是注入的（`REPOSE_LEAVE_CMD` / `REPOSE_RETURN_CMD`），所以同一套断言
-能活过后面每一步而不必重写。「手机离开后必须保持锁定」这条负向断言不能省 —— 少了它，
-一个无条件解锁的插件也能通过测试。
+`tools/vm-spike/run-experiment.sh` 会在建议安装之前，先把合约测试拷进 VM 里跑一遍。
+这样万一里程碑 A 一片沉默，可以确定不是我们的 bundle 在传输中损坏或行为异常。
 
-**完成判据：** 在测试 VM 上跑一次，确认它因为「没有在 3 秒内解锁」而失败，而不是因为
-锁屏没触发、oracle 读不出来或者 hook 报错而失败。红得对，才是有效的红。
+## A2 交互流程设计 — 待 A1 结论
 
-同时确认 VM 的「系统设置 → 锁定屏幕 → 在屏幕保护程序开始后要求输入密码」设为「立即」，
-否则根本没有可解的锁。
+重新设计。要覆盖的真实状态：未安装 / 安装中 / 已安装未配对 / 已配对未校准 / 正常 /
+组件异常 / 已撤销，以及每个失败态的**出路**（不是只显示错误）。
 
-```bash
-tests/e2e/harness_selftest.sh
-REPOSE_LEAVE_CMD='rm -f /tmp/repose-permit' \
-REPOSE_RETURN_CMD='touch /tmp/repose-permit' \
-  tests/e2e/unlock_acceptance.sh --dry-run
-```
+复用旧分支的状态模型（`src-tauri/src/unlock.rs` 的 snapshot 结构：capability、
+components{policy,plugin,service,transport}、devices、pending_pairing、calibration、
+limitations）。
 
-## Step 2：最小垂直切片 —— 文件触发解锁（第一次绿）
+## A3 引导安装器 + 真实后端
 
-在 VM 里装一个只做一件事的 Authorization Plugin：**看到 `/tmp/repose-permit` 就放行**。
+App 内引导：说明将要修改什么 → 管理员授权 → 安装组件 → 健康检查 → 出错时给出修复或
+干净卸载。用真实实现替换 `ProductionUnlockCommandService = UnlockCommandService<GateClosedBackend>`。
 
-没有密码学、没有 BLE、没有状态机、没有 IPC 协议、没有 launchd。目标只有一个：搞清楚
-macOS 到底让不让你干这件事。
+签名留口子：复用 `repose-unlockctl` 已有的 `SignaturePolicy::{DevelopmentAdHoc,
+PinnedDeveloperId}` 这个缝 —— 让 `DevelopmentAdHoc` 真正走通，`PinnedDeveloperId` 返回
+「未配置」，而不是旧代码里那种永久关闭的 `ProductionGateClosed`。
 
-**完成判据：**
+## A4 用模拟存在源跑通完整链路
 
-```bash
-REPOSE_LEAVE_CMD='rm -f /tmp/repose-permit' \
-REPOSE_RETURN_CMD='touch /tmp/repose-permit' \
-REPOSE_E2E_ALLOW_LOCK=1 tests/e2e/unlock_acceptance.sh
-```
+把「手机在不在」抽象成存在源接口，第一个实现是模拟源（ssh 写 permit 文件），第二个才是
+真实 BLE。验收测试的 `REPOSE_LEAVE_CMD` / `REPOSE_RETURN_CMD` 已经是这个抽象。
 
-由红转绿，且未触发时密码输入完全正常。
+**接真实 permit 之前必须修**：`plugin.c` 用 `access(path, F_OK)` 判定 —— 文件存在即放行，
+不校验新鲜度。一个忘删的 permit 文件等于永久免密。改成带时间戳并校验有效期。
 
-**这一步一旦绿，最大的未知就死了。** 如果做不成，整个方案要换路子 —— 这个答案值得用
-一天换，不值得用一个月换。
+**第一阶段完成判据**：干净快照上从「没装过」开始，**只用 App 界面**完成安装 → 健康检查 →
+模拟离开/返回触发自动解锁 → 卸载并确认系统完全还原，全程不碰命令行。
 
-## Step 3：把文件触发换成真实 BLE（第二次红转绿）
+---
 
-写今天完全不存在的代码：Android 侧 GATT server + advertiser，Mac 侧 central
-（Rust 用 `btleplug`，或先写个几十行的 Swift CoreBluetooth 小进程更快）。
-**仍然不加密、不做状态机**，只传一个明文 hello 并读 RSSI。
+# 第二阶段：需要手机
 
-前置实验：手机熄屏放口袋，Mac 侧连续记 8 小时 RSSI 日志，看 realme UI 会不会在 Doze
-里把连接掐掉。这份数据决定 BLE 角色怎么选 —— 也只有这份数据能让
-`BleRoleSelector.productionRole()` 有资格不再是 `Disabled`。
+## B1 BLE bring-up（约 15 分钟）
 
-**完成判据：** 手机关蓝牙 → 保持锁定；开蓝牙走近 → 解锁。
+装 APK、授权、加 realme 耗电白名单、启动广播；宿主 `./rssi-log.sh 300`。
+判据：读到 `repose-hello` 且**读完后 CSV 仍持续出行**，`peripherals` 单一 id。
 
-## Step 4：给那 52k 行通电
+**分叉点**：若 `advertising: no`，这台手机当外围走不通，必须翻转角色。影响范围仅限 BLE
+层 —— 安装器、UI、解锁链路不受影响，这正是先做第一阶段的好处。
 
-按 permit → 状态机 → 协议/签名 → 防重放 → 校准 的顺序，从
-`codex/phone-proximity-unlock` 逐层合并进真实链路。每接一层跑同一条验收测试，保持绿。
-既有单元测试从这一步开始才真正发挥防回归的作用，而不是充当进度的假象。
+## B2 把模拟源换成真实 BLE
 
-## Step 5：场景矩阵逐条变成测试
+新增 `permit-bridge.sh`：读 CSV 流做带迟滞的近/远判定，驱动同一个存在源接口。
 
-Doze、force-stop、重启、蓝牙切换、30 次离开/返回循环、p95 延迟、20 次密码 fallback。
-每条先写进验收 harness 成为一个 case，红了再修。这一步做完才谈得上
-`docs/validation/verification-summary.md` 里的发布门禁。
+传 permit 走 SSH 而非共享目录：`plugin.c` 的 `PERMIT_PATH` 是硬编码宏（改它就换 cdhash，
+得重新 make + 重装），而 virtiofs 上 `access()` 走真实 uid、attr 缓存会让删除延迟可见，
+直接打乱「离开后必须保持锁定」那条断言。走 SSH 则 `plugin.c` 一行不用改。
+
+## B3 配对与校准
+
+接入旧分支已测的密码学资产（P-256、Keystore/Secure Enclave、防重放计数器、一次性许可）。
+校准要能失败并要求重做。
+
+## B4 耐久测试
+
+8 小时 Doze 观测、force-stop、重启、蓝牙切换、30 次离开/返回循环、p50/p95 延迟、误近率、
+耗电、20 次密码 fallback。解读陷阱见 `tools/ble-spike/README.md`。
+
+---
+
+## 当前状态
+
+| 项 | 状态 |
+|---|---|
+| 锁屏 oracle | ✅ 本机双向实测（`false→true→false`），远端注入点已测 |
+| 验收测试 | ✅ 已写，按设计红着；`REPOSE_LOCK_CMD` / `REPOSE_LOCKSTATE_CMD` 就位 |
+| 最小 Authorization Plugin | ✅ 编译 + ad-hoc 签名；**22 项合约测试通过**；**从未被系统加载** |
+| 授权规则变换 | ✅ 抽出为 `authdb-edit.py`，15 项测试，含 4 类畸形输入的拒绝 |
+| install/uninstall 不变量 | ✅ 15 项静态断言，经变异测试验证有效 |
+| BLE 两端 | ✅ 编译通过，6 个会伪造结论的 bug 已修；**从未真机通信** |
+| Tart VM | ⏳ IPSW 下载中（`UniversalMac_14.6.1_23G93`，与宿主同 build） |
+| 手机 RMX3888 | 已确认可连（Android 16 / API 36），当前不在手边 |
+
+测试总数：52 项（插件合约 22 + 规则变换 15 + 脚本不变量 15），加上验收 harness 自测 17 项。
 
 ## 相关文档
 
-- [原技术设计](2026-09-07-phone-proximity-unlock-design.md)（在 `codex/phone-proximity-unlock` 分支）
-- [安全威胁模型](../security/phone-unlock-threat-model.md)（同上）
-- [验证状态与发布门禁](../validation/verification-summary.md)（同上）
+- [VM 首次启动手册](../../tools/vm-spike/FIRST-BOOT.md)
+- [BLE spike 说明](../../tools/ble-spike/README.md)
+- [Authorization Plugin 签名要求调研](../product-tech-research/2026-09-08-securityagent-plugin-loading.md)
+- 旧分支 `codex/phone-proximity-unlock` 的设计与威胁模型仍可参考，但其 validation 文档
+  已被证明与机器实际状态不符，不可作为证据使用。
