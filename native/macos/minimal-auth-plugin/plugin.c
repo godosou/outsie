@@ -30,11 +30,40 @@ typedef struct {
     const AuthorizationCallbacks *callbacks;
 } PluginRecord;
 
+typedef enum {
+    kModeUnknown = 0, /* fail closed: an id we do not recognise denies */
+    kModeLog,         /* milestone A */
+    kModePermit,      /* milestone B */
+} MechanismMode;
+
 typedef struct {
     const PluginRecord *plugin;
     AuthorizationEngineRef engine;
-    int waitsForPermit; /* 0 = milestone A, 1 = milestone B */
+    MechanismMode mode;
 } MechanismRecord;
+
+static MechanismMode mode_for(AuthorizationMechanismId mechanismId)
+{
+    if (mechanismId == NULL) {
+        return kModeUnknown;
+    }
+    if (strcmp(mechanismId, "permit") == 0) {
+        return kModePermit;
+    }
+    if (strcmp(mechanismId, "log") == 0) {
+        return kModeLog;
+    }
+    return kModeUnknown;
+}
+
+static const char *mode_name(MechanismMode mode)
+{
+    switch (mode) {
+    case kModeLog: return "log";
+    case kModePermit: return "permit";
+    default: return "unknown";
+    }
+}
 
 static void repose_log(const char *fmt, ...)
 {
@@ -92,11 +121,10 @@ static OSStatus MechanismCreate(AuthorizationPluginRef inPlugin,
 
     mech->plugin = (const PluginRecord *)inPlugin;
     mech->engine = inEngine;
-    mech->waitsForPermit = (mechanismId != NULL && strcmp(mechanismId, "permit") == 0);
+    mech->mode = mode_for(mechanismId);
 
     repose_log("MechanismCreate id=%s mode=%s",
-               mechanismId ? mechanismId : "(null)",
-               mech->waitsForPermit ? "permit" : "log");
+               mechanismId ? mechanismId : "(null)", mode_name(mech->mode));
 
     *outMechanism = (AuthorizationMechanismRef)mech;
     return errAuthorizationSuccess;
@@ -105,13 +133,26 @@ static OSStatus MechanismCreate(AuthorizationPluginRef inPlugin,
 static OSStatus MechanismInvoke(AuthorizationMechanismRef inMechanism)
 {
     MechanismRecord *mech = (MechanismRecord *)inMechanism;
-    AuthorizationResult result = kAuthorizationResultAllow;
+    AuthorizationResult result;
 
-    repose_log("MechanismInvoke enter mode=%s",
-               mech->waitsForPermit ? "permit" : "log");
+    repose_log("MechanismInvoke enter mode=%s", mode_name(mech->mode));
 
-    if (mech->waitsForPermit && !wait_for_permit()) {
+    switch (mech->mode) {
+    case kModeLog:
+        result = kAuthorizationResultAllow;
+        break;
+    case kModePermit:
+        result = wait_for_permit() ? kAuthorizationResultAllow : kAuthorizationResultDeny;
+        break;
+    default:
+        /* A mechanism id we do not recognise means the authorization database
+         * names something this binary does not implement -- a typo, a stale
+         * rule, a half-finished install. Allowing there would turn a
+         * configuration mistake into a machine that unlocks without a
+         * password, so the unrecognised case denies and says why. */
+        repose_log("MechanismInvoke unknown mechanism id, denying");
         result = kAuthorizationResultDeny;
+        break;
     }
 
     repose_log("MechanismInvoke result=%s",
