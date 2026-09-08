@@ -62,6 +62,39 @@
 
 这把 Task 8 从「永久阻塞」变成「半小时可做」。VM 没有蓝牙直通，但 Step 2 不需要蓝牙。
 
+### Developer ID 是个假门禁
+
+旧分支把两件不同的事混成了一件：
+
+1. **Developer ID + 公证 = 分发要求。** 只有把插件装到别人的 Mac 上、需要绕过 Gatekeeper
+   时才需要（$99/年）。与「机制在自己机器上灵不灵」无关。
+2. **能否被 `authorizationhost` 加载 = 签名形式 + library validation 的问题。**
+   ad-hoc 签名（`codesign -s -`）很可能就够。
+
+`production/attestation.rs` 把 (1) 变成了 (2) 的前置条件：
+
+```rust
+pub fn verify_production_mutation_gate() -> Result<(), ArtifactError> {
+    Err(ArtifactError::ProductionGateClosed)      // 无条件拒绝
+}
+...
+SignaturePolicy::PinnedDeveloperId => Err(ArtifactError::ProductionGateClosed),
+```
+
+第二行 pin 了一个 Developer ID 要求，又硬编码说该要求永远不满足。唯一返回 `Ok` 的
+`DevelopmentAdHoc` 分支只用于校验开发包，不通向安装。**所以拦住安装的不是 macOS，是这段
+代码本身**；即使购买了 Developer ID 证书，该分支也不会修改任何系统文件。
+
+真实的签名要求未知，且不应靠猜。Jamf Connect、NoMAD Login 等第三方 Authorization Plugin
+确实可用，因此 `authorizationhost` 必定没有启用 library validation。Step 2 在 VM 里按下列
+梯度实测，哪一级通过就说明真实要求是什么：
+
+1. ad-hoc 签名 + SIP 开启（最严，先试这个）
+2. ad-hoc + 关闭 library validation
+3. ad-hoc + `csrutil disable`
+
+在拿到这个答案之前，不要购买 Developer ID，也不要把签名写成任何前置条件。
+
 其余两项：**iOS 砍出本期**（Android-first，当前工具链没有 iOS SDK）；Android 环境是通的
 （RMX3888 上 instrumentation 已 5/5 跑过）。
 
@@ -83,11 +116,19 @@
 ioreg -n Root -d1 -a | plutil -extract IOConsoleLocked raw -o - -
 ```
 
-**已验证：** oracle 在 unlocked 状态下四种模式全部正确；harness 的轮询/超时逻辑
-自测 7/7 通过；`--dry-run` 与两道安全闸（未设 `REPOSE_LEAVE_CMD` / 未设
-`REPOSE_E2E_ALLOW_LOCK=1`）行为正确。
+**已验证（2026-09-08，MacBook-Pro-2 / macOS 14.6.1 23G93）：**
 
-**尚未验证：** oracle 在**锁屏状态**下的返回值 —— 这需要真的锁一次屏。见 Step 1。
+- oracle 在 unlocked 状态下四种模式全部正确；
+- harness 的轮询/超时逻辑自测 7/7 通过；
+- `--dry-run` 与两道安全闸（未设 `REPOSE_LEAVE_CMD` / 未设 `REPOSE_E2E_ALLOW_LOCK=1`）
+  行为正确；
+- **真实锁屏往返**：`open -a ScreenSaverEngine` 后 1038ms 观察到 `IOConsoleLocked=false
+  → true`，用户输入密码后观察到 `true → false`。oracle 两个方向都成立，且本机锁屏密码
+  确认为「立即」。
+
+macOS 14 已经读不到 `defaults -currentHost read com.apple.screensaver askForPassword`，
+所以「锁屏密码是否立即」只能这样经验性地验证。测试 VM 上要重做一次这个往返，再开始
+Step 2。
 
 ## Step 1：让北极星测试红起来
 
