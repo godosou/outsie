@@ -53,6 +53,11 @@ def main():
         print(f"no samples ({bad} unparseable lines)")
         return 1
 
+    # Detect a backwards clock BEFORE sorting: sorting is what hides it. The
+    # scanner stamps samples with wall clock, so an NTP correction mid-run leaves
+    # the file out of order, and every interval computed after the sort is wrong.
+    backwards = sum(1 for a, b in zip(rows, rows[1:]) if b[0] < a[0])
+
     rows.sort(key=lambda r: r[0])
     t0, t1 = rows[0][0], rows[-1][0]
     span = t1 - t0
@@ -79,6 +84,12 @@ def main():
             print(f"  p{p:<3}         {pct(deltas, p):.0f}")
         print(f"  max          {deltas[-1]:.0f}  ({hms(deltas[-1])})")
         print()
+
+        if backwards:
+            print(f"WARNING: {backwards} samples arrived out of order. Timestamps are "
+                  "wall clock, so a clock correction during the run makes every "
+                  "interval and gap below unreliable.")
+            print()
 
         gaps = [(a[0], b[0] - a[0]) for a, b in zip(rows, rows[1:])
                 if (b[0] - a[0]) > gap_threshold * 1000]
@@ -111,6 +122,28 @@ def main():
     print("peripherals")
     for pid, n in sorted(peers.items(), key=lambda kv: -kv[1]):
         print(f"  {pid}     {n}")
+
+    # Android rotates its BLE private address roughly every 15 minutes, so one
+    # phone can surface as several peripheral ids. The aggregate gaps above are
+    # computed across every id at once, which lets one advertiser's samples fill
+    # another's silence -- exactly the direction that makes a dying advertiser
+    # look healthy. Break it down whenever there is more than one.
+    if len(peers) > 1:
+        print()
+        print("  WARNING: more than one peripheral matched this service UUID, so the")
+        print("  aggregate gap numbers above UNDERSTATE how long any single advertiser")
+        print("  was silent. Per-peripheral:")
+        for pid, _ in sorted(peers.items(), key=lambda kv: -kv[1]):
+            prows = [r for r in rows if r[2] == pid]
+            if len(prows) < 2:
+                print(f"    {pid}  single sample at {ts(prows[0][0])}")
+                continue
+            pgaps = [b[0] - a[0] for a, b in zip(prows, prows[1:])
+                     if (b[0] - a[0]) > gap_threshold * 1000]
+            pspan = prows[-1][0] - prows[0][0]
+            print(f"    {pid}  {ts(prows[0][0])} -> {ts(prows[-1][0])}")
+            print(f"{'':14}span {hms(pspan)}  gaps {len(pgaps)}  "
+                  f"dark {hms(sum(pgaps))}")
     return 0
 
 

@@ -76,6 +76,13 @@ class BleSpikeService : Service() {
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 SpikeState.liveConnections = (SpikeState.liveConnections - 1).coerceAtLeast(0)
                 SpikeState.event("disconnected ${device.address} status=$status")
+                // Android's legacy advertiser stops once a peripheral connection is
+                // established and never resumes on its own. Without this the phone goes
+                // silent after the Mac's first read, which looks exactly like the OS
+                // killing BLE in Doze. That false negative is the one result this whole
+                // experiment cannot afford, so advertising is restarted on every
+                // disconnect.
+                restartAdvertising()
             }
             Log.i(TAG, "conn ${device.address} status=$status newState=$newState")
             updateNotification()
@@ -152,6 +159,30 @@ class BleSpikeService : Service() {
         gattServer = server
         SpikeState.gattOpen = true
         SpikeState.event("gatt server open")
+    }
+
+    /**
+     * Resume advertising after a peripheral connection ends. Posted to the main thread
+     * because this is called from a binder callback, with a short delay to let the
+     * stack finish tearing the connection down before a new advertising set is opened.
+     */
+    private fun restartAdvertising() {
+        handler.postDelayed({
+            val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+            if (adapter == null || !adapter.isEnabled) {
+                SpikeState.advertising = false
+                SpikeState.event("cannot resume advertising: Bluetooth is off")
+                SpikeState.notifyListeners()
+                return@postDelayed
+            }
+            // Stopping first keeps a second start from failing with ALREADY_STARTED if
+            // the stack happened to leave the previous set running.
+            runCatching { advertiser?.stopAdvertising(advertiseCallback) }
+            SpikeState.advertising = false
+            startAdvertising(adapter.bluetoothLeAdvertiser)
+            SpikeState.event("advertising restart requested after disconnect")
+            SpikeState.notifyListeners()
+        }, 250L)
     }
 
     private fun startAdvertising(leAdvertiser: BluetoothLeAdvertiser?) {

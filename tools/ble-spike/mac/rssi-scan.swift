@@ -24,6 +24,11 @@ final class Scanner: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     private var central: CBCentralManager!
     private var helloRead = false
     private var connecting: CBPeripheral?
+    private var connectAttempts = 0
+    private var connectGeneration = 0
+    private var gaveUpOnRead = false
+    private let maxConnectAttempts = 3
+    private let connectTimeout: TimeInterval = 10
 
     func start() {
         central = CBCentralManager(delegate: self, queue: nil)
@@ -34,6 +39,15 @@ final class Scanner: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
             withServices: [serviceUUID],
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
         log("SCANNING for service \(serviceUUID.uuidString)")
+    }
+
+    /// Every path that ends a connection attempt must come back here. Scanning is
+    /// stopped while connecting, so any path that forgets to resume leaves the run
+    /// producing no samples at all -- indistinguishable in the CSV from the phone
+    /// having gone silent, which is the exact conclusion this tool exists to measure.
+    private func resumeScanning() {
+        connecting = nil
+        beginScan()
     }
 
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
@@ -64,11 +78,34 @@ final class Scanner: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         print("\(ms),\(RSSI.intValue),\(idPrefix)")
 
         guard !helloRead, connecting == nil else { return }
+        guard connectAttempts < maxConnectAttempts else {
+            if !gaveUpOnRead {
+                gaveUpOnRead = true
+                log("GIVING UP on the hello read after \(maxConnectAttempts) attempts — "
+                    + "continuing passive RSSI logging, which is what the run needs")
+            }
+            return
+        }
+
+        connectAttempts += 1
+        connectGeneration += 1
+        let generation = connectGeneration
         connecting = p
         p.delegate = self
         c.stopScan()
-        log("CONNECTING to \(idPrefix) (rssi \(RSSI.intValue))")
+        log("CONNECTING to \(idPrefix) (rssi \(RSSI.intValue)) "
+            + "attempt \(connectAttempts)/\(maxConnectAttempts)")
         c.connect(p, options: nil)
+
+        // CoreBluetooth's connect() has no timeout of its own and scanning is stopped
+        // here, so a connection that never completes would silently end the run.
+        DispatchQueue.main.asyncAfter(deadline: .now() + connectTimeout) { [weak self] in
+            guard let self, self.connectGeneration == generation, self.connecting != nil
+            else { return }
+            log("CONNECT TIMED OUT after \(Int(self.connectTimeout))s — resuming scan")
+            self.central.cancelPeripheralConnection(p)
+            self.resumeScanning()
+        }
     }
 
     func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
@@ -79,15 +116,13 @@ final class Scanner: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral,
                         error: Error?) {
         log("CONNECT FAILED: \(error?.localizedDescription ?? "unknown")")
-        connecting = nil
-        beginScan()
+        resumeScanning()
     }
 
     func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral,
                         error: Error?) {
         log("DISCONNECTED: \(error?.localizedDescription ?? "clean")")
-        connecting = nil
-        beginScan()
+        resumeScanning()
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
