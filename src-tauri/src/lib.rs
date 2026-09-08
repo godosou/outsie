@@ -831,7 +831,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .text("quit", "退出 Repose")
         .build()?;
-    // The same r silhouette, rendered from public/tray.svg; macOS supplies contrast.
+    // The same smiling flower, rendered from public/tray.svg; macOS supplies contrast.
     let tray_icon = tauri::include_image!("icons/tray/18x18.png");
     TrayIconBuilder::with_id("repose-tray")
         .menu(&menu)
