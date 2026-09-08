@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { publicAsset } from '@/lib/public-asset';
-import { ArrowRight, Check, Eye, LockKeyhole, Smartphone } from 'lucide-react';
+import { ArrowRight, Eye } from 'lucide-react';
 
 type DemoProps = { lang: 'zh' | 'en' };
 
@@ -92,38 +92,4 @@ export function StretchDemo({ lang }: DemoProps) {
   );
 }
 
-export function PhoneKeyDemo({ lang }: DemoProps) {
-  const t = (zh: string, en: string) => (lang === 'zh' ? zh : en);
-  return (
-    <figure className="simple-key-demo">
-      <div className="key-demo-step">
-        <span className="key-action">
-          <Smartphone aria-hidden="true" />
-          {t('带上手机离开', 'Take your phone. Step away.')}
-        </span>
-        <ArrowRight className="key-arrow" aria-hidden="true" />
-        <strong>
-          <LockKeyhole aria-hidden="true" />
-          {t('电脑锁屏', 'Your Mac locks')}
-        </strong>
-      </div>
-      <div className="key-demo-step">
-        <span className="key-action">
-          <Smartphone aria-hidden="true" />
-          {t('回到电脑旁', 'Come back to your desk.')}
-        </span>
-        <ArrowRight className="key-arrow" aria-hidden="true" />
-        <strong>
-          <Check aria-hidden="true" />
-          {t('验证手机钥匙', 'Verify your Phone Key')}
-        </strong>
-      </div>
-      <figcaption>
-        {t(
-          '手机钥匙 · 离开锁屏，回来继续',
-          'Phone Key · Lock when you leave. Resume when you return.',
-        )}
-      </figcaption>
-    </figure>
-  );
-}
+export { PhoneKeyDemo } from './phone-key-demo';
