@@ -33,6 +33,8 @@ test: $(BUNDLE)
 	./$(TEST_BIN) $(BINARY)
 	@echo
 	./tests/authdb_edit_test.sh
+	@echo
+	./tests/install_invariants_test.sh
 
 clean:
 	rm -rf build
