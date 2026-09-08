@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
-import '../pairing/pairing_scanner.dart';
+import 'dart:async';
 import 'console_controller.dart';
 import 'console_models.dart';
 
@@ -17,12 +16,12 @@ class WorkConsolePage extends StatefulWidget {
 class _WorkConsolePageState extends State<WorkConsolePage>
     with WidgetsBindingObserver {
   late final controller = widget.controller ?? ConsoleController();
-  bool scanning = false;
   String t(String en, String zh) => consoleText(context, en, zh);
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(controller.refreshDevices());
   }
 
   @override
@@ -46,34 +45,6 @@ class _WorkConsolePageState extends State<WorkConsolePage>
       controller.disconnect();
     }
     super.dispose();
-  }
-
-  Future<void> scan() async {
-    if (scanning) return;
-    setState(() => scanning = true);
-    final access = await const SystemPairingCameraAccess().request();
-    if (!mounted) return;
-    if (access != CameraAccessOutcome.granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            t('Allow camera access in Settings.', '请在系统设置中允许相机权限。'),
-          ),
-          action: SnackBarAction(
-            label: t('Settings', '设置'),
-            onPressed: () {
-              const SystemPairingCameraAccess().openSettings();
-            },
-          ),
-        ),
-      );
-    } else {
-      final qr = await Navigator.of(context).push<String>(
-        MaterialPageRoute(builder: (_) => const ConsoleScannerPage()),
-      );
-      if (mounted && qr != null) await controller.connect(qr);
-    }
-    if (mounted) setState(() => scanning = false);
   }
 
   @override
@@ -120,6 +91,22 @@ class _WorkConsolePageState extends State<WorkConsolePage>
                     ),
                   ),
                   const SizedBox(height: 20),
+                  if (controller.simulation) ...[
+                    Card(
+                      color: Theme.of(context).colorScheme.tertiaryContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          t(
+                            'BLUETOOTH SIMULATION · No real Bluetooth connection or system keys. Validate app switching, delays, stop and layout here.',
+                            '蓝牙仿真 · 不连接真实蓝牙、不发送系统按键。可验证 App 切换、等待、停止和按钮排序。',
+                          ),
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   if (!controller.connected)
                     Card(
                       child: Padding(
@@ -127,34 +114,75 @@ class _WorkConsolePageState extends State<WorkConsolePage>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Icon(Icons.devices_rounded, size: 48),
+                            const Icon(Icons.bluetooth_rounded, size: 48),
                             const SizedBox(height: 16),
                             Text(
-                              t('Connect to your Mac', '连接你的 Mac'),
+                              t('Connect a paired Mac', '连接已配对的 Mac'),
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                             const SizedBox(height: 8),
                             Text(
                               t(
-                                'Enable the local connection in Repose App controls on Mac, then scan its QR code. Both devices need the same Wi-Fi.',
-                                '在 Mac 的 Repose「App 快捷操作」中开启局域网连接，然后扫码。两台设备需处于同一个 Wi-Fi。',
+                                'Enable Bluetooth control in Repose on Mac, then choose your paired Mac below.',
+                                '在 Mac 的 Repose 中开启蓝牙控制，然后选择已配对的 Mac。',
                               ),
                             ),
                             const SizedBox(height: 16),
-                            FilledButton.icon(
-                              onPressed: scanning || controller.busy
-                                  ? null
-                                  : scan,
-                              icon: const Icon(Icons.qr_code_scanner),
-                              label: Text(t('Scan Mac QR code', '扫描 Mac 二维码')),
-                            ),
-                            Text(
-                              t(
-                                'The QR code grants control. Credentials stay in memory and are removed on disconnect.',
-                                '二维码用于授权控制。凭据仅保存在内存中，断开后即清除。',
+                            if (controller.devicesLoading)
+                              const LinearProgressIndicator(),
+                            if (controller.busy) ...[
+                              const LinearProgressIndicator(),
+                              Text(
+                                t('Connecting over Bluetooth…', '正在通过蓝牙连接…'),
                               ),
-                              style: Theme.of(context).textTheme.bodySmall,
+                              const SizedBox(height: 12),
+                            ],
+                            for (final device in controller.devices)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: FilledButton.icon(
+                                  onPressed: controller.busy
+                                      ? null
+                                      : () => controller.connect(device.id),
+                                  icon: const Icon(Icons.bluetooth_connected),
+                                  label: Text(device.name),
+                                ),
+                              ),
+                            if (!controller.devicesLoading &&
+                                controller.devices.isEmpty) ...[
+                              Text(
+                                t(
+                                  'No paired Mac yet. Complete confirmation on both devices in Phone Key first.',
+                                  '还没有已配对的 Mac。请先在「手机钥匙」完成两端配对确认。',
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    Navigator.of(context).maybePop(),
+                                icon: const Icon(Icons.key),
+                                label: Text(
+                                  t('Go to Phone Key pairing', '前往手机钥匙配对'),
+                                ),
+                              ),
+                            ],
+                            TextButton.icon(
+                              onPressed:
+                                  controller.devicesLoading || controller.busy
+                                  ? null
+                                  : controller.refreshDevices,
+                              icon: const Icon(Icons.refresh),
+                              label: Text(
+                                t('Refresh paired devices', '刷新已配对设备'),
+                              ),
                             ),
+                            if (controller.devicesError != null)
+                              Text(
+                                controller.devicesError!,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -249,6 +277,9 @@ class _WorkConsolePageState extends State<WorkConsolePage>
                             child: Text(t('Cancel', '取消')),
                           ),
                           FilledButton(
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(48, 52),
+                            ),
                             onPressed: controller.busy
                                 ? null
                                 : controller.saveOrder,
@@ -344,12 +375,20 @@ class _WorkConsolePageState extends State<WorkConsolePage>
                                 '请求未被接受。请检查 Mac 状态，或取消布局编辑后重试。',
                               )
                             : t(
-                                'Connection unavailable. Check Mac and scan again. Commands are never resent.',
-                                '连接不可用。请检查 Mac 后重新扫码。操作不会自动重发。',
+                                'Bluetooth unavailable. Check Mac and reconnect from paired devices. Commands are never resent.',
+                                '蓝牙连接不可用。请检查 Mac 后选择已配对设备重新连接。操作不会自动重发。',
                               ),
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.error,
                         ),
+                      ),
+                    ),
+                  if (controller.error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        controller.error!,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ),
                   if (state?.lastError != null)
@@ -446,70 +485,6 @@ class _ActionTile extends StatelessWidget {
           ],
         ),
       ),
-    ),
-  );
-}
-
-class ConsoleScannerPage extends StatefulWidget {
-  const ConsoleScannerPage({super.key});
-  @override
-  State<ConsoleScannerPage> createState() => _ConsoleScannerPageState();
-}
-
-class _ConsoleScannerPageState extends State<ConsoleScannerPage> {
-  bool done = false, invalid = false;
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(consoleText(context, 'Scan Mac control QR', '扫描 Mac 控制二维码')),
-    ),
-    body: Stack(
-      children: [
-        MobileScanner(
-          onDetect: (capture) {
-            if (done) return;
-            for (final barcode in capture.barcodes) {
-              final raw = barcode.rawValue;
-              if (raw == null) continue;
-              try {
-                ConsolePairing.parse(raw);
-                done = true;
-                Navigator.of(context).pop(raw);
-                return;
-              } catch (_) {
-                if (!invalid) setState(() => invalid = true);
-              }
-            }
-          },
-          errorBuilder: (context, error) => Center(
-            child: Text(
-              consoleText(
-                context,
-                'Camera unavailable. Check camera permission in Settings.',
-                '相机不可用，请在系统设置中检查相机权限。',
-              ),
-            ),
-          ),
-        ),
-        if (invalid)
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    consoleText(
-                      context,
-                      'Scan the QR in Mac App controls, not the Phone Key code.',
-                      '请扫描 Mac「App 快捷操作」中的二维码，而非手机钥匙配对码。',
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     ),
   );
 }

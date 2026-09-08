@@ -54,7 +54,28 @@ impl UnlockBackend for BuildUnlockBackend {
         match self {
             Self::Closed(backend) => backend.confirm_pairing(session_id),
             #[cfg(all(debug_assertions, target_os = "macos"))]
-            Self::DebugBluetooth(backend) => backend.confirm_pairing(session_id),
+            Self::DebugBluetooth(backend) => {
+                let pending =
+                    backend
+                        .unlock_status()?
+                        .pending_pairing
+                        .ok_or(UnlockCommandError {
+                            code: crate::unlock::UnlockErrorCode::BackendUnavailable,
+                        })?;
+                let snapshot = backend.confirm_pairing(session_id)?;
+                let device = snapshot.devices.last().ok_or(UnlockCommandError {
+                    code: crate::unlock::UnlockErrorCode::BackendUnavailable,
+                })?;
+                crate::console_bluetooth::authorize_pairing(
+                    &pending.qr_payload,
+                    &device.id,
+                    &device.display_name,
+                )
+                .map_err(|_| UnlockCommandError {
+                    code: crate::unlock::UnlockErrorCode::BackendUnavailable,
+                })?;
+                Ok(snapshot)
+            }
         }
     }
 
@@ -70,7 +91,11 @@ impl UnlockBackend for BuildUnlockBackend {
         match self {
             Self::Closed(backend) => backend.revoke_device(device_id),
             #[cfg(all(debug_assertions, target_os = "macos"))]
-            Self::DebugBluetooth(backend) => backend.revoke_device(device_id),
+            Self::DebugBluetooth(backend) => {
+                let snapshot = backend.revoke_device(device_id)?;
+                crate::console_bluetooth::revoke_device(device_id);
+                Ok(snapshot)
+            }
         }
     }
 

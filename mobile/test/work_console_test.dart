@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:repose_unlock/app/repose_theme.dart';
 import 'package:repose_unlock/features/work_console/console_client.dart';
 import 'package:repose_unlock/features/work_console/console_controller.dart';
 import 'package:repose_unlock/features/work_console/console_models.dart';
 import 'package:repose_unlock/features/work_console/work_console_page.dart';
+import 'package:repose_unlock/features/work_console/console_simulator.dart';
 
 Map<String, dynamic> statusJson({
   bool blocked = false,
@@ -61,10 +62,7 @@ Map<String, dynamic> statusJson({
     ],
   },
 };
-String qr({String host = '127.0.0.1', int port = 1234, String? fingerprint}) =>
-    '${ConsolePairing.prefix}${base64UrlEncode(utf8.encode(jsonEncode({'v': 1, 'host': host, 'port': port, 'token': 'a' * 43, 'fingerprint': fingerprint ?? 'a' * 64}))).replaceAll('=', '')}';
-
-class RealHttpOverrides extends HttpOverrides {}
+const macId = 'paired-mac';
 
 class FakeTransport implements ConsoleTransport {
   final messages = <Map<String, dynamic>>[];
@@ -74,7 +72,7 @@ class FakeTransport implements ConsoleTransport {
   @override
   Future<ConsoleStatus> request(Map<String, dynamic> message) async {
     messages.add(message);
-    if (fail) throw const SocketException('offline');
+    if (fail) throw const ConsoleDisconnected();
     if (reject) throw ConsoleRequestRejected();
     return pending?.future ?? ConsoleStatus.fromJson(value);
   }
@@ -86,42 +84,22 @@ class FakeTransport implements ConsoleTransport {
 }
 
 void main() {
-  test(
-    'QR parser accepts IP and rejects alternate URI, hosts and credentials',
-    () {
-      expect(ConsolePairing.parse(qr()).port, 1234);
-      expect(
-        () => ConsolePairing.parse(qr(host: 'example.com')),
-        throwsFormatException,
-      );
-      expect(() => ConsolePairing.parse(qr(port: 0)), throwsFormatException);
-      expect(
-        () => ConsolePairing.parse(qr(fingerprint: 'bad')),
-        throwsFormatException,
-      );
-      expect(
-        () => ConsolePairing.parse('repose://pair/v1/abc'),
-        throwsFormatException,
-      );
-    },
-  );
-  test('certificate fingerprint must match the exact DER', () {
-    final der = [1, 2, 3];
-    expect(
-      matchesConsoleCertificate(der, sha256.convert(der).toString()),
-      isTrue,
-    );
-    expect(
-      matchesConsoleCertificate([1, 2, 4], sha256.convert(der).toString()),
-      isFalse,
-    );
-  });
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = ConsoleClient.bluetoothChannel;
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  tearDown(() => messenger.setMockMethodCallHandler(channel, null));
   test(
     'all actions reorder with revision and arrangement suppresses execution',
     () async {
       final transport = FakeTransport();
-      final controller = ConsoleController(transportFactory: (_) => transport);
-      await controller.connect(qr());
+      final controller = ConsoleController(
+        transportFactory: (_) => transport,
+        devicesLoader: () async => [
+          const ConsoleDevice(id: macId, name: 'Paired Mac'),
+        ],
+      );
+      await controller.connect(macId);
       controller.beginArrange();
       controller.move('sequence', 0);
       await controller.execute('split');
@@ -139,12 +117,17 @@ void main() {
     'blocked state prevents execution and disconnect does not retry',
     () async {
       final transport = FakeTransport()..value = statusJson(blocked: true);
-      final controller = ConsoleController(transportFactory: (_) => transport);
-      await controller.connect(qr());
+      final controller = ConsoleController(
+        transportFactory: (_) => transport,
+        devicesLoader: () async => [
+          const ConsoleDevice(id: macId, name: 'Paired Mac'),
+        ],
+      );
+      await controller.connect(macId);
       await controller.execute('split');
       expect(transport.messages.length, 1);
       transport.value = statusJson();
-      await controller.connect(qr());
+      await controller.connect(macId);
       transport.fail = true;
       await controller.execute('split');
       final count = transport.messages.length;
@@ -158,8 +141,13 @@ void main() {
     'late response cannot restore disconnected session; no overlapping requests',
     () async {
       final transport = FakeTransport();
-      final controller = ConsoleController(transportFactory: (_) => transport);
-      await controller.connect(qr());
+      final controller = ConsoleController(
+        transportFactory: (_) => transport,
+        devicesLoader: () async => [
+          const ConsoleDevice(id: macId, name: 'Paired Mac'),
+        ],
+      );
+      await controller.connect(macId);
       transport.pending = Completer();
       final first = controller.execute('split');
       await controller.execute('sequence');
@@ -175,8 +163,13 @@ void main() {
     'revision rejection preserves draft and keeps connection available',
     () async {
       final transport = FakeTransport();
-      final controller = ConsoleController(transportFactory: (_) => transport);
-      await controller.connect(qr());
+      final controller = ConsoleController(
+        transportFactory: (_) => transport,
+        devicesLoader: () async => [
+          const ConsoleDevice(id: macId, name: 'Paired Mac'),
+        ],
+      );
+      await controller.connect(macId);
       controller.beginArrange();
       transport.reject = true;
       await controller.saveOrder();
@@ -190,15 +183,34 @@ void main() {
     'sequence and shortcut buttons can move; arrange mode never executes',
     (tester) async {
       final transport = FakeTransport();
-      final controller = ConsoleController(transportFactory: (_) => transport);
-      await controller.connect(qr());
+      final controller = ConsoleController(
+        transportFactory: (_) => transport,
+        devicesLoader: () async => [
+          const ConsoleDevice(id: macId, name: 'Paired Mac'),
+        ],
+      );
+      await controller.connect(macId);
       await tester.pumpWidget(
-        MaterialApp(home: WorkConsolePage(controller: controller)),
+        MaterialApp(
+          theme: reposeTheme(Brightness.light),
+          home: WorkConsolePage(controller: controller),
+        ),
       );
       expect(find.text('Split pane'), findsOneWidget);
       await tester.tap(find.text('Arrange'));
       await tester.pump();
       expect(find.byType(LongPressDraggable<String>), findsNWidgets(2));
+      final tiles = find.byType(LongPressDraggable<String>);
+      final gesture = await tester.startGesture(tester.getCenter(tiles.first));
+      await tester.pump(const Duration(milliseconds: 600));
+      await gesture.moveTo(tester.getCenter(tiles.last));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      expect(controller.draftOrder, ['sequence', 'split']);
+      await tester.tap(find.byTooltip('Move earlier').last);
+      await tester.pump();
+      expect(controller.draftOrder, ['split', 'sequence']);
       await tester.tap(find.byTooltip('Move earlier').last);
       await tester.pump();
       expect(controller.draftOrder, ['sequence', 'split']);
@@ -215,93 +227,272 @@ void main() {
   );
 
   test(
-    'TLS pin rejects a different certificate before sending any credential',
-    () => HttpOverrides.runWithHttpOverrides(() async {
-      final context = SecurityContext()
-        ..useCertificateChain('test/fixtures/console_tls/cert.pem')
-        ..usePrivateKey('test/fixtures/console_tls/key.pem');
-      final server = await HttpServer.bindSecure(
-        InternetAddress.loopbackIPv4,
-        0,
-        context,
-      );
-      var requests = 0;
-      final subscription = server.listen((request) {
-        requests++;
-        request.response.close();
-      }, onError: (_) {});
-      final client = ConsoleClient(ConsolePairing.parse(qr(port: server.port)));
-      await expectLater(
-        client.request({'type': 'status'}),
-        throwsA(isA<HandshakeException>()),
-      );
-      expect(requests, 0);
-      client.close();
-      await subscription.cancel();
-      await server.close(force: true);
-    }, RealHttpOverrides()),
-  );
-  test(
-    'TLS pinned request works; failed execution is sent once and client closes',
-    () => HttpOverrides.runWithHttpOverrides(() async {
-      final pem = File('test/fixtures/console_tls/cert.pem').readAsStringSync();
-      final der = base64Decode(
-        pem.replaceAll(RegExp(r'-----[^-]+-----|\s'), ''),
-      );
-      final context = SecurityContext()
-        ..useCertificateChain('test/fixtures/console_tls/cert.pem')
-        ..usePrivateKey('test/fixtures/console_tls/key.pem');
-      final server = await HttpServer.bindSecure(
-        InternetAddress.loopbackIPv4,
-        0,
-        context,
-      );
-      final messages = <String>[];
-      final subscription = server.listen((request) async {
-        expect(request.contentLength, greaterThan(0));
-        expect(request.headers.value('authorization'), 'Bearer ${'a' * 43}');
-        final message =
-            jsonDecode(await utf8.decoder.bind(request).join()) as Map;
-        messages.add(message['type'] as String);
-        request.response.headers.contentType = ContentType.json;
-        if (message['type'] == 'reorder') {
-          request.response.statusCode = 400;
-          request.response.write(
-            jsonEncode({'ok': false, 'error': 'revision conflict'}),
-          );
-          await request.response.close();
-          return;
+    'BLE lists confirmed devices and connects by native association without network credentials',
+    () async {
+      final calls = <MethodCall>[];
+      final messages = <Map<String, dynamic>>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        switch (call.method) {
+          case 'devices':
+            return [
+              {'id': macId, 'name': 'Paired Mac'},
+            ];
+          case 'connect':
+            return null;
+          case 'request':
+            messages.add(
+              jsonDecode((call.arguments as Map)['message'] as String)
+                  as Map<String, dynamic>,
+            );
+            final value = statusJson();
+            if (messages.length > 1) value.remove('config');
+            return jsonEncode({'ok': true, 'data': value});
+          case 'disconnect':
+            return null;
         }
-        request.response.write(
-          message['type'] == 'status'
-              ? jsonEncode({'ok': true, 'data': statusJson()})
-              : 'malformed',
-        );
-        await request.response.close();
+        throw StateError('Unexpected channel method');
       });
-      final client = ConsoleClient(
-        ConsolePairing.parse(
-          qr(port: server.port, fingerprint: sha256.convert(der).toString()),
-        ),
-      );
+      expect((await ConsoleClient.devices()).single.id, macId);
+      final client = ConsoleClient(macId);
       expect((await client.request({'type': 'status'})).apps.first.id, 'tmux');
-      await expectLater(
-        client.request({'type': 'reorder', 'requestId': 'conflict'}),
-        throwsA(isA<ConsoleRequestRejected>()),
+      expect(
+        (await client.request({'type': 'status'})).apps.first.actions.length,
+        2,
       );
-      expect((await client.request({'type': 'status'})).enabled, isTrue);
+      expect(calls.firstWhere((call) => call.method == 'connect').arguments, {
+        'deviceId': macId,
+      });
+      expect(messages, [
+        {'type': 'status'},
+        {'type': 'status', 'knownRevision': 1},
+      ]);
+      client.close();
+      await Future<void>.delayed(Duration.zero);
+      expect(calls.last.method, 'disconnect');
+    },
+  );
+
+  test(
+    'BLE rejects missing initial config, never replays failed actions and preserves IDs',
+    () async {
+      final messages = <Map<String, dynamic>>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'request') return null;
+        final message =
+            jsonDecode((call.arguments as Map)['message'] as String)
+                as Map<String, dynamic>;
+        messages.add(message);
+        if (message['type'] == 'execute') {
+          throw PlatformException(
+            code: 'disconnected',
+            message: 'GATT disconnected',
+          );
+        }
+        return jsonEncode({'ok': true, 'data': statusJson()});
+      });
+      final client = ConsoleClient(macId);
+      await client.request({'type': 'status'});
       await expectLater(
-        client.request({'type': 'execute', 'requestId': 'test'}),
+        client.request({
+          'type': 'execute',
+          'requestId': 'once',
+          'appId': 'tmux',
+          'actionId': 'split',
+        }),
+        throwsA(isA<PlatformException>()),
+      );
+      await expectLater(
+        client.request({
+          'type': 'execute',
+          'requestId': 'once',
+          'appId': 'tmux',
+          'actionId': 'split',
+        }),
+        throwsA(isA<ConsoleDisconnected>()),
+      );
+      expect(messages.last, {
+        'type': 'execute',
+        'requestId': 'once',
+        'appId': 'tmux',
+        'actionId': 'split',
+        'knownRevision': 1,
+      });
+      expect(messages.length, 2);
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'request') return null;
+        return jsonEncode({'ok': true, 'data': statusJson()..remove('config')});
+      });
+      final empty = ConsoleClient(macId);
+      await expectLater(
+        empty.request({'type': 'status'}),
         throwsFormatException,
       );
+      empty.close();
+    },
+  );
+
+  test(
+    'BLE cache refreshes on new revision and rejection preserves connection',
+    () async {
+      var revision = 1;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'request') return null;
+        final message =
+            jsonDecode((call.arguments as Map)['message'] as String) as Map;
+        if (message['type'] == 'reorder') {
+          return jsonEncode({'ok': false, 'error': '配置已更新'});
+        }
+        final value = statusJson(revision: revision);
+        if (message['knownRevision'] == revision) value.remove('config');
+        return jsonEncode({'ok': true, 'data': value});
+      });
+      final client = ConsoleClient(macId);
+      await client.request({'type': 'status'});
+      revision = 2;
+      expect((await client.request({'type': 'status'})).revision, 2);
       await expectLater(
-        client.request({'type': 'execute', 'requestId': 'test'}),
-        throwsA(isA<SocketException>()),
+        client.request({
+          'type': 'reorder',
+          'requestId': 'stale',
+          'appId': 'tmux',
+          'revision': 1,
+          'actionIds': ['sequence', 'split'],
+        }),
+        throwsA(isA<ConsoleRequestRejected>()),
       );
-      expect(messages, ['status', 'reorder', 'status', 'execute']);
+      expect((await client.request({'type': 'status'})).revision, 2);
       client.close();
-      await subscription.cancel();
-      await server.close(force: true);
-    }, RealHttpOverrides()),
+    },
+  );
+
+  test(
+    'pending BLE result cannot survive disconnect or disconnect a replacement session',
+    () async {
+      final reply = Completer<String>();
+      final pendingStarted = Completer<void>();
+      var requests = 0, disconnects = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'disconnect') {
+          disconnects++;
+          return null;
+        }
+        if (call.method != 'request') return null;
+        requests++;
+        if (requests == 1) {
+          pendingStarted.complete();
+          return reply.future;
+        }
+        return jsonEncode({'ok': true, 'data': statusJson()});
+      });
+      final old = ConsoleClient(macId);
+      final pending = old.request({'type': 'status'});
+      final rejected = expectLater(
+        pending,
+        throwsA(isA<ConsoleDisconnected>()),
+      );
+      await pendingStarted.future;
+      final replacement = ConsoleClient(macId);
+      await replacement.request({'type': 'status'});
+      old.close();
+      reply.complete(jsonEncode({'ok': true, 'data': statusJson()}));
+      await rejected;
+      expect(disconnects, 0);
+      expect((await replacement.request({'type': 'status'})).enabled, isTrue);
+      replacement.close();
+      await Future<void>.delayed(Duration.zero);
+      expect(disconnects, 1);
+    },
+  );
+
+  testWidgets(
+    'empty paired list returns to existing Phone Key flow and offers no separate QR',
+    (tester) async {
+      final controller = ConsoleController(devicesLoader: () async => []);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => WorkConsolePage(controller: controller),
+                  ),
+                ),
+                child: const Text('Phone Key home'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Phone Key home'));
+      await tester.pumpAndSettle();
+      expect(find.text('Go to Phone Key pairing'), findsOneWidget);
+      expect(find.textContaining('Wi-Fi'), findsNothing);
+      expect(find.text('Scan Mac QR code'), findsNothing);
+      await tester.tap(find.text('Go to Phone Key pairing'));
+      await tester.pumpAndSettle();
+      expect(find.text('Phone Key home'), findsOneWidget);
+      controller.dispose();
+    },
+  );
+
+  testWidgets(
+    'explicit simulation models a two-second sequence and cancellation with no native channel',
+    (tester) async {
+      var nativeCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        nativeCalls++;
+        throw StateError('Simulation must not call native');
+      });
+      final simulator = SimulatedConsoleClient(
+        SimulatedConsoleClient.device.id,
+      );
+      final initial = await simulator.request({'type': 'status'});
+      expect(initial.apps.map((app) => app.id), ['tmux', 'codex', 'feishu']);
+      await simulator.request({
+        'type': 'execute',
+        'requestId': 'run1',
+        'appId': 'tmux',
+        'actionId': 'split',
+      });
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(simulator.executionTrace, ['b']);
+      await tester.pump(const Duration(seconds: 1));
+      expect((await simulator.request({'type': 'status'})).running, isTrue);
+      await simulator.request({'type': 'cancel', 'requestId': 'stop1'});
+      await tester.pump(const Duration(seconds: 2));
+      expect(simulator.executionTrace, ['b']);
+      expect((await simulator.request({'type': 'status'})).running, isFalse);
+      await simulator.request({
+        'type': 'execute',
+        'requestId': 'run2',
+        'appId': 'tmux',
+        'actionId': 'split',
+      });
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump(const Duration(seconds: 2));
+      expect(simulator.executionTrace, ['b', 'b', '%']);
+      simulator.close();
+      expect(nativeCalls, 0);
+    },
+  );
+
+  testWidgets(
+    'simulation is visibly labeled and can connect using the same control page',
+    (tester) async {
+      final controller = ConsoleController(simulation: true);
+      await tester.pumpWidget(
+        MaterialApp(home: WorkConsolePage(controller: controller)),
+      );
+      await tester.pump();
+      expect(find.textContaining('BLUETOOTH SIMULATION'), findsOneWidget);
+      await tester.tap(find.text(SimulatedConsoleClient.device.name));
+      await tester.pump();
+      expect(controller.connected, isTrue);
+      expect(find.text('tmux'), findsWidgets);
+      await tester.pumpWidget(const SizedBox());
+      controller.dispose();
+    },
   );
 }

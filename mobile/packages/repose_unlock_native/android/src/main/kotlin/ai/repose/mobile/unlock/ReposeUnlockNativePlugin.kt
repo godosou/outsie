@@ -15,6 +15,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.PluginRegistry
+import io.flutter.plugin.common.MethodChannel
 
 class ReposeUnlockNativePlugin :
     FlutterPlugin,
@@ -27,6 +28,8 @@ class ReposeUnlockNativePlugin :
     private var associationDriver: AndroidCompanionAssociationDriver? = null
     private var associationCoordinator: CompanionAssociationCoordinator? = null
     private var hostApi: LifecycleReposeUnlockHostApi? = null
+    private var consoleApi: ConsoleBleChannel? = null
+    private var consoleChannel: MethodChannel? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         val context = binding.applicationContext
@@ -36,6 +39,10 @@ class ReposeUnlockNativePlugin :
             requestCompanionAssociation = ::requestCompanionAssociation,
         )
         ReposeUnlockHostApi.setUp(binding.binaryMessenger, host)
+        consoleApi = VariantConsoleBleFactory.create(context)
+        consoleChannel = MethodChannel(binding.binaryMessenger, "ai.repose/work_console_ble").also {
+            it.setMethodCallHandler(consoleApi)
+        }
         hostApi = host
         binaryMessenger = binding.binaryMessenger
     }
@@ -43,6 +50,10 @@ class ReposeUnlockNativePlugin :
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         detachActivity()
         binaryMessenger?.let { messenger -> ReposeUnlockHostApi.setUp(messenger, null) }
+        consoleChannel?.setMethodCallHandler(null)
+        consoleApi?.close()
+        consoleApi = null
+        consoleChannel = null
         hostApi?.close()
         hostApi = null
         binaryMessenger = null

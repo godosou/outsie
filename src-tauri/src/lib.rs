@@ -204,7 +204,8 @@ use tauri::{
 };
 
 pub mod build_unlock_backend;
-pub mod console_transport;
+pub mod console_ble_wire;
+pub mod console_bluetooth;
 pub mod debug_bluetooth_pairing;
 pub mod debug_pairing_material;
 #[cfg(target_os = "macos")]

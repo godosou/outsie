@@ -311,3 +311,41 @@ fn source_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
     let end = tail.find(end).expect("source end marker");
     &tail[..end]
 }
+
+#[test]
+#[cfg(target_os = "macos")]
+fn macos_console_native_fragment_and_lifecycle_simulation_without_radio() {
+    use std::process::Command;
+    let binary =
+        std::env::temp_dir().join(format!("repose-console-native-test-{}", std::process::id()));
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native_bluetooth_console.m");
+    let build = Command::new("clang")
+        .args(["-fobjc-arc", "-Wall", "-Wextra"])
+        .arg(source)
+        .args([
+            "-framework",
+            "Foundation",
+            "-framework",
+            "CoreBluetooth",
+            "-o",
+        ])
+        .arg(&binary)
+        .output()
+        .expect("clang available for native macOS build");
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    let result = Command::new(&binary)
+        .output()
+        .expect("run native simulation");
+    let _ = std::fs::remove_file(binary);
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

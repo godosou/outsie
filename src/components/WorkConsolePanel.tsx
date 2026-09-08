@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { ArrowDown, ArrowUp, Check, Keyboard, Plus, RotateCcw, Smartphone, Square, Trash2 } from 'lucide-react'
-import QRCodeImport from 'react-qr-code'
 import { createConsoleBridge, formatConsoleSequence, formatConsoleStep, MODIFIERS, MODIFIER_LABELS, moveConsoleStep, recordConsoleKey, validateConsoleConfig, type ConsoleAction, type ConsoleApp, type ConsoleConfig, type ConsoleStatus, type ConsoleStep, type WorkConsoleBridge } from '../lib/workConsole'
 
-const QRCode = ((QRCodeImport as unknown as { QRCode?: typeof QRCodeImport }).QRCode ?? QRCodeImport)
 const nativeBridge = isTauri() ? createConsoleBridge(invoke) : undefined
 const blankStep = (): ConsoleStep => ({ key: 'Enter', modifiers: [], delayMs: 0 })
 const id = () => crypto.randomUUID()
 
-export function WorkConsolePanel({ bridge = nativeBridge }: { bridge?: WorkConsoleBridge }) {
+export function WorkConsolePanel({ bridge = nativeBridge, onOpenPairing }: { bridge?: WorkConsoleBridge; onOpenPairing?: () => void }) {
   const [status, setStatus] = useState<ConsoleStatus | null>(null)
   const [draft, setDraft] = useState<ConsoleConfig | null>(null)
   const [appId, setAppId] = useState('')
   const [actionId, setActionId] = useState('')
-  const [host, setHost] = useState('')
-  const [qr, setQr] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
@@ -40,7 +36,6 @@ export function WorkConsolePanel({ bridge = nativeBridge }: { bridge?: WorkConso
         const next = await bridge.status()
         if (active && !busyRef.current && epoch === operationEpoch.current) {
           setStatus(previous => previous && previous.config.revision > next.config.revision ? previous : next)
-          if (!next.enabled) setQr('')
         }
       } catch (reason) { if (active && !busyRef.current && epoch === operationEpoch.current) setError(String(reason)) }
       finally { polling = false }
@@ -85,7 +80,6 @@ export function WorkConsolePanel({ bridge = nativeBridge }: { bridge?: WorkConso
       const next = await operation()
       if (mounted.current) {
         setStatus(next)
-        if (!next.enabled) setQr('')
         if (message) setNotice(message)
       }
     } catch (reason) { if (mounted.current) setError(String(reason)) }
@@ -119,18 +113,18 @@ export function WorkConsolePanel({ bridge = nativeBridge }: { bridge?: WorkConso
     if (selectedAction.kind === 'hotkey' || steps.length === 20) stopRecording()
   }
 
-  if (!bridge) return <section className="panel wc-panel wc-unavailable"><Keyboard size={28} /><h2>在 Mac App 中配置快捷操作</h2><p>网页版不连接手机，也不会执行系统快捷键。请打开 Repose Mac App，进入「App 工作台」。</p><p>选择 App → 配置快捷键或录制键盘序列 → 手机扫码使用。</p></section>
+  if (!bridge) return <section className="panel wc-panel wc-unavailable"><Keyboard size={28} /><h2>在 Mac App 中配置快捷操作</h2><p>网页版不连接手机，也不会执行系统快捷键。请打开 Repose Mac App，进入「App 工作台」。</p><p>选择 App → 配置快捷键或录制键盘序列 → 手机通过蓝牙连接使用。</p></section>
 
   return <div className="wc-root page-enter">
     {error && <div className="wc-message wc-error" role="alert">{error}<button type="button" aria-label="关闭错误" onClick={() => setError('')}>×</button></div>}
     {notice && <p className="wc-message" role="status"><Check size={16} />{notice}</p>}
     <section className="panel wc-panel wc-connection">
-      <div className="wc-heading"><div><h2><Smartphone size={19} />手机连接</h2><p>手机与 Mac 连接同一个局域网，在手机工作台扫码。</p></div><span className={`wc-badge ${status?.connected ? 'online' : ''}`}>{status?.connected ? '手机已连接' : status?.enabled ? '等待手机' : '通道未开启'}</span></div>
+      <div className="wc-heading"><div><h2><Smartphone size={19} />手机连接</h2><p>沿用「手机钥匙」的蓝牙配对，在手机工作台选择已配对的 Mac。</p></div><span className={`wc-badge ${status?.connected ? 'online' : ''}`}>{status?.connected ? '手机已连接' : status?.enabled ? '等待手机' : '通道未开启'}</span></div>
       {!status ? <p role="status">正在读取 Mac 配置…</p> : <>
-        <div className="wc-connect-controls"><label>Mac 局域网 IP<input placeholder="例如 192.168.1.20" value={host} onChange={event => setHost(event.target.value)} disabled={busy || status.enabled} autoComplete="off" /></label>{status.enabled ? <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.stop(), '手机控制已关闭，二维码已失效。')}>关闭手机控制</button> : <button className="wc-button primary" disabled={busy || !host.trim()} onClick={() => void perform(async () => { const result = await bridge.start(host.trim()); if (mounted.current) setQr(result.qrPayload); return result.status })}>开启并生成二维码</button>}</div>
-        {!status.enabled && <p className="wc-hint">在 macOS 系统设置 → 网络中查看 IP。开启后才接受手机控制。</p>}
-        {qr && status.enabled && <div className="wc-qr"><div><QRCode value={qr} size={200} /></div><p>在手机「App 工作台」扫码连接。<br />二维码授予本次控制权；关闭通道即失效。</p></div>}
-        {status.enabled && !qr && <p className="wc-hint">控制通道已开启。需要重新扫码时，先关闭再开启以生成新二维码。</p>}
+        <div className="wc-connect-controls">{status.enabled ? <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.stop(), '蓝牙控制已关闭，当前操作已停止。')}>关闭蓝牙控制</button> : <button className="wc-button primary" disabled={busy} onClick={() => void perform(() => bridge.start(), '蓝牙控制已开启，请在已配对手机中选择此 Mac。')}>开启蓝牙控制</button>}{onOpenPairing && <button className="wc-button" disabled={busy} onClick={onOpenPairing}>前往手机钥匙配对</button>}</div>
+        <p className="wc-hint">先在「手机钥匙」完成两端配对确认，再开启蓝牙控制。手机靠近 Mac 后选择连接。</p>
+        {status.bluetoothReady === false && <p className="wc-hint">请确认 Mac 蓝牙已开启，并允许 Repose 使用蓝牙。</p>}
+        {status.pairedDevices && <div className="wc-paired-devices">{status.pairedDevices.length ? status.pairedDevices.map(device => <span className="wc-badge" key={device.id}>{device.name}</span>) : <span>还没有完成授权的手机，请先前往「手机钥匙」配对。</span>}</div>}
         <div className="wc-permission"><span>{status.accessibility ? '✓ 辅助功能权限已开启' : '执行快捷键需要辅助功能权限'}</span>{!status.accessibility && <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.accessibility())}>打开权限设置</button>}{status.blocked && <strong>锁屏、休眠或强制休息中，操作已暂停。</strong>}</div>
         {(status.running || status.lastError) && <div className="wc-run-status" role="status"><span>{status.running ? '键盘序列执行中…' : status.lastError}</span>{status.running && <button className="wc-button" disabled={busy} onClick={() => void perform(() => bridge.cancel(), '已停止剩余步骤。')}><Square size={14} />停止执行</button>}</div>}
       </>}

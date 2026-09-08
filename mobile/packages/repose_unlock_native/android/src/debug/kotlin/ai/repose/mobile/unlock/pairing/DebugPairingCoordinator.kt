@@ -2,6 +2,8 @@ package ai.repose.mobile.unlock.pairing
 
 import ai.repose.mobile.unlock.protocol.PairingUriFormatException
 import ai.repose.mobile.unlock.protocol.PairingUriV1
+import ai.repose.mobile.unlock.protocol.PairingPayloadV1
+import ai.repose.mobile.unlock.console.DebugConsoleCredentials
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
@@ -128,6 +130,8 @@ internal class DebugPairingCoordinator(
                 token = ++nextToken,
                 session = session,
                 macId = macId,
+                payload = payload,
+                associationId = currentAssociationId,
                 expiresAtEpochMillis = payload.expiresAtEpochMillis,
             ).also { active = it }
         }
@@ -184,6 +188,7 @@ internal class DebugPairingCoordinator(
                 id = transaction.macId,
                 displayName = transaction.session.deviceName,
             )
+            DebugConsoleCredentials.register(transaction.payload, transaction.associationId)
             consumedSessions += transaction.session.sessionId
             closeActiveLocked()
         }
@@ -194,6 +199,7 @@ internal class DebugPairingCoordinator(
             if (pairedDevices.remove(deviceId) == null) {
                 throw DebugPairingException(DebugPairingFailure.DEVICE_NOT_FOUND)
             }
+            DebugConsoleCredentials.remove(deviceId)
             if (active?.macId == deviceId) closeActiveLocked()
         }
     }
@@ -247,6 +253,8 @@ internal class DebugPairingCoordinator(
         val token: Long,
         val session: DebugPairingSession,
         val macId: String,
+        val payload: PairingPayloadV1,
+        val associationId: Int,
         val expiresAtEpochMillis: ULong,
         var accepted: Boolean = false,
         var connection: DebugGattPairingConnection? = null,

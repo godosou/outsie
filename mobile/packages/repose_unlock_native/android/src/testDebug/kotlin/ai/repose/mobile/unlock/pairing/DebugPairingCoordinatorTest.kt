@@ -1,6 +1,7 @@
 package ai.repose.mobile.unlock.pairing
 
 import ai.repose.mobile.unlock.protocol.PairingProtocolV1
+import ai.repose.mobile.unlock.console.DebugConsoleCredentials
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 import java.util.Base64
@@ -21,6 +22,25 @@ class DebugPairingCoordinatorTest {
         associationId = { associationId },
         phoneIdentity = DebugPhoneIdentity("android_0123456789abcdef", "realme GT5 Pro"),
     )
+
+    @Test
+    fun `console credentials require confirmed pairing and revoke immediately removes authority`() {
+        val session = coordinator.begin(canonicalUri())
+        val payload = ai.repose.mobile.unlock.protocol.PairingUriV1.decode(canonicalUri())
+        val macId = payload.macId.joinToString("") { "%02x".format(it.toInt() and 255) }
+        DebugConsoleCredentials.remove(macId)
+        assertNull(DebugConsoleCredentials.get(macId))
+        transport.observers.single().onStatus("ACCEPTED|${session.sessionId}".toByteArray())
+        assertNull(DebugConsoleCredentials.get(macId))
+        coordinator.confirm(session.sessionId)
+        val credential = DebugConsoleCredentials.get(macId)!!
+        assertEquals(91, credential.associationId)
+        assertArrayEquals(payload.sessionId, credential.session)
+        assertArrayEquals(payload.pairingSecret, credential.secret)
+        credential.wipe()
+        coordinator.revoke(macId)
+        assertNull(DebugConsoleCredentials.get(macId))
+    }
 
     @Test
     fun `begin decodes canonical payload and connects the associated device with exact control frame`() {

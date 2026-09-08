@@ -46,7 +46,7 @@ test('typed bridge sends identifiers, revision and structured config without exe
 test('browser UI explicitly reports native controls unavailable', () => {
   const html = renderToStaticMarkup(createElement(WorkConsolePanel))
   assert.match(html, /网页版不连接手机/)
-  assert.doesNotMatch(html, /开启并生成二维码/)
+  assert.doesNotMatch(html, /开启蓝牙控制/)
 })
 
 const status: ConsoleStatus = { config, enabled: false, connected: false, running: false, activeAppId: null, lastError: null, accessibility: true, blocked: false }
@@ -68,7 +68,7 @@ async function mountTest(run: (renderer: ReactTestRenderer, context: { tick(): v
   const bridge: WorkConsoleBridge = {
     status: async () => { const next = pendingStatus; pendingStatus = null; return next ?? current },
     save: async draft => { saved.push(draft); current = { ...current, config: { ...draft, revision: current.config.revision + 1 } }; return current },
-    reset: async () => current, start: async () => ({ qrPayload: 'repose://console/v1/test', status: { ...current, enabled: true } }),
+    reset: async () => current, start: async () => ({ ...current, enabled: true }),
     stop: async () => current, run: async () => { calls.push('run'); return current }, cancel: async () => current, accessibility: async () => current,
   }
   let renderer!: ReactTestRenderer
@@ -147,11 +147,10 @@ test('a poll started before a completed command cannot restore obsolete runtime 
     const root = renderer.root
     const resolve = context.deferStatus()
     await act(async () => context.tick())
-    await act(async () => root.findByProps({ placeholder: '例如 192.168.1.20' }).props.onChange({ target: { value: '192.168.1.20' } }))
-    await act(async () => button(root, '开启并生成二维码').props.onClick())
-    assert.ok(button(root, '关闭手机控制'))
+    await act(async () => button(root, '开启蓝牙控制').props.onClick())
+    assert.ok(button(root, '关闭蓝牙控制'))
     await act(async () => resolve(status))
-    assert.ok(button(root, '关闭手机控制'))
+    assert.ok(button(root, '关闭蓝牙控制'))
   })
 })
 
@@ -199,5 +198,17 @@ test('empty or invalid seconds cannot silently save as zero delay', async () => 
     }
     await act(async () => root.findByProps({ 'aria-label': '步骤 2 等待秒数' }).props.onChange({ target: { value: '0' } }))
     assert.equal(button(root, '保存配置').props.disabled, false)
+  })
+})
+
+
+test('Bluetooth controls start without network arguments and reuse the Phone Key pairing entry', async () => {
+  const calls: unknown[] = []
+  await createConsoleBridge(async <T>(command: string, args?: Record<string, unknown>): Promise<T> => { calls.push({ command, args }); return {} as T }).start()
+  assert.deepEqual(calls, [{ command: 'console_start', args: undefined }])
+  await mountTest(async renderer => {
+    assert.match(textOf(renderer.root), /手机钥匙/)
+    assert.match(textOf(renderer.root), /蓝牙/)
+    assert.doesNotMatch(textOf(renderer.root), /局域网|IP|二维码/)
   })
 })

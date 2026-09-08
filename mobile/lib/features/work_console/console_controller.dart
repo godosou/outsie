@@ -1,14 +1,54 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'console_client.dart';
 import 'console_models.dart';
+import 'console_simulator.dart';
 
-typedef ConsoleTransportFactory = ConsoleTransport Function(ConsolePairing);
+typedef ConsoleTransportFactory = ConsoleTransport Function(String deviceId);
+typedef ConsoleDevicesLoader = Future<List<ConsoleDevice>> Function();
 
 class ConsoleController extends ChangeNotifier {
-  ConsoleController({ConsoleTransportFactory? transportFactory})
-    : _factory = transportFactory ?? ConsoleClient.new;
+  ConsoleController({
+    ConsoleTransportFactory? transportFactory,
+    ConsoleDevicesLoader? devicesLoader,
+    this.simulation = consoleSimulationEnabled,
+  }) : _factory =
+           transportFactory ??
+           (simulation ? SimulatedConsoleClient.new : ConsoleClient.new),
+       _devicesLoader =
+           devicesLoader ??
+           (simulation
+               ? SimulatedConsoleClient.devices
+               : ConsoleClient.devices);
   final ConsoleTransportFactory _factory;
+  final ConsoleDevicesLoader _devicesLoader;
+  final bool simulation;
+  List<ConsoleDevice> devices = [];
+  bool devicesLoading = false;
+  String? devicesError;
+
+  Future<void> refreshDevices() async {
+    if (_disposed || devicesLoading) return;
+    devicesLoading = true;
+    devicesError = null;
+    _notify();
+    try {
+      final next = await _devicesLoader();
+      if (!_disposed) devices = next;
+    } catch (reason) {
+      if (!_disposed) {
+        devices = [];
+        devicesError = reason is PlatformException
+            ? reason.message ?? reason.code
+            : 'Bluetooth device list unavailable';
+      }
+    } finally {
+      devicesLoading = false;
+      _notify();
+    }
+  }
+
   ConsoleTransport? _transport;
   Timer? _heartbeat;
   bool _disposed = false;
@@ -36,20 +76,22 @@ class ConsoleController extends ChangeNotifier {
     return null;
   }
 
-  Future<void> connect(String qr) async {
+  Future<void> connect(String deviceId) async {
+    if (_disposed) return;
     disconnect();
     error = null;
+    final generation = _generation;
     try {
-      _transport = _factory(ConsolePairing.parse(qr));
+      _transport = _factory(deviceId);
       await _request({'type': 'status'});
-      if (connected) {
+      if (!_disposed && generation == _generation && connected) {
         _heartbeat = Timer.periodic(const Duration(seconds: 1), (_) {
           if (!busy) unawaited(_request({'type': 'status'}));
         });
       }
     } catch (_) {
       disconnect();
-      error = 'Invalid connection QR code';
+      error = 'Bluetooth connection unavailable';
       _notify();
     }
   }
@@ -70,15 +112,19 @@ class ConsoleController extends ChangeNotifier {
       }
       if (message['type'] != 'status') error = null;
       return true;
-    } on ConsoleRequestRejected {
+    } on ConsoleRequestRejected catch (reason) {
       if (!_disposed && generation == _generation) {
-        error = 'Request rejected. Check Mac status or refresh the layout.';
+        error =
+            reason.message ??
+            'Request rejected. Check Mac status or refresh the layout.';
       }
       return false;
-    } catch (_) {
+    } catch (reason) {
       if (!_disposed && generation == _generation) {
         disconnect();
-        error = 'Connection lost. Scan again to reconnect.';
+        error = reason is PlatformException
+            ? reason.message ?? reason.code
+            : 'Bluetooth disconnected. Choose the paired Mac to reconnect.';
       }
       return false;
     } finally {

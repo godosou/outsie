@@ -3,12 +3,12 @@ export type ConsoleStep = { key: string; modifiers: ConsoleModifier[]; delayMs: 
 export type ConsoleAction = { id: string; name: string; icon: string; kind: 'hotkey' | 'sequence'; steps: ConsoleStep[] }
 export type ConsoleApp = { id: string; name: string; bundleId: string; actions: ConsoleAction[] }
 export type ConsoleConfig = { revision: number; apps: ConsoleApp[] }
-export type ConsoleStatus = { config: ConsoleConfig; enabled: boolean; connected: boolean; running: boolean; activeAppId: string | null; lastError: string | null; accessibility: boolean; blocked: boolean }
+export type ConsoleStatus = { config: ConsoleConfig; enabled: boolean; connected: boolean; running: boolean; activeAppId: string | null; lastError: string | null; accessibility: boolean; blocked: boolean; transport?: 'bluetooth'; pairedDevices?: { id: string; name: string }[]; bluetoothReady?: boolean }
 export interface WorkConsoleBridge {
   status(): Promise<ConsoleStatus>
   save(config: ConsoleConfig): Promise<ConsoleStatus>
   reset(appId: string, revision: number): Promise<ConsoleStatus>
-  start(host: string): Promise<{ qrPayload: string; status: ConsoleStatus }>
+  start(): Promise<ConsoleStatus>
   stop(): Promise<ConsoleStatus>
   run(appId: string, actionId: string): Promise<ConsoleStatus>
   cancel(): Promise<ConsoleStatus>
@@ -82,7 +82,7 @@ export function createConsoleBridge(invoke: <T>(command: string, args?: Record<s
     status: () => invoke('console_status'),
     save: config => invoke('console_save', { config }),
     reset: (appId, revision) => invoke('console_reset', { appId, revision }),
-    start: host => invoke('console_start', { host }),
+    start: () => invoke('console_start'),
     stop: () => invoke('console_stop'),
     run: (appId, actionId) => invoke('console_run', { appId, actionId }),
     cancel: () => invoke('console_cancel'),

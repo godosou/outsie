@@ -382,7 +382,7 @@ export default function App() {
         </section>
       </div>}
 
-      {page === 'workConsole' && <WorkConsolePanel />}
+      {page === 'workConsole' && <WorkConsolePanel onOpenPairing={() => setPage('phoneKey')} />}
 
       {page === 'phoneKey' && <div className="page-enter phone-key-page"><UnlockSettingsPanel bridge={window.repose?.unlock} /></div>}
 

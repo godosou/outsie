@@ -1,5 +1,5 @@
 //! App-scoped keyboard controls. The phone can reference saved actions, never submit keys.
-use crate::console_transport::Transport;
+use crate::console_bluetooth::{self, BluetoothTransport};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -50,6 +50,9 @@ pub struct Status {
     pub last_error: Option<String>,
     pub accessibility: bool,
     pub blocked: bool,
+    pub transport: &'static str,
+    pub paired_devices: Vec<console_bluetooth::PairedConsoleDevice>,
+    pub bluetooth_ready: bool,
 }
 
 fn step(key: &str, modifiers: &[&str], delay_ms: u64) -> Step {
@@ -337,14 +340,15 @@ struct State {
     epoch: u64,
     request_ids: HashSet<String>,
     next_run: u64,
-    run: Option<(u64, bool)>,
+    run: Option<(u64, bool, Option<u64>)>,
     cancelled: bool,
+    ble_guard: bool,
     active_app_id: Option<String>,
     last_error: Option<String>,
 }
 pub struct WorkConsole {
     state: Mutex<State>,
-    transport: Mutex<Option<Transport>>,
+    transport: Mutex<Option<BluetoothTransport>>,
     path: PathBuf,
     keyboard: Arc<dyn Keyboard>,
     blocked: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -383,6 +387,7 @@ impl WorkConsole {
                 next_run: 0,
                 run: None,
                 cancelled: false,
+                ble_guard: false,
                 active_app_id: None,
                 last_error: error,
             }),
@@ -405,6 +410,9 @@ impl WorkConsole {
             last_error: s.last_error.clone(),
             accessibility: self.keyboard.trusted(false),
             blocked: (self.blocked)(),
+            transport: "bluetooth",
+            paired_devices: console_bluetooth::paired_devices(),
+            bluetooth_ready: console_bluetooth::bluetooth_ready(),
         }
     }
     fn persist(&self, config: &Config) -> Result<(), String> {
@@ -483,7 +491,7 @@ impl WorkConsole {
         }
         self.status()
     }
-    pub fn start(self: &Arc<Self>, host: &str) -> Result<(String, Status), String> {
+    pub fn start(self: &Arc<Self>) -> Result<Status, String> {
         let mut transport = self.transport.lock().unwrap();
         let epoch = {
             let mut s = self.state.lock().unwrap();
@@ -491,6 +499,7 @@ impl WorkConsole {
             s.heartbeat = None;
             s.epoch += 1;
             s.cancelled = true;
+            s.ble_guard = true;
             s.request_ids.clear();
             s.epoch
         };
@@ -498,22 +507,71 @@ impl WorkConsole {
             t.stop();
         }
         let weak = Arc::downgrade(self);
-        let (server, qr) = Transport::start(
-            host,
-            Arc::new(move |request| {
+        let reset_weak = weak.clone();
+        let server = BluetoothTransport::start(
+            Arc::new(move |request, generation| {
                 weak.upgrade()
                     .ok_or_else(|| "工作台已关闭".into())
-                    .and_then(|service| service.remote(epoch, request))
-                    .and_then(|s| serde_json::to_value(s).map_err(|_| "无法生成状态".into()))
+                    .and_then(|service| service.ble_request(epoch, request, generation))
+            }),
+            Arc::new(move || {
+                if let Some(service) = reset_weak.upgrade() {
+                    service.reset_link(epoch);
+                }
             }),
         )?;
         *transport = Some(server);
-        {
-            self.state.lock().unwrap().enabled = true;
-        }
-        Ok((qr, self.status()))
+        self.state.lock().unwrap().enabled = true;
+        Ok(self.status())
     }
+    fn reset_link(&self, epoch: u64) {
+        let mut s = self.state.lock().unwrap();
+        if s.epoch != epoch {
+            return;
+        }
+        s.cancelled = true;
+        s.heartbeat = None;
+        s.request_ids.clear();
+    }
+    pub fn ble_request(
+        self: &Arc<Self>,
+        epoch: u64,
+        mut value: serde_json::Value,
+        generation: u64,
+    ) -> Result<serde_json::Value, String> {
+        let known = value
+            .as_object_mut()
+            .and_then(|v| v.remove("knownRevision"))
+            .and_then(|v| v.as_u64());
+        let status = self.remote_checked(epoch, value, Some(generation))?;
+        let same = known == Some(status.config.revision);
+        let mut json = serde_json::to_value(status).map_err(|_| "无法生成状态")?;
+        if same {
+            json.as_object_mut().unwrap().remove("config");
+        }
+        Ok(json)
+    }
+    #[cfg(debug_assertions)]
+    pub fn start_simulation(&self) -> u64 {
+        let mut s = self.state.lock().unwrap();
+        s.enabled = true;
+        s.ble_guard = true;
+        s.epoch += 1;
+        s.heartbeat = None;
+        s.cancelled = true;
+        s.request_ids.clear();
+        s.epoch
+    }
+    #[cfg(test)]
     fn remote(self: &Arc<Self>, epoch: u64, value: serde_json::Value) -> Result<Status, String> {
+        self.remote_checked(epoch, value, None)
+    }
+    fn remote_checked(
+        self: &Arc<Self>,
+        epoch: u64,
+        value: serde_json::Value,
+        expected_link: Option<u64>,
+    ) -> Result<Status, String> {
         #[derive(Deserialize)]
         #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
         enum Request {
@@ -549,8 +607,11 @@ impl WorkConsole {
         let request: Request = serde_json::from_value(value).map_err(|_| "请求格式无效")?;
         {
             let mut s = self.state.lock().unwrap();
-            if !s.enabled || s.epoch != epoch {
-                return Err("连接已撤销，请重新扫码".into());
+            if !s.enabled
+                || s.epoch != epoch
+                || expected_link.is_some_and(|g| g != console_bluetooth::link_generation())
+            {
+                return Err("连接已撤销，请重新连接蓝牙".into());
             }
             match &request {
                 Request::Status => {
@@ -602,11 +663,11 @@ impl WorkConsole {
                     self.save_locked(&mut s, config)?;
                 }
                 Request::Activate { app_id, .. } => {
-                    self.begin_locked(&mut s, &app_id, None, true)?
+                    self.begin_locked(&mut s, &app_id, None, true, expected_link)?
                 }
                 Request::Execute {
                     app_id, action_id, ..
-                } => self.begin_locked(&mut s, &app_id, Some(&action_id), true)?,
+                } => self.begin_locked(&mut s, &app_id, Some(&action_id), true, expected_link)?,
             }
         }
         Ok(self.status())
@@ -614,7 +675,7 @@ impl WorkConsole {
     pub fn run(self: &Arc<Self>, app: &str, action: &str) -> Result<Status, String> {
         {
             let mut s = self.state.lock().unwrap();
-            self.begin_locked(&mut s, app, Some(action), false)?;
+            self.begin_locked(&mut s, app, Some(action), false, None)?;
         }
         Ok(self.status())
     }
@@ -624,6 +685,7 @@ impl WorkConsole {
         app_id: &str,
         action_id: Option<&str>,
         remote: bool,
+        expected_link: Option<u64>,
     ) -> Result<(), String> {
         if s.run.is_some() {
             return Err("已有操作正在执行，请先停止".into());
@@ -660,7 +722,15 @@ impl WorkConsole {
         };
         s.next_run += 1;
         let id = s.next_run;
-        s.run = Some((id, remote));
+        s.run = Some((
+            id,
+            remote,
+            if s.ble_guard {
+                Some(expected_link.unwrap_or_else(console_bluetooth::link_generation))
+            } else {
+                None
+            },
+        ));
         s.cancelled = false;
         s.last_error = None;
         let service = self.clone();
@@ -701,10 +771,11 @@ impl WorkConsole {
     }
     fn check_run(&self, id: u64) -> Result<(), String> {
         let s = self.state.lock().unwrap();
-        let Some((run, remote)) = s.run else {
+        let Some((run, remote, link)) = s.run else {
             return Err("操作已停止".into());
         };
         if run != id
+            || (remote && link.is_some_and(|g| g != console_bluetooth::link_generation()))
             || s.cancelled
             || (self.blocked)()
             || (remote
@@ -737,21 +808,9 @@ pub fn console_reset(
 ) -> Result<Status, String> {
     service.reset(&app_id, revision)
 }
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Started {
-    qr_payload: String,
-    status: Status,
-}
 #[tauri::command]
-pub fn console_start(
-    service: tauri::State<'_, Arc<WorkConsole>>,
-    host: String,
-) -> Result<Started, String> {
-    service
-        .inner()
-        .start(&host)
-        .map(|(qr_payload, status)| Started { qr_payload, status })
+pub fn console_start(service: tauri::State<'_, Arc<WorkConsole>>) -> Result<Status, String> {
+    service.inner().start()
 }
 #[tauri::command]
 pub fn console_stop(service: tauri::State<'_, Arc<WorkConsole>>) -> Status {
@@ -1037,5 +1096,18 @@ mod tests {
         keyboard.release.store(true, Ordering::SeqCst);
         until(|| !service.status().running);
         assert_eq!(keyboard.sent.load(Ordering::SeqCst), 0);
+    }
+    #[test]
+    fn delayed_disconnect_from_old_listener_cannot_reset_new_connection() {
+        let (service, _, _) = setup();
+        let old = service.start_simulation();
+        let current = service.start_simulation();
+        service
+            .remote(current, serde_json::json!({"type":"status"}))
+            .unwrap();
+        service.reset_link(old);
+        assert!(service.status().connected);
+        service.reset_link(current);
+        assert!(!service.status().connected);
     }
 }
