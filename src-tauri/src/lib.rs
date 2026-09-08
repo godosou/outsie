@@ -831,34 +831,13 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .text("quit", "退出 Repose")
         .build()?;
-    // Draw the compact five-petal mascot directly so the menu bar keeps the same face.
-    let mut pixels = vec![0_u8; 18 * 18 * 4];
-    for y in 1_i32..17 {
-        for x in 1_i32..17 {
-            let petal = [(9, 3), (5, 6), (13, 6), (6, 12), (12, 12)]
-                .iter()
-                .any(|(cx, cy)| (x - cx).pow(2) + (y - cy).pow(2) <= 9);
-            let center = (x - 9).pow(2) + (y - 9).pow(2) <= 16;
-            let offset = ((y * 18 + x) * 4) as usize;
-            if petal {
-                pixels[offset..offset + 4].copy_from_slice(&[0xee, 0xf3, 0xd9, 0xff]);
-            }
-            if center {
-                pixels[offset..offset + 4].copy_from_slice(&[0xd9, 0xe6, 0xbd, 0xff]);
-            }
-            let eye = y == 8 && matches!(x, 7 | 11);
-            let smile = (y == 10 && matches!(x, 7 | 11)) || (y == 11 && (8..=10).contains(&x));
-            if eye || smile {
-                pixels[offset..offset + 4].copy_from_slice(&[0x29, 0x46, 0x38, 0xff]);
-            }
-        }
-    }
-    let tray_icon = tauri::image::Image::new_owned(pixels, 18, 18);
+    // The same r silhouette, rendered from public/tray.svg; macOS supplies contrast.
+    let tray_icon = tauri::include_image!("icons/tray/18x18.png");
     TrayIconBuilder::with_id("repose-tray")
         .menu(&menu)
         .tooltip("Repose · 歇一会")
         .icon(tray_icon)
-        .icon_as_template(false)
+        .icon_as_template(true)
         .build(app)?;
     Ok(())
 }

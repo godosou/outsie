@@ -25,6 +25,7 @@ function run(command, args) {
 
 run('npm', ['run', 'package:mac'])
 run('npm', ['run', 'verify:build'])
+run('npm', ['run', 'verify:mac'])
 const source = path.join(root, 'src-tauri/target/release/bundle/macos/Repose.app')
 const licenses = path.join(source, 'Contents/Resources/licenses')
 await mkdir(licenses, { recursive: true })

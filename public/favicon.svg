@@ -1,26 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" data-repose-icon="smirk-flower-v2">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512" fill="none">
+  <title>Repose</title>
+  <desc>A rounded ivory lowercase r on a forest-green tile.</desc>
   <defs>
-    <linearGradient id="forest" x1="10" y1="4" x2="54" y2="62" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#456753"/>
-      <stop offset="1" stop-color="#213f31"/>
+    <linearGradient id="forest" x1="96" y1="48" x2="400" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#38634F"/>
+      <stop offset="1" stop-color="#244B3B"/>
     </linearGradient>
-    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#132b20" flood-opacity=".28"/>
-    </filter>
   </defs>
-  <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#forest)"/>
-  <g fill="#eef3d9" filter="url(#soft-shadow)">
-    <path d="M32 28C24 23 23 13 28 8c2-2 6-2 8 0 5 5 4 15-4 20Z"/>
-    <path d="M27 31c-8 1-15-5-15-11 0-3 3-6 6-6 7 0 13 8 9 17Z"/>
-    <path d="M37 31c8 1 15-5 15-11 0-3-3-6-6-6-7 0-13 8-9 17Z"/>
-    <path d="M29 39c-1 8-7 15-14 14-3 0-5-3-5-6 0-7 9-13 19-8Z"/>
-    <path d="M35 39c1 8 7 15 14 14 3 0 5-3 5-6 0-7-9-13-19-8Z"/>
-  </g>
-  <circle cx="32" cy="34" r="12.5" fill="#d9e6bd" stroke="#f7fae9" stroke-width="1.2"/>
-  <g id="half-lidded-eyes" fill="none" stroke="#294638" stroke-width="1.8" stroke-linecap="round">
-    <path d="M25.5 32.5c1.6 1.3 3.5 1.3 5 0"/>
-    <path d="M34.5 32.5c1.6 1.3 3.5 1.3 5 0"/>
-  </g>
-  <path id="knowing-smile" d="M28.5 37.4c2.4 2.2 5.4 2.2 7.8-.3" fill="none" stroke="#294638" stroke-width="1.7" stroke-linecap="round"/>
-  <circle cx="38.4" cy="37.1" r=".9" fill="#294638"/>
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#forest)"/>
+  <rect x="33" y="33" width="446" height="446" rx="107" stroke="#FFFFFF" stroke-opacity=".1" stroke-width="2"/>
+  <path id="repose-r" d="M190 355V183M190 258c0-60 32-89 77-89 28 0 52 10 69 28" stroke="#F3F2E7" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 
 const root = new URL('../../', import.meta.url)
 const read = (path: string) => readFileSync(new URL(path, root), 'utf8')
@@ -15,11 +15,10 @@ test('all current user-visible app and release names are Repose', () => {
   }
 })
 
-test('one recognizable half-lidded mascot source is used across the interface', () => {
-  const icon = read('public/favicon.svg')
-  assert.match(icon, /data-repose-icon="smirk-flower-v2"/)
-  assert.match(icon, /id="half-lidded-eyes"/)
-  assert.match(icon, /id="knowing-smile"/)
+test('the app embeds a Dock icon and shares the vector mark across the interface', () => {
+  const config = JSON.parse(read('src-tauri/tauri.conf.json'))
+  assert.ok(config.bundle.icon.includes('icons/icon.icns'))
+  for (const path of config.bundle.icon) assert.ok(existsSync(new URL(`src-tauri/${path}`, root)))
   assert.match(read('src/App.tsx'), /<img src="\.\/favicon\.svg"/)
   assert.match(read('break.html'), /<img src="\/favicon\.svg"/)
 })
