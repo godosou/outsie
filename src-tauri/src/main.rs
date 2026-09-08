@@ -1,3 +1,3 @@
 fn main() {
-    repose_lite_lib::run();
+    repose_lib::run();
 }

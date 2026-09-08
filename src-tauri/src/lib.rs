@@ -831,19 +831,25 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .separator()
         .text("quit", "退出 Repose")
         .build()?;
-    // Draw the compact brand flower directly with a transparent background.
-    // It stays sage green instead of macOS recoloring it as a black template.
+    // Draw the compact five-petal mascot directly so the menu bar keeps the same face.
     let mut pixels = vec![0_u8; 18 * 18 * 4];
     for y in 1_i32..17 {
         for x in 1_i32..17 {
-            let petal = [(9, 4), (14, 9), (9, 13), (4, 9)]
+            let petal = [(9, 3), (5, 6), (13, 6), (6, 12), (12, 12)]
                 .iter()
                 .any(|(cx, cy)| (x - cx).pow(2) + (y - cy).pow(2) <= 9);
-            let center = (x - 9).pow(2) + (y - 9).pow(2) <= 4;
-            let stem = (8..=9).contains(&x) && (9..=16).contains(&y);
-            if petal || center || stem {
-                let offset = ((y * 18 + x) * 4) as usize;
-                pixels[offset..offset + 4].copy_from_slice(&[0x68, 0x82, 0x58, 0xff]);
+            let center = (x - 9).pow(2) + (y - 9).pow(2) <= 16;
+            let offset = ((y * 18 + x) * 4) as usize;
+            if petal {
+                pixels[offset..offset + 4].copy_from_slice(&[0xee, 0xf3, 0xd9, 0xff]);
+            }
+            if center {
+                pixels[offset..offset + 4].copy_from_slice(&[0xd9, 0xe6, 0xbd, 0xff]);
+            }
+            let eye = y == 8 && matches!(x, 7 | 11);
+            let smile = (y == 10 && matches!(x, 7 | 11)) || (y == 11 && (8..=10).contains(&x));
+            if eye || smile {
+                pixels[offset..offset + 4].copy_from_slice(&[0x29, 0x46, 0x38, 0xff]);
             }
         }
     }
@@ -930,7 +936,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Repose Lite");
+        .expect("failed to build Repose");
 
     app.run(|app, event| {
         if let RunEvent::ExitRequested { api, .. } = event {
