@@ -172,7 +172,7 @@ SignaturePolicy::PinnedDeveloperId => Err(ArtifactError::ProductionGateClosed),
 | `unlock_acceptance.sh` 锁屏动作写死本机 | ✅ 加 `REPOSE_LOCK_CMD` 注入点 |
 | SSH 握手开销污染 3 秒延迟测量 | ✅ `vm-env.sh` 用 ControlMaster 复用连接 |
 
-## A1 证明 macOS 会加载并听从插件 — 待 VM
+## A1 证明 macOS 会加载并听从插件 — ✅ 已完成（2026-09-09）
 
 **最大的未知。** 纯 VM 内进行，只用本地 `/tmp`，零共享目录零 SSH，先把这个未知单独隔离
 回答。
@@ -192,7 +192,7 @@ SignaturePolicy::PinnedDeveloperId => Err(ArtifactError::ProductionGateClosed),
 `tools/vm-spike/run-experiment.sh` 会在建议安装之前，先把合约测试拷进 VM 里跑一遍。
 这样万一里程碑 A 一片沉默，可以确定不是我们的 bundle 在传输中损坏或行为异常。
 
-## A2 交互流程设计 — 待 A1 结论
+## A2 交互流程设计 — 进行中
 
 重新设计。要覆盖的真实状态：未安装 / 安装中 / 已安装未配对 / 已配对未校准 / 正常 /
 组件异常 / 已撤销，以及每个失败态的**出路**（不是只显示错误）。
@@ -266,35 +266,55 @@ RSSI 在 1 米距离为 -84 ~ -77 dBm。
 
 ---
 
-## 当前状态
+## 当前状态（2026-09-09）
 
-| 项 | 状态 |
-|---|---|
-| 锁屏 oracle | ✅ 本机双向实测；三态语义（locked / unlocked / 读不到）已修，读不到不再被当作已解锁 |
-| 验收测试 | ✅ **已证明能变绿也能变红** —— 对着模拟目标验证了 7 种情形，含中途失联时判为无效而非通过 |
-| 最小 Authorization Plugin | ✅ 25 项合约测试；契约错误已按 Apple 头文件与三个可用实现修正；**从未被系统加载** |
-| 授权规则变换 | ✅ 抽出为 `authdb-edit.py`，23 项测试，含 4 类畸形输入与备份校验 |
-| install/uninstall 不变量 | ✅ 16 项静态断言，全部经变异测试验证有效 |
-| BLE 两端 | ✅ 编译通过，6 个会伪造结论的 bug 已修；**从未真机通信** |
-| Tart VM | ⏳ IPSW 下载中（`UniversalMac_14.6.1_23G93`，与宿主同 build） |
-| 手机 RMX3888 | 已确认可连（Android 16 / API 36），当前不在手边 |
+**两个核心未知都有了实测答案，技术路线成立。**
 
-测试总数：**64 项**（插件合约 25 + 规则变换 23 + 脚本不变量 16），加上验收 harness
-自测 17 项与模拟目标行为验证 7 项。统一入口：`tests/run-all.sh`。
+| 里程碑 | 状态 | 证据 |
+|---|---|---|
+| A0 阻塞项修复 | ✅ | 4 项全修，含卸载还原失效 |
+| **A1 插件加载与门控** | ✅ **通过** | `docs/validation/2026-09-09-a1-plugin-load.md` |
+| **B1 真机 BLE 打通** | ✅ **通过** | 读到 `repose-hello`，两端盲写首次即互通 |
+| **验收测试** | ✅ **PASS** | `docs/validation/2026-09-09-acceptance-green.md` |
+| A2 交互设计 | 进行中 | |
+| A3 引导安装器 + 真实后端 | 未开始 | |
+| A4 完整链路（模拟存在源） | 部分达成 | 验收测试已绿，缺 App 界面 |
 
-### 经查证被推翻的三条假设
+### A1 的三条结论及其代价
 
-这三条原本会让 A1 得出错误结论，都在动手改之前查了 Apple 一手来源：
+1. **不用买 Developer ID，不用关 SIP。** ad-hoc 签名 + SIP 开启即可被加载并听从。
+2. **必须改系统锁屏规则。** stock 的 `[use-login-window-ui]` 下插件链不参与，
+   要改成 `[我们的规则, authenticate-session-owner-or-admin]`。这会改变锁屏界面的
+   实现方，卸载必须能精确还原。
+3. **做不到「完全无感」。** 授权求值只在提交解锁尝试时开始 —— 锁屏时不运行，
+   密码框出现时也不运行。能做到的是「唤醒 → 按一下回车 → 进去」。
+   手机替代的是密码，不是那一次按键。
 
-1. **`MechanismInvoke` 里调用 `DidDeactivate` 违反契约** —— 头文件写明它是对 Deactivate
-   请求的应答。已修正，并且**合约测试原本在断言这个错误行为**，一并改正。
-2. **`requirement` 键不约束插件** —— authd 在写入时用写入者进程的 csreq 覆盖你填的值，
-   求值阶段从不读它。已从规则中移除；据此更正了「cdhash 不匹配」的错误诊断。
-3. **授权求值只在用户尝试解锁时开始** —— 锁着不动时机制根本不运行。验收测试已加入
-   唤醒动作，否则必然超时，而那个超时与「插件没被加载」无法区分。
+### 安全语义（四个格子全部实测）
+
+| 手机在场 | 密码 | 结果 |
+|---|---|---|
+| 在 | 错误 / 空 | 解锁 |
+| 不在 | 错误 / 空 | **保持锁定**（机制主动 Deny） |
+
+### 测试规模
+
+宿主机 90+ 项断言全绿（插件合约 27 + 规则变换 27 + 脚本不变量 22 +
+harness 自测 17 + 验收行为验证 7）。统一入口 `tests/run-all.sh`。
+
+### 已知的产品缺口
+
+- permit 目前是「`/tmp` 里文件存在即放行」，四条独立缺陷，
+  设计已重做见 [permit 设计](2026-09-09-permit-design.md)
+- BLE 发现延迟 p95 5.4 秒，瓶颈在 macOS 每 1.5 秒才开一次扫描窗口
+- 不能用蓝牙地址认设备（22 次重启 = 22 个地址）
+- `,privileged` 变体为何不被调用，未查
 
 ## 相关文档
 
+- [A1 实测记录](../validation/2026-09-09-a1-plugin-load.md)
+- [验收测试首次通过](../validation/2026-09-09-acceptance-green.md)
+- [permit 机制的安全设计](2026-09-09-permit-design.md)
 - [VM 首次启动手册](../../tools/vm-spike/FIRST-BOOT.md)
 - [BLE spike 说明](../../tools/ble-spike/README.md)
 - [Authorization Plugin 签名要求调研](../product-tech-research/2026-09-08-securityagent-plugin-loading.md)
