@@ -30,11 +30,24 @@
 
 ## 三个必须记住的发现
 
-**1. stock 规则下插件链根本不参与。** 全新 macOS 的 `system.login.screensaver` 是
-`[use-login-window-ui]`，且**没有 `k-of-n` 键**。Apple 自己在该规则的 comment 里写着：
-「set rule to `authenticate-session-owner-or-admin` to enable SecurityAgent」。
-在 `use-login-window-ui` 形态下，loginwindow 自己处理解锁，SecurityAgent 与插件链不被调用。
-先前三轮实验毫无动静，部分原因就在这里。
+**1. ~~stock 规则下插件链根本不参与~~ —— 这条结论不成立，已撤回。**
+
+原本写的是：在 `[use-login-window-ui]` 形态下 loginwindow 自己处理解锁，插件链不被调用，
+依据是 Apple 在该规则 comment 里的那句「set rule to `authenticate-session-owner-or-admin`
+to enable SecurityAgent」，以及三轮毫无动静的实验。
+
+**但那三轮实验全部发生在输入没有送达 VM 的时间段内**（客户机 HID 空闲时间单调增长到
+369 秒，见本文件末尾的仪器故障记录）。它们没有提交过任何解锁尝试，因此对任何规则形态
+都不构成证据。唯一在输入正常时验证过的配置是
+`[ai.repose.spike, authenticate-session-owner-or-admin]` + 非特权机制。
+
+一条相反方向的旁证：这台开发机上 OpenAI 的
+`com.openai.sky.CUAService.AuthorizationPlugin.remote` 此刻就与 `use-login-window-ui`
+并列在同一条规则里，`k-of-n=1`。
+
+**所以「安装器实际生成的形态能不能加载插件」目前是未知的**，而这正是安装器会生成的形态
+（`authdb-edit add-subrule` 是前置插入并保留原有条目）。**被验证的形态安装器不会生成，
+安装器生成的形态没被验证过。** 这是 A3 的前置实验，见交互设计文档的 E1。
 
 **2. 授权求值发生在「提交解锁尝试」时，不是唤醒时。** 按键唤醒画面后
 `SecurityAgent` 并未启动；只有输入密码并回车才触发求值。这对产品是硬约束：
