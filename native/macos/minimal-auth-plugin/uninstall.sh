@@ -111,8 +111,8 @@ fi
 
 # The permit file is an unlock switch. Leaving it behind after the mechanism
 # that reads it is gone is harmless today and a trap the next time something
-# reads that path.
-rm -f /tmp/repose-permit
+# reads that path. Clear the hardened path and the old /tmp one.
+rm -f /var/run/repose-spike/permit /tmp/repose-permit
 echo "Diagnostics left at /tmp/repose-plugin.log (evidence; delete when done)."
 
 echo "Done. Current '${RIGHT}':"

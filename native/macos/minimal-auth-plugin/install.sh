@@ -96,7 +96,11 @@ fi
 # here rather than trusted to be empty. Same for a stale permit file, which
 # would silently turn the permit mechanism into an unconditional allow.
 echo "==> Clearing previous run evidence"
-rm -f /tmp/repose-plugin.log /tmp/repose-permit
+# Clear the permit at the hardened path and the old /tmp path a legacy install
+# may have left. The permit's directory (/var/run/repose-spike, root-only) is
+# created by whoever writes the permit -- the BLE bridge, or the test harness
+# over ssh -- and /var/run is cleared on boot anyway.
+rm -f /tmp/repose-plugin.log /var/run/repose-spike/permit /tmp/repose-permit
 
 echo "==> Installing bundle"
 # Stage beside the destination and swap, rather than deleting what is currently
@@ -197,6 +201,11 @@ echo "Done. New '${RIGHT}':"
 security authorizationdb read "${RIGHT}" 2>/dev/null | plutil -extract rule xml1 -o - -
 echo
 echo "Log:    /tmp/repose-plugin.log"
-[[ "${MODE}" == "permit" ]] && \
-    echo "Permit: touch /tmp/repose-permit to allow, rm to force password fallback."
+[[ "${MODE}" == "permit" ]] && cat <<'EOF'
+Permit: the permit must be ROOT-OWNED and FRESH in a root-only directory now.
+        To allow (as root):
+          mkdir -p /var/run/repose-spike && touch /var/run/repose-spike/permit
+        Re-touch it within 15s to keep it fresh; rm it to force the password path.
+        A non-root or stale permit is ignored -- that is the point.
+EOF
 echo "Lock the screen to test. If locked out, roll back the VM snapshot."

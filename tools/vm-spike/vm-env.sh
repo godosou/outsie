@@ -75,8 +75,13 @@ export REPOSE_WAKE_CMD="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null)
 
 # The simulated presence source for the first phase. Phase two replaces these
 # two commands with the real BLE bridge and changes nothing else.
-export REPOSE_LEAVE_CMD="${REPOSE_SSH} 'rm -f /tmp/repose-permit'"
-export REPOSE_RETURN_CMD="${REPOSE_SSH} 'touch /tmp/repose-permit'"
+#
+# The permit is now hardened: it must be root-owned and fresh in the root-only
+# directory /var/run/repose-spike. So the "phone returned" command writes it as
+# root (sudo) -- exactly what the real BLE bridge will do. A non-root or stale
+# permit is ignored by the plugin, which is the security property under test.
+export REPOSE_LEAVE_CMD="${REPOSE_SSH} 'sudo rm -f /var/run/repose-spike/permit'"
+export REPOSE_RETURN_CMD="${REPOSE_SSH} 'sudo mkdir -p /var/run/repose-spike && sudo chmod 755 /var/run/repose-spike && sudo touch /var/run/repose-spike/permit'"
 
 repose_vm_check() {
   echo "target      ${REPOSE_TARGET}"

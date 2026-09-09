@@ -4,6 +4,11 @@
 
 分支：`feat/phone-unlock-walking-skeleton`
 
+> **进展（2026-09-09）**：文件式**中间态**已落地并真机验证 —— permit 移到 root-only 目录
+> `/var/run/repose-spike/`，插件要求 root 属主 + mtime 新鲜。这关掉了下表的第 1、2、4 条
+> （世界可写、无时效、崩溃残留 fail-open）；只剩第 3 条（绑定本次解锁尝试）需要下面的 IPC 终局。
+> 见 [../validation/2026-09-09-permit-hardening.md](../validation/2026-09-09-permit-hardening.md)。
+
 ## 现状与缺口
 
 spike 里的判据是一行代码：

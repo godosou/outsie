@@ -4,10 +4,11 @@
  *
  * Three mechanisms live in this one binary:
  *   ReposeSpike:log        milestone A -- log the invocation, then Allow.
- *   ReposeSpike:permit     milestone B -- poll /tmp/repose-permit briefly;
- *                          Allow if it appears, Deny (fall back to the password
- *                          field) if it does not. Built for the k-of-n=1 shape,
- *                          where Deny means "try the next subrule (password)".
+ *   ReposeSpike:permit     milestone B -- poll for a root-owned, fresh permit in
+ *                          a root-only-writable directory; Allow if it is there,
+ *                          Deny (fall back to the password field) if it is not.
+ *                          Built for the k-of-n=1 shape, where Deny means "try
+ *                          the next subrule (password)".
  *   ReposeSpike:credential E10 -- the fail-closed shape. Meant to sit in a
  *                          REQUIRED chain in front of builtin:authenticate. It
  *                          never denies: when the phone is present it injects
@@ -36,7 +37,27 @@
 #include <unistd.h>
 
 #define LOG_PATH "/tmp/repose-plugin.log"
-#define PERMIT_PATH "/tmp/repose-permit"
+/* The permit lives in a root-only-writable directory, NOT /tmp.
+ *
+ * /private/tmp is 1777: any local uid can create a file there. A permit whose
+ * mere existence unlocks the screen, sitting in a world-writable directory, is
+ * an unlock switch anyone on the machine can flip. Moving it to a directory
+ * only root can write (root:wheel 0755 -- others may traverse and read, none
+ * but root may create) means only a root process can assert "the phone is
+ * here". /var/run is also cleared on boot, so a permit never survives a reboot.
+ *
+ * This is the file-based interim. The endgame is a request/response to a root
+ * daemon over a socket (docs/plans/2026-09-09-permit-design.md); this closes
+ * the world-writable hole and adds expiry without waiting for that. */
+#define PERMIT_DIR "/var/run/repose-spike"
+#define PERMIT_PATH "/var/run/repose-spike/permit"
+/* The permit must be recent, not merely present. A root writer that has crashed
+ * or lost the phone stops refreshing it; once it ages past this it stops
+ * unlocking -- the failure direction is "ask for the password", not "stay
+ * open". The writer (the BLE daemon) must re-touch it well inside this window. */
+#define PERMIT_FRESHNESS_S 15
+/* Tolerance for a permit written a moment ago against a slightly-behind clock. */
+#define PERMIT_SKEW_S 5
 /* PROTOTYPE ONLY. E10 asks whether a mechanism can hand builtin:authenticate a
  * credential so it passes silently. Where that credential comes from -- and how
  * it is stored and protected -- is the real product problem this spike exists to
@@ -166,9 +187,23 @@ static void repose_log(const char *fmt, ...)
     fclose(f);
 }
 
+/* The permit path. Fixed at PERMIT_PATH in production; REPOSE_PERMIT_PATH lets
+ * the contract test point it at a file it can create as an ordinary user, so the
+ * deny paths (not root-owned, stale, absent, FIFO) can be exercised without
+ * root. This does not weaken production: a mechanism's environment in
+ * SecurityAgent is set by the system, not by any user, and the default is the
+ * root-only-writable path -- strictly safer than the world-writable /tmp it
+ * replaced, override or not. */
+static const char *permit_path(void)
+{
+    const char *p = getenv("REPOSE_PERMIT_PATH");
+    return (p != NULL && p[0] != '\0') ? p : PERMIT_PATH;
+}
+
 /* Returns 1 if the permit file showed up before the timeout. */
 static int wait_for_permit(void)
 {
+    const char *path = permit_path();
     int waited_ms = 0;
     for (;;) {
         /* O_NONBLOCK and a regular-file check, not just O_NOFOLLOW.
@@ -183,25 +218,48 @@ static int wait_for_permit(void)
          * indistinguishable from macOS refusing to load the plugin at all --
          * which is the one question this whole experiment exists to answer.
          *
-         * Deliberately NOT checking st_uid: in the walking skeleton the permit
-         * is written over ssh by the ordinary account, not by root. Requiring
-         * root ownership here would make the mechanism deny every time and look
-         * like a transport failure. Ownership is the product's problem to solve
-         * by moving the file somewhere only root can write; see README. */
-        int fd = open(PERMIT_PATH, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+         * The checks that follow -- regular file, root-owned, fresh -- are the
+         * hardening the early walking skeleton deliberately skipped (it let the
+         * ssh account write the permit to /tmp). The permit now lives in a
+         * root-only-writable directory and must be owned by root and recent, so
+         * only the trusted writer can assert presence and a stale assertion
+         * stops unlocking on its own. */
+        int fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
         if (fd >= 0) {
             struct stat st;
-            int regular = (fstat(fd, &st) == 0) && S_ISREG(st.st_mode);
+            int accept = 0;
+            if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+                repose_log("permit: %s exists but is not a regular file; ignoring",
+                           path);
+            } else if (st.st_uid != 0) {
+                /* Defence in depth behind the directory's permissions: even if
+                 * the directory were somehow writable, a permit not owned by
+                 * root was not placed by the trusted writer, so it does not
+                 * count. This is the check the walking skeleton deliberately
+                 * skipped; it is the whole point of the hardening. */
+                repose_log("permit: %s is not root-owned (uid=%d); ignoring",
+                           path, (int)st.st_uid);
+            } else {
+                double age = difftime(time(NULL), st.st_mtime);
+                if (age > PERMIT_FRESHNESS_S) {
+                    repose_log("permit: %s is stale (%.0fs old > %ds); ignoring",
+                               path, age, PERMIT_FRESHNESS_S);
+                } else if (age < -PERMIT_SKEW_S) {
+                    repose_log("permit: %s mtime is %.0fs in the future; ignoring",
+                               path, -age);
+                } else {
+                    accept = 1;
+                }
+            }
             close(fd);
-            if (regular) {
-                repose_log("permit: %s present after %dms", PERMIT_PATH, waited_ms);
+            if (accept) {
+                repose_log("permit: %s present, root-owned and fresh after %dms",
+                           path, waited_ms);
                 return 1;
             }
-            repose_log("permit: %s exists but is not a regular file; ignoring",
-                       PERMIT_PATH);
         }
         if (waited_ms >= PERMIT_TIMEOUT_MS) {
-            repose_log("permit: %s absent after %dms, giving up", PERMIT_PATH,
+            repose_log("permit: %s absent after %dms, giving up", path,
                        waited_ms);
             return 0;
         }

@@ -31,12 +31,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
 #define LOG_PATH "/tmp/repose-plugin.log"
-#define PERMIT_PATH "/tmp/repose-permit"
+/* The plugin reads REPOSE_PERMIT_PATH when set; the permit cases point it here
+ * so they can create permit files as an ordinary user without writing to the
+ * root-only /var/run directory the plugin defaults to. */
+#define PERMIT_PATH "/tmp/repose-permit-contract"
 
 static int g_pass = 0;
 static int g_fail = 0;
@@ -260,6 +264,11 @@ int main(int argc, char **argv)
 
     off_t before = log_size();
 
+    /* The permit is now a root-owned, fresh file in a root-only-writable
+     * directory. Point the plugin at a path this test can create files at. */
+    setenv("REPOSE_PERMIT_PATH", PERMIT_PATH, 1);
+    int as_root = (geteuid() == 0);
+
     /* 3. Milestone A: the log mechanism allows unconditionally. */
     {
         long long elapsed = 0;
@@ -273,23 +282,63 @@ int main(int argc, char **argv)
         check("log mechanism returns promptly", elapsed < 1000, NULL);
     }
 
-    /* 4. Milestone B, permit present: allow, and quickly. A slow allow would
-     *    show up as unlock latency in the acceptance test. */
-    {
-        FILE *f = fopen(PERMIT_PATH, "w");
-        if (f) { fclose(f); }
+    /* 4. Present but NOT root-owned -> ignored. This is the hardening: a permit
+     *    anyone on the machine could have written must not unlock. Only checkable
+     *    on the ordinary-user run, where the file this test creates is owned by a
+     *    non-root uid; a root run's file is root-owned, exercising the accept path
+     *    (case 6) instead. */
+    if (!as_root) {
+        unlink(PERMIT_PATH);
+        FILE *f = fopen(PERMIT_PATH, "w"); if (f) { fclose(f); }
         long long elapsed = 0;
         run_mechanism(iface, plugin, "permit", &elapsed);
-        check("permit mechanism allows when the permit exists",
+        check("a permit not owned by root is ignored (denies)",
+              g_lastResult == kAuthorizationResultDeny, NULL);
+        unlink(PERMIT_PATH);
+    } else {
+        printf("  skip  'non-root permit denies' -- needs an ordinary-user run\n");
+    }
+
+    /* 5. A stale permit -> ignored. A writer that stopped refreshing (crashed,
+     *    lost the phone) must stop unlocking; the failure direction is "ask for
+     *    the password". On the ordinary-user run this file is also non-root, so
+     *    it denies for that reason too; a root run exercises the freshness reason. */
+    {
+        unlink(PERMIT_PATH);
+        FILE *f = fopen(PERMIT_PATH, "w"); if (f) { fclose(f); }
+        struct timeval tv[2];
+        time_t old = time(NULL) - 600;             /* well past the freshness window */
+        tv[0].tv_sec = old; tv[0].tv_usec = 0;
+        tv[1].tv_sec = old; tv[1].tv_usec = 0;
+        utimes(PERMIT_PATH, tv);
+        long long elapsed = 0;
+        run_mechanism(iface, plugin, "permit", &elapsed);
+        check("a stale permit is ignored (denies)",
+              g_lastResult == kAuthorizationResultDeny, NULL);
+        unlink(PERMIT_PATH);
+    }
+
+    /* 6. Root-owned and fresh -> allow, quickly. The file must be owned by root,
+     *    so this is only reachable on a root run; the VM acceptance test covers
+     *    the accept path on every run regardless. A slow allow would show up as
+     *    unlock latency there. */
+    if (as_root) {
+        unlink(PERMIT_PATH);
+        FILE *f = fopen(PERMIT_PATH, "w"); if (f) { fclose(f); }   /* root-owned */
+        long long elapsed = 0;
+        run_mechanism(iface, plugin, "permit", &elapsed);
+        check("a root-owned fresh permit allows",
               g_lastResult == kAuthorizationResultAllow, NULL);
         check("permit mechanism calls SetResult exactly once", g_setResultCalls == 1, NULL);
         check("permit mechanism allows without polling delay", elapsed < 500, NULL);
         unlink(PERMIT_PATH);
+    } else {
+        printf("  skip  'root-owned fresh permit allows' -- needs a root run (VM acceptance test covers it)\n");
     }
 
-    /* 5. Milestone B, permit absent: deny, after roughly the advertised
-     *    timeout. Denying instantly would make "stays locked while the phone is
-     *    away" prove nothing; never denying would freeze the login UI. */
+    /* 7. Absent -> deny, after roughly the advertised timeout. Denying instantly
+     *    would make "stays locked while the phone is away" prove nothing; never
+     *    denying would freeze the login UI. */
     {
         unlink(PERMIT_PATH);
         long long elapsed = 0;
@@ -311,13 +360,13 @@ int main(int argc, char **argv)
               elapsed < 5000, detail);
     }
 
-    /* 5b. A FIFO planted at the permit path must not hang the mechanism.
+    /* 8. A FIFO planted at the permit path must not hang the mechanism.
      *     Opening a FIFO for reading blocks until a writer appears, and any
      *     local user can create one without privilege. Before O_NONBLOCK this
-     *     open never returned, leaving a root mechanism stuck inside
-     *     authorizationhost with the unlock UI frozen behind it -- and looking
-     *     exactly like macOS refusing to load the plugin. If this test ever
-     *     hangs rather than fails, that regression is back. */
+     *     open never returned, leaving a root mechanism stuck inside SecurityAgent
+     *     with the unlock UI frozen behind it -- and looking exactly like macOS
+     *     refusing to load the plugin. If this test ever hangs rather than fails,
+     *     that regression is back. */
     {
         unlink(PERMIT_PATH);
         if (mkfifo(PERMIT_PATH, 0666) == 0) {
@@ -334,6 +383,7 @@ int main(int argc, char **argv)
             printf("  skip mkfifo unavailable, FIFO case not covered\n");
         }
     }
+    unsetenv("REPOSE_PERMIT_PATH");
 
     /* 6. An unrecognised mechanism id must deny. Defaulting it to allow is how
      *    a typo in the authorization database, or a stale rule left by a
