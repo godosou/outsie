@@ -2,11 +2,22 @@
  * Repose spike: the smallest Authorization Plugin that can answer one question --
  * does macOS let a third-party plugin take part in screensaver unlock?
  *
- * Two mechanisms live in this one binary:
- *   ReposeSpike:log      milestone A -- log the invocation, then Allow.
- *   ReposeSpike:permit   milestone B -- poll /tmp/repose-permit briefly;
- *                        Allow if it appears, Deny (fall back to the password
- *                        field) if it does not.
+ * Three mechanisms live in this one binary:
+ *   ReposeSpike:log        milestone A -- log the invocation, then Allow.
+ *   ReposeSpike:permit     milestone B -- poll /tmp/repose-permit briefly;
+ *                          Allow if it appears, Deny (fall back to the password
+ *                          field) if it does not. Built for the k-of-n=1 shape,
+ *                          where Deny means "try the next subrule (password)".
+ *   ReposeSpike:credential E10 -- the fail-closed shape. Meant to sit in a
+ *                          REQUIRED chain in front of builtin:authenticate. It
+ *                          never denies: when the phone is present it injects
+ *                          the user's credentials into the authorization context
+ *                          so the following builtin:authenticate passes without
+ *                          prompting; otherwise it passes through and lets the
+ *                          password field appear. A missing bundle is skipped by
+ *                          authd and also falls through to the password, which is
+ *                          the whole reason this shape is safe (see
+ *                          docs/validation/2026-09-09-e8-failopen-is-intrinsic.md).
  *
  * This is a throwaway experiment. Do not run it anywhere you cannot roll back.
  */
@@ -26,6 +37,13 @@
 
 #define LOG_PATH "/tmp/repose-plugin.log"
 #define PERMIT_PATH "/tmp/repose-permit"
+/* PROTOTYPE ONLY. E10 asks whether a mechanism can hand builtin:authenticate a
+ * credential so it passes silently. Where that credential comes from -- and how
+ * it is stored and protected -- is the real product problem this spike exists to
+ * scope, NOT to solve. A plaintext file in a world-readable /tmp is exactly the
+ * thing production must not do; it stands in here for a request to a root daemon
+ * that holds the credential in the keychain. Two lines: username, then password. */
+#define CREDENTIAL_PATH "/tmp/repose-credential"
 /* 1.5s, not 10s. Two reasons, both real:
  *
  * The mechanism runs ahead of the password path, so this timeout is how long a
@@ -47,6 +65,7 @@ typedef enum {
     kModeUnknown = 0, /* fail closed: an id we do not recognise denies */
     kModeLog,         /* milestone A */
     kModePermit,      /* milestone B */
+    kModeCredential,  /* E10: inject credentials for a trailing builtin:authenticate */
 } MechanismMode;
 
 typedef struct {
@@ -66,6 +85,9 @@ static MechanismMode mode_for(AuthorizationMechanismId mechanismId)
     if (strcmp(mechanismId, "log") == 0) {
         return kModeLog;
     }
+    if (strcmp(mechanismId, "credential") == 0) {
+        return kModeCredential;
+    }
     return kModeUnknown;
 }
 
@@ -74,6 +96,7 @@ static const char *mode_name(MechanismMode mode)
     switch (mode) {
     case kModeLog: return "log";
     case kModePermit: return "permit";
+    case kModeCredential: return "credential";
     default: return "unknown";
     }
 }
@@ -187,6 +210,64 @@ static int wait_for_permit(void)
     }
 }
 
+/* Read the prototype credential: line 1 username, line 2 password. Returns 1 on
+ * success. Hardened exactly like the permit read -- O_NOFOLLOW and a regular-file
+ * check, because this runs as a privileged host reading a path in a world-
+ * writable directory. The password never touches the log; only its length does. */
+static int read_credential(char *user, size_t user_sz, char *pass, size_t pass_sz)
+{
+    int fd = open(CREDENTIAL_PATH, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) {
+        return 0;
+    }
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return 0;
+    }
+    char buf[1024];
+    ssize_t n = read(fd, buf, sizeof buf - 1);
+    close(fd);
+    if (n <= 0) {
+        return 0;
+    }
+    buf[n] = '\0';
+
+    char *nl = strchr(buf, '\n');
+    if (nl == NULL) {           /* need both a username and a password line */
+        memset(buf, 0, sizeof buf);
+        return 0;
+    }
+    *nl = '\0';
+    char *pw = nl + 1;
+    char *nl2 = strchr(pw, '\n');
+    if (nl2 != NULL) {
+        *nl2 = '\0';
+    }
+    if (buf[0] == '\0') {       /* empty username is not a credential */
+        memset(buf, 0, sizeof buf);
+        return 0;
+    }
+    strlcpy(user, buf, user_sz);
+    strlcpy(pass, pw, pass_sz);
+    memset(buf, 0, sizeof buf); /* scrub the plaintext copy on the stack */
+    return 1;
+}
+
+/* Put a string into the authorization context under `key`. The following
+ * mechanism (builtin:authenticate) reads username/password from the context;
+ * this is how a mechanism authenticates a user without drawing the password
+ * field. Extractable so a privileged mechanism later in the chain can read it. */
+static OSStatus set_context_string(MechanismRecord *mech,
+                                   AuthorizationString key, const char *s)
+{
+    AuthorizationValue val;
+    val.length = strlen(s);
+    val.data = (void *)s;
+    return mech->plugin->callbacks->SetContextValue(
+        mech->engine, key, kAuthorizationContextFlagExtractable, &val);
+}
+
 static OSStatus MechanismCreate(AuthorizationPluginRef inPlugin,
                                 AuthorizationEngineRef inEngine,
                                 AuthorizationMechanismId mechanismId,
@@ -222,6 +303,35 @@ static OSStatus MechanismInvoke(AuthorizationMechanismRef inMechanism)
     case kModePermit:
         result = wait_for_permit() ? kAuthorizationResultAllow : kAuthorizationResultDeny;
         break;
+    case kModeCredential: {
+        /* The fail-closed shape. This mechanism NEVER denies: denying here would
+         * stop the chain before builtin:authenticate could offer the password
+         * field, locking out a user whose phone is simply not there. Instead it
+         * decides only whether to pre-fill the credential:
+         *
+         *   phone present + credential available -> inject username/password,
+         *       then Allow; builtin:authenticate consumes them and passes with no
+         *       prompt -> passwordless unlock.
+         *   phone absent, or no credential        -> inject nothing, then Allow;
+         *       builtin:authenticate draws the password field as usual.
+         *
+         * A missing bundle never reaches this code at all -- authd skips the
+         * mechanism and the chain still runs builtin:authenticate, so the failure
+         * mode is "type your password", never "unlock for free". */
+        char user[256], pass[256];
+        if (wait_for_permit() && read_credential(user, sizeof user, pass, sizeof pass)) {
+            OSStatus su = set_context_string(mech, kAuthorizationEnvironmentUsername, user);
+            OSStatus sp = set_context_string(mech, kAuthorizationEnvironmentPassword, pass);
+            repose_log("credential: injected username(len=%zu) password(len=%zu) setctx u=%d p=%d",
+                       strlen(user), strlen(pass), (int)su, (int)sp);
+        } else {
+            repose_log("credential: no phone/credential; passing through to the password field");
+        }
+        memset(user, 0, sizeof user); /* do not leave the plaintext on the stack */
+        memset(pass, 0, sizeof pass);
+        result = kAuthorizationResultAllow; /* Allow == "continue to the next mechanism" */
+        break;
+    }
     default:
         /* A mechanism id we do not recognise means the authorization database
          * names something this binary does not implement -- a typo, a stale
