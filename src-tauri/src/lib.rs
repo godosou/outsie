@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod unlock;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum InactivityReason {
     ScreenLock,
@@ -880,7 +882,22 @@ pub fn run() {
             acknowledge_lifecycle_interval,
             postpone_break,
             notify_user,
-            open_security_settings
+            open_security_settings,
+            unlock::unlock_get_snapshot,
+            unlock::unlock_preflight,
+            unlock::unlock_install,
+            unlock::unlock_repair,
+            unlock::unlock_uninstall,
+            unlock::unlock_set_enabled,
+            unlock::unlock_pause_for,
+            unlock::unlock_revoke_device,
+            unlock::unlock_pair_begin,
+            unlock::unlock_pair_cancel,
+            unlock::unlock_calibrate_sample,
+            unlock::unlock_drill_start,
+            unlock::unlock_open_bluetooth_settings,
+            unlock::unlock_copy_diagnostics,
+            unlock::unlock_export_manifest
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
         .on_tray_icon_event(|app, event| {
