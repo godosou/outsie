@@ -106,8 +106,9 @@
 | **E5** | `LoginwindowText` 在插件生效后的锁屏界面上还显不显示？ | 一条 root `defaults write`，与安装共用同一次授权 | 决定「按一下回车」这句提示能不能出现在它唯一有用的那一刻。也决定 §5.9 那个开关要不要做 |
 | **E6** | mechanism 超时压到 250ms、由守护进程从缓存立即应答，端到端是否稳定？ | 改 `PERMIT_TIMEOUT_MS`，接 IPC 后跑验收 | 决定「手机不在时每次密码解锁要不要先卡一下」。见 §2.4 |
 | **E7** | `,privileged` 变体为什么不被调用？ | 见 `docs/plans/2026-09-09-permit-design.md` | 决定 `peer_identity.rs` 的对端签名 pin 怎么写 |
-| **E8** | 把机制放进 `evaluate-mechanisms` 的**必经链**（而非 `k-of-n` 备选），bundle 缺失时是 fail-open 还是回退到密码？ | 换一种规则形态装好，移走 bundle，跑 `fail_open_probe.sh` | **关掉 G2 的关键**。若必经链形态是 fail-closed，那就是产品要用的形态；若它也 fail-open，则 fail-open 是 `evaluate-mechanisms` 缺失机制的通性，唯一的安全来自「绝不留悬空引用」+ 启动期健康检查 |
+| **E8** | 换规则形态能否关掉 fail-open？ | 逐一换形态、移走 bundle、CLI authorize | **已答**（[记录](../validation/2026-09-09-e8-failopen-is-intrinsic.md)）：缺失机制被 authd 当「该步通过」，所以机制是**唯一关卡**就 fail-open；其后**跟一个必然运行的 builtin 密码机制**就 **fail-closed**。安全骨架 = 「机制 + `builtin:authenticate`」的必经链 |
 | **E9** | bundle 在位但**签名失效/无法加载**（比删除更贴近升级现实）时是什么行为？ | 破坏签名或替换成坏二进制，跑 `fail_open_probe.sh` | 决定健康检查是查「bundle 存在」还是必须查「`codesign -v` 通过」 |
+| **E10** | 在 E8b 的 fail-closed 骨架上，机制如何在**手机在场时**向授权 context 注入凭据、让后续 `builtin:authenticate` **静默通过**，从而恢复免密？口令如何存储与保护？ | 机制内 `SetContextValue` 回填用户名/口令，跑验收 | **免密且安全的可行性核心**。E8b 已证「机制返回 Allow 不跳过后续密码机制」，所以免密只能靠注入凭据。E10 未落地前：安全的形态不免密，免密的形态不安全 |
 
 ### 2.4 关于那 1.5 秒：改掉它，不是写它
 
