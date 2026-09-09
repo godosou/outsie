@@ -58,7 +58,13 @@ bootout、**bootout 早于删 bundle**（避免竞态）、健康检查委托 au
   它的价值是把「bundle 消失」到「规则修复」之间的**窗口**压到最小（WatchPaths 实测约数秒）。
   开机期 `RunAtLoad` 覆盖「关机状态下 bundle 被删、开机即处于悬空」的情形。
 - `codesign` 校验对「bundle 在但签名失效」偏保守：会退回纯密码。这是**安全方向**的误动作
-  （最坏是本该免密却要了密码），可接受；E9 未定（签名失效时 authd 到底 fail-open 还是 closed）。
+  （最坏是本该免密却要了密码），可接受。**E9 已测**：给二进制追加垃圾字节使 `codesign --verify`
+  报 “main executable failed strict validation”，但 SecurityAgent **仍加载并运行了机制**
+  （permit 不在 → Deny → authorize `NO`）——即「签名坏但仍可加载」**不** fail-open。fail-open
+  只发生在 bundle **缺失**（机制无法实例化）。因此健康检查的「存在性 + codesign」是所有
+  fail-open 诱发态的**超集**（缺失由存在性挡，真正不可加载的损坏过不了 codesign），不漏；代价是
+  对「坏签名但仍可加载」偶有保守误动作。未覆盖的边角：bundle 在、codesign 通过、但
+  `AuthorizationPluginCreate` 运行期失败——属运行期而非加载期问题，另议。
 - WatchPaths 有约几秒延迟，且极端情况下可能漏事件——`StartInterval` 兜底。
 
 ## 结论
@@ -68,6 +74,7 @@ G2 的解法从「用规则结构关闭 fail-open」（E11 证明不存在）改
 
 ## 待办
 
-- **E9**：bundle 在但签名失效时 authd 走哪条分支，决定健康检查是否必须查 codesign（现已查，属保守安全侧）。
 - 开机竞态的进一步收紧（是否有比 RunAtLoad 更早的挂载点）——目前认为窗口已足够小。
 - 把 `credential` 死路模式从插件里清掉（可选清理）。
+- 运行期失败（bundle 在、codesign 过、但 `AuthorizationPluginCreate` 失败）是否 fail-open——
+  属运行期而非加载期，单独验。
