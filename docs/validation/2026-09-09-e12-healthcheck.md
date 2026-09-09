@@ -75,6 +75,6 @@ G2 的解法从「用规则结构关闭 fail-open」（E11 证明不存在）改
 ## 待办
 
 - 开机竞态的进一步收紧（是否有比 RunAtLoad 更早的挂载点）——目前认为窗口已足够小。
-- 把 `credential` 死路模式从插件里清掉（可选清理）。
+- ~~把 `credential` 死路模式从插件里清掉~~ **已移除**（2026-09-09）。
 - 运行期失败（bundle 在、codesign 过、但 `AuthorizationPluginCreate` 失败）是否 fail-open——
   属运行期而非加载期，单独验。
