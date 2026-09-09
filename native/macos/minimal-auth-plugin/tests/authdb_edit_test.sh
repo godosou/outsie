@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests for authdb-edit.py, the only code in the spike that changes how a Mac
+# Tests for authdb-edit, the only code in the spike that changes how a Mac
 # decides whether to unlock.
 #
 # The cases that matter are the refusals. A transform that writes a rule with no
@@ -13,7 +13,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EDIT="${HERE}/../authdb-edit.py"
+EDIT="${HERE}/../authdb-edit"
 WORK="$(mktemp -d -t authdb-edit-test)"
 trap 'rm -rf "$WORK"' EXIT
 

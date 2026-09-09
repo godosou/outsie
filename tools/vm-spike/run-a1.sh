@@ -83,8 +83,15 @@ note "oracle readable, guest unlocked"
 
 step "staging the plugin into the guest"
 [ -d "${PLUGIN_DIR}/build/ReposeSpike.bundle" ] || die "run: make -C ${PLUGIN_DIR}"
-codesign -dvvv "${PLUGIN_DIR}/build/ReposeSpike.bundle" 2>&1 | grep -q "Signature=adhoc" \
-  || die "the built bundle is not ad-hoc signed; that is the variable under test"
+# Capture rather than pipe, and show what codesign actually said when this
+# fails. "not ad-hoc signed" with no evidence sends you looking at the wrong
+# thing; the answer is usually in the output nobody printed.
+SIGN_OUT="$(codesign -dvvv "${PLUGIN_DIR}/build/ReposeSpike.bundle" 2>&1)"
+if ! grep -q "Signature=adhoc" <<< "$SIGN_OUT"; then
+  printf '%s\n' "$SIGN_OUT" | sed 's/^/   /'
+  die "the built bundle is not ad-hoc signed; that is the variable under test"
+fi
+note "bundle is ad-hoc signed ($(grep '^CDHash=' <<< "$SIGN_OUT"))"
 
 sshv "rm -rf ${REMOTE} && mkdir -p ${REMOTE}" || die "could not prepare ${REMOTE}"
 scp -q -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
@@ -98,10 +105,14 @@ sshv "cd ${REMOTE}/minimal-auth-plugin && ./build/plugin_contract_test \
   || { sed 's/^/   /' /tmp/a1-contract.txt; die "the contract test fails inside the guest"; }
 note "contract test passes in the guest ($(grep -c '^  ok' /tmp/a1-contract.txt) assertions)"
 
+# `sudo env VAR=1 cmd`, not `VAR=1 sudo cmd`. sudo resets the environment by
+# default, so the second form sets the variable for sudo itself and the script
+# underneath never sees it -- it then waits on a prompt nobody can answer, and
+# the run hangs with no output and no error.
 cleanup() {
   [ "$KEEP" = "1" ] && { note "--keep: leaving the plugin installed"; return; }
   step "cleaning up"
-  sshv "cd ${REMOTE}/minimal-auth-plugin && ASSUME_YES=1 sudo ./uninstall.sh" \
+  sshv "cd ${REMOTE}/minimal-auth-plugin && sudo env ASSUME_YES=1 ./uninstall.sh" \
     >/tmp/a1-uninstall.txt 2>&1 \
     && note "uninstalled" \
     || note "UNINSTALL FAILED -- roll the VM back to repose-spike-clean"
@@ -114,7 +125,7 @@ trap cleanup EXIT
 
 step "milestone A: does macOS load and call the plugin"
 note "installing the 'log' mechanism -- while installed, this guest unlocks with NO password"
-sshv "cd ${REMOTE}/minimal-auth-plugin && ASSUME_YES=1 sudo ./install.sh log" \
+sshv "cd ${REMOTE}/minimal-auth-plugin && sudo env ASSUME_YES=1 ./install.sh log" \
   >/tmp/a1-install-log.txt 2>&1 || { sed 's/^/   /' /tmp/a1-install-log.txt; die "install failed"; }
 note "installed"
 
@@ -169,8 +180,8 @@ VERDICT_B="not attempted"
 case "$VERDICT_A" in
   "LOADED AND OBEYED")
     step "milestone B: can the mechanism gate on a condition"
-    sshv "cd ${REMOTE}/minimal-auth-plugin && ASSUME_YES=1 sudo ./uninstall.sh" >/dev/null 2>&1
-    sshv "cd ${REMOTE}/minimal-auth-plugin && ASSUME_YES=1 sudo ./install.sh permit" \
+    sshv "cd ${REMOTE}/minimal-auth-plugin && sudo env ASSUME_YES=1 ./uninstall.sh" >/dev/null 2>&1
+    sshv "cd ${REMOTE}/minimal-auth-plugin && sudo env ASSUME_YES=1 ./install.sh permit" \
       >/tmp/a1-install-permit.txt 2>&1 || die "permit install failed"
     sshv 'rm -f /tmp/repose-permit'
     if REPOSE_E2E_ALLOW_LOCK=1 "${REPO}/tests/e2e/unlock_acceptance.sh" >/tmp/a1-accept.txt 2>&1; then

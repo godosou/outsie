@@ -17,7 +17,7 @@ BACKUP="${BACKUP_DIR}/${RIGHT}.backup.plist"
 LEGACY_BACKUP="/tmp/repose-spike-${RIGHT}.backup.plist"
 # Fall back to the old location so a machine installed by the earlier script can
 # still be restored precisely.
-EDIT="$(dirname "$0")/authdb-edit.py"
+EDIT="$(dirname "$0")/authdb-edit"
 
 # -s not -f throughout. install.sh creates the backup by redirecting the output
 # of `security authorizationdb read`, so an interrupt or a failure between the
@@ -73,7 +73,7 @@ else
     mkdir -p "${BACKUP_DIR}"; chmod 700 "${BACKUP_DIR}"
     CLEANED="${BACKUP_DIR}/${RIGHT}.uninstall.plist"
     security authorizationdb read "${RIGHT}" > "${CLEANED}" 2>/dev/null
-    "$(dirname "$0")/authdb-edit.py" remove-subrule "${CLEANED}" "${SUBRULE}" \
+    "$(dirname "$0")/authdb-edit" remove-subrule "${CLEANED}" "${SUBRULE}" \
         || { echo "Refusing to write; restore from a backup instead." >&2; exit 1; }
     security authorizationdb write "${RIGHT}" < "${CLEANED}"
     rm -f "${CLEANED}"

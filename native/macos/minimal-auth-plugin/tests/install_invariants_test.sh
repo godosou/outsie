@@ -90,9 +90,9 @@ grep -q 'BACKUP="/tmp' "$INSTALL" \
 #    rather than carrying their own copy.
 for f in "$INSTALL" "$UNINSTALL"; do
   name="$(basename "$f")"
-  grep -q 'authdb-edit.py' "$f" \
-    && ok "${name} delegates the rule edit to authdb-edit.py" \
-    || no "${name} delegates the rule edit to authdb-edit.py" "not referenced"
+  grep -q 'authdb-edit' "$f" \
+    && ok "${name} delegates the rule edit to authdb-edit" \
+    || no "${name} delegates the rule edit to authdb-edit" "not referenced"
   grep -q 'plistlib' "$f" \
     && no "${name} carries no inline plist editing" "plistlib still present" \
     || ok "${name} carries no inline plist editing"
@@ -130,6 +130,22 @@ if [ -n "$ref_check" ] && [ -n "$remove_line" ]; then
 else
   no "uninstall checks for references before removing the right" "lines not found"
 fi
+
+# 8. Nothing that runs on the target machine may need python3. A clean macOS
+#    has only a /usr/bin/python3 stub that prints "No developer tools were
+#    found" and offers to install Xcode. The first real install attempt died
+#    exactly there, and a product installer cannot ask a user to install Xcode
+#    either. perl and plutil ship with every macOS.
+for f in "$INSTALL" "$UNINSTALL" "${HERE}/../authdb-edit"; do
+  name="$(basename "$f")"
+  # Comments explaining why python3 is avoided must not count as using it.
+  grep -vE '^[[:space:]]*#' "$f" | grep -qE 'python3|python ' \
+    && no "${name} does not depend on python3" "a clean macOS has only a stub" \
+    || ok "${name} does not depend on python3"
+done
+grep -q '^#!/usr/bin/perl' "${HERE}/../authdb-edit" \
+  && ok "authdb-edit uses an interpreter that ships with macOS" \
+  || no "authdb-edit uses an interpreter that ships with macOS" "check the shebang"
 
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"

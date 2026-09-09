@@ -30,8 +30,11 @@ fi
 # fresh ssh handshake costs 200-500ms, which would both starve the sampling and
 # charge ssh's latency to the feature being measured. One multiplexed connection
 # makes each poll a few milliseconds.
-REPOSE_SSH_SOCKET="/tmp/repose-vm-${VM}.sock"
-REPOSE_SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+# Exported, not just set: run-a1.sh is a child process and cannot see a plain
+# shell variable. Without this it aborts saying vm-env.sh was never sourced,
+# which is a confusing way to report a missing export.
+export REPOSE_SSH_SOCKET="/tmp/repose-vm-${VM}.sock"
+export REPOSE_SSH="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 -o LogLevel=ERROR -o ControlMaster=auto -o ControlPath=${REPOSE_SSH_SOCKET} \
 -o ControlPersist=10m ${VM_USER}@${VM_IP}"
 

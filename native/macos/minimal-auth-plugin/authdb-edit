@@ -1,0 +1,161 @@
+#!/usr/bin/perl
+# Edit a macOS authorization rule plist, with the safety checks that matter.
+#
+# This is the only code in the spike that changes how a Mac decides whether to
+# unlock. It lived inline in install.sh and uninstall.sh as two separate copies,
+# which is how the two drifted apart once already. One implementation, one set of
+# tests, both scripts call it.
+#
+# Every transform refuses rather than writes when the result would leave the
+# machine without a way in. A refusal is a non-zero exit and an explanation on
+# stderr; the caller is expected to abort.
+#
+#     authdb-edit add-subrule    <plist> <subrule>
+#     authdb-edit remove-subrule <plist> <subrule>
+#     authdb-edit validate       <plist>
+#
+# WHY PERL AND plutil, NOT PYTHON
+# -------------------------------
+# A clean macOS install has no python3. /usr/bin/python3 exists as a stub that
+# prints "No developer tools were found" and asks to install Xcode. The first
+# real install attempt died there, and a product installer obviously cannot ask
+# a user to install Xcode either. Perl and plutil ship with every macOS.
+#
+# Only the `rule` array is ever written, via `plutil -replace`. A full
+# plist->json->plist round trip would rewrite every other key as well, and the
+# stock rule carries reals, integers and comments whose types are not worth
+# risking for no reason.
+
+use strict;
+use warnings;
+use JSON::PP;
+
+# Present in the stock rule, and the entries that produce the ordinary password
+# prompt. If a transform would remove the last of these, there is no way back in.
+my @PASSWORD_FALLBACKS = (
+    'use-login-window-ui',
+    'authenticate-session-owner-or-admin',
+    'authenticate-session-owner',
+    'authenticate-session-user',
+);
+
+sub die_msg { my ($m) = @_; print STDERR "authdb-edit: $m\n"; exit 1; }
+
+sub plutil_get {
+    my ($path, $key, $fmt) = @_;
+    my $out = `plutil -extract '$key' $fmt -o - '$path' 2>/dev/null`;
+    return (undef, $?) if $? != 0;
+    chomp $out;
+    return ($out, 0);
+}
+
+sub has_fallback { my (@e) = @_; return scalar(grep { my $x = $_; grep { $_ eq $x } @PASSWORD_FALLBACKS } @e); }
+
+sub load_rule {
+    my ($path) = @_;
+    die_msg("cannot read $path") unless -s $path;
+
+    my ($class, $rc) = plutil_get($path, 'class', 'raw');
+    die_msg("$path is not a readable plist, or has no 'class' key") if $rc != 0;
+    die_msg("expected class=rule, found class=$class. This right does not have "
+          . "the shape this spike knows how to edit; inspect it by hand.")
+        unless defined $class && $class eq 'rule';
+
+    my ($json, $rc2) = plutil_get($path, 'rule', 'json');
+    die_msg("expected a 'rule' array; could not read one") if $rc2 != 0;
+
+    my $arr = eval { JSON::PP->new->decode($json) };
+    die_msg("the 'rule' key is not valid JSON: $@") if $@;
+    die_msg("expected a 'rule' array, found something else")
+        unless ref($arr) eq 'ARRAY';
+    for my $e (@$arr) {
+        die_msg("the 'rule' array contains a non-string entry") if ref $e;
+    }
+    return @$arr;
+}
+
+sub write_rule {
+    my ($path, @entries) = @_;
+    my $json = JSON::PP->new->encode(\@entries);
+    my @cmd = ('plutil', '-replace', 'rule', '-json', $json, $path);
+    system(@cmd) == 0 or die_msg("plutil -replace failed");
+}
+
+sub add_subrule {
+    my ($path, $sub) = @_;
+    my @rule = load_rule($path);
+
+    # Drop any stale copy first so repeated installs cannot stack duplicates.
+    my @without = grep { $_ ne $sub } @rule;
+    die_msg("adding $sub would make it the only entry in the rule. The spike "
+          . "must never be the sole way to unlock; leave the existing password "
+          . "path in place.") unless @without;
+    die_msg("the rule has no recognised password fallback ("
+          . join(', ', @PASSWORD_FALLBACKS) . "). Refusing to add $sub, because "
+          . "a failure of the spike would leave no way in.")
+        unless has_fallback(@without);
+
+    # k-of-n=1 means any single sub-rule succeeding is enough, which is what
+    # lets the spike run first and the password path still work when it denies.
+    # Rather than set it and try to restore it on uninstall -- an asymmetry that
+    # would leave a machine permanently weakened if the surgical removal path
+    # ever ran -- refuse to touch a rule that is not already 1. The stock macOS
+    # screensaver rule is 1, so the ordinary case needs no change at all.
+    my ($kofn, $krc) = plutil_get($path, 'k-of-n', 'raw');
+    my $shown = ($krc == 0 && defined $kofn) ? $kofn : 'absent';
+    die_msg("this rule has k-of-n=$shown, not 1. Setting it to 1 would "
+          . "permanently weaken the rule from 'all sub-rules must pass' to 'any "
+          . "one may', and uninstall could not reliably put it back. Inspect it "
+          . "by hand:\n  security authorizationdb read system.login.screensaver")
+        unless $krc == 0 && defined $kofn && $kofn eq '1';
+
+    write_rule($path, $sub, @without);
+    print "added $sub; rule is now [" . join(', ', $sub, @without) . "] (k-of-n left at 1)\n";
+}
+
+sub remove_subrule {
+    my ($path, $sub) = @_;
+    my @rule = load_rule($path);
+
+    unless (grep { $_ eq $sub } @rule) {
+        print "$sub is not present; nothing to remove\n";
+        return;
+    }
+
+    my @after = grep { $_ ne $sub } @rule;
+    die_msg("removing $sub would leave an empty rule array, which would lock "
+          . "the machine. Restore from the backup instead.") unless @after;
+    die_msg("the result would contain no recognised password fallback ("
+          . join(', ', @PASSWORD_FALLBACKS) . "). Restore from the backup "
+          . "instead of writing this.") unless has_fallback(@after);
+
+    write_rule($path, @after);
+    print "removed $sub; rule is now [" . join(', ', @after) . "]\n";
+}
+
+sub validate {
+    # A backup is only worth restoring if it still describes a usable rule. An
+    # empty or truncated file is worse than no backup at all: the restore path
+    # would feed it straight to `security authorizationdb write` and replace a
+    # working screensaver rule with nothing.
+    my ($path) = @_;
+    my @rule = load_rule($path);
+    die_msg("$path has an empty rule array") unless @rule;
+    die_msg("$path has no recognised password fallback ("
+          . join(', ', @PASSWORD_FALLBACKS) . "); writing it back could leave "
+          . "no way to unlock") unless has_fallback(@rule);
+    print "$path looks restorable: [" . join(', ', @rule) . "]\n";
+}
+
+my $cmd = shift @ARGV // '';
+if ($cmd eq 'validate' && @ARGV == 1) { validate($ARGV[0]); exit 0; }
+if (@ARGV != 2) {
+    print STDERR "usage: authdb-edit {add-subrule|remove-subrule} <plist> <subrule>\n";
+    print STDERR "       authdb-edit validate <plist>\n";
+    exit 2;
+}
+my ($path, $sub) = @ARGV;
+if    ($cmd eq 'add-subrule')    { add_subrule($path, $sub); }
+elsif ($cmd eq 'remove-subrule') { remove_subrule($path, $sub); }
+else                             { die_msg("unknown command '$cmd'"); }
+exit 0;

@@ -109,7 +109,7 @@ else
     # so an interrupt or a failure leaves a zero-byte "backup" behind.
     TMP_BACKUP="${BACKUP}.partial"
     security authorizationdb read "${RIGHT}" > "${TMP_BACKUP}"
-    "$(dirname "$0")/authdb-edit.py" validate "${TMP_BACKUP}" >/dev/null \
+    "$(dirname "$0")/authdb-edit" validate "${TMP_BACKUP}" >/dev/null \
         || { echo "Refusing to install: could not capture a restorable backup." >&2
              rm -f "${TMP_BACKUP}"; exit 1; }
     chmod 600 "${TMP_BACKUP}"
@@ -150,7 +150,7 @@ NEW_RULE="${BACKUP_DIR}/${RIGHT}.new.plist"
 # pristine pre-spike state and is deliberately never overwritten, so using it
 # here would silently revert anything another tool added since.
 security authorizationdb read "${RIGHT}" > "${NEW_RULE}"
-"$(dirname "$0")/authdb-edit.py" add-subrule "${NEW_RULE}" "${SUBRULE}"
+"$(dirname "$0")/authdb-edit" add-subrule "${NEW_RULE}" "${SUBRULE}"
 security authorizationdb write "${RIGHT}" < "${NEW_RULE}"
 rm -f "${NEW_RULE}"
 
