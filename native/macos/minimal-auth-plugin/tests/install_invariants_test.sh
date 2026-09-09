@@ -147,6 +147,48 @@ grep -q '^#!/usr/bin/perl' "${HERE}/../authdb-edit" \
   && ok "authdb-edit uses an interpreter that ships with macOS" \
   || no "authdb-edit uses an interpreter that ships with macOS" "check the shebang"
 
+# 9. The E12 health-check daemon must be installed by install.sh and removed by
+#    uninstall.sh, or the fail-open it guards against goes unguarded / a
+#    leftover daemon keeps rewriting the rule after uninstall.
+HEALTHCHECK="${HERE}/../healthcheck.sh"
+
+grep -q 'launchctl bootstrap system' "$INSTALL" \
+  && ok "install.sh bootstraps the health-check daemon" \
+  || no "install.sh bootstraps the health-check daemon" "no bootstrap"
+grep -q 'healthcheck.sh" "${SUPPORT_DIR}' "$INSTALL" \
+  && ok "install.sh installs healthcheck.sh into the support dir" \
+  || no "install.sh installs healthcheck.sh into the support dir" "not copied"
+grep -q 'launchctl bootout "system/${DAEMON_LABEL}"' "$UNINSTALL" \
+  && ok "uninstall.sh boots out the health-check daemon" \
+  || no "uninstall.sh boots out the health-check daemon" "no bootout"
+
+# The daemon watches the plugins dir, so uninstall must stop it BEFORE removing
+# the bundle -- otherwise it races the uninstall to rewrite the rule.
+bootout_line="$(line_of "$UNINSTALL" 'launchctl bootout "system/${DAEMON_LABEL}"')"
+bundlerm_line="$(line_of "$UNINSTALL" 'rm -rf "${DEST_BUNDLE}"')"
+if [ -n "$bootout_line" ] && [ -n "$bundlerm_line" ]; then
+  [ "$bootout_line" -lt "$bundlerm_line" ] \
+    && ok "uninstall boots out the daemon before removing the bundle" \
+    || no "uninstall boots out the daemon before removing the bundle" \
+          "bootout at ${bootout_line}, bundle removed at ${bundlerm_line}"
+else
+  no "uninstall boots out the daemon before removing the bundle" "lines not found"
+fi
+
+# The health check changes the same unlock rule the installer does, so it must
+# use the same safety-checked tool, never its own plist editing, and must not
+# depend on python3 either.
+grep -q 'authdb-edit' "$HEALTHCHECK" \
+  && ok "healthcheck.sh delegates the rule edit to authdb-edit" \
+  || no "healthcheck.sh delegates the rule edit to authdb-edit" "not referenced"
+grep -vE '^[[:space:]]*#' "$HEALTHCHECK" | grep -qE 'python3|python ' \
+  && no "healthcheck.sh does not depend on python3" "a clean macOS has only a stub" \
+  || ok "healthcheck.sh does not depend on python3"
+# It must refuse to guess: when the rule cannot be read it does nothing.
+grep -q 'doing nothing' "$HEALTHCHECK" \
+  && ok "healthcheck.sh does nothing when it cannot read the rule" \
+  || no "healthcheck.sh does nothing when it cannot read the rule" "no safety stop found"
+
 echo
 printf '%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

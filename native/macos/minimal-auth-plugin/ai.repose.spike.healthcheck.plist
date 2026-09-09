@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  E12 health-check daemon. Runs healthcheck.sh, which reverts
+  system.login.screensaver to password-only if the plugin bundle it references
+  has gone missing or unloadable (E3 fail-open). See healthcheck.sh for why.
+
+  Three triggers, on purpose:
+    RunAtLoad    - check once at every boot, before the machine sits unlocked
+                   long enough to matter.
+    WatchPaths   - fire the moment SecurityAgentPlugins changes, so a bundle
+                   dragged to the Trash is caught in seconds, not on the next
+                   timer tick. This is the trigger that actually closes the
+                   window.
+    StartInterval- a slow backstop in case a change is somehow missed.
+
+  Installed to /Library/Application Support/ReposeSpike/ together with
+  healthcheck.sh and authdb-edit (healthcheck.sh looks for authdb-edit beside
+  itself). Load with: sudo launchctl bootstrap system <this file>.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.repose.spike.healthcheck</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Library/Application Support/ReposeSpike/healthcheck.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>WatchPaths</key>
+    <array>
+        <string>/Library/Security/SecurityAgentPlugins</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>StandardErrorPath</key>
+    <string>/var/db/repose-spike/healthcheck.log</string>
+    <key>StandardOutPath</key>
+    <string>/var/db/repose-spike/healthcheck.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

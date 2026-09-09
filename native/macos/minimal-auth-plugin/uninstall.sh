@@ -19,6 +19,11 @@ LEGACY_BACKUP="/tmp/repose-spike-${RIGHT}.backup.plist"
 # still be restored precisely.
 EDIT="$(dirname "$0")/authdb-edit"
 
+# E12 health-check daemon, installed by install.sh.
+SUPPORT_DIR="/Library/Application Support/ReposeSpike"
+DAEMON_LABEL="ai.repose.spike.healthcheck"
+DAEMON_PLIST="/Library/LaunchDaemons/${DAEMON_LABEL}.plist"
+
 # -s not -f throughout. install.sh creates the backup by redirecting the output
 # of `security authorizationdb read`, so an interrupt or a failure between the
 # redirect and the read leaves a zero-byte file. Treating that as a usable
@@ -55,6 +60,14 @@ if [[ "${ASSUME_YES:-}" != "1" ]]; then
     read -r -p "Proceed? [y/N] " reply
     [[ "${reply}" == "y" || "${reply}" == "Y" ]] || { echo "Aborted."; exit 0; }
 fi
+
+# Stop the health-check daemon FIRST. It watches the plugins directory, so if it
+# were still loaded when we remove the bundle below it would race us to rewrite
+# the rule. Removing it up front makes the uninstall the only writer.
+echo "==> Removing health-check daemon ${DAEMON_LABEL}"
+launchctl bootout "system/${DAEMON_LABEL}" 2>/dev/null || true
+rm -f "${DAEMON_PLIST}"
+rm -rf "${SUPPORT_DIR}"
 
 if backup_usable "${BACKUP}"; then
     echo "==> Restoring ${RIGHT} from ${BACKUP}"

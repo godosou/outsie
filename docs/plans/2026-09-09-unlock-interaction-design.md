@@ -109,7 +109,7 @@
 | **E8** | 换规则形态能否关掉 fail-open？ | 逐一换形态、移走 bundle、CLI authorize，再到真实锁屏验证 | **已答，但要看锁屏而非 CLI**：CLI 上「机制 + 后接 builtin 密码机制」像是 fail-closed；**真实锁屏相反**（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)）——机制 `Allow` 直接解锁、`Deny` 硬失败且不退到密码机制。**没有既免密又缺失即 fail-closed 的规则形态**。仍成立：fail-open 是 evaluate-mechanisms 缺失机制的通性 |
 | **E9** | bundle 在位但**签名失效/无法加载**（比删除更贴近升级现实）时是什么行为？ | 破坏签名或替换成坏二进制，跑 `fail_open_probe.sh` | 决定健康检查是查「bundle 存在」还是必须查「`codesign -v` 通过」 |
 | ~~**E10**~~ | ~~机制向 context 注入凭据让 builtin:authenticate 静默通过~~ | — | **已收回**（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)）：锁屏上手机在场时机制 `Allow` 本身就解锁，`builtin:authenticate` 不运行，没有可注入的对象，注入正确/错误凭据结果相同。前提不成立 |
-| **E12** | 健康检查：如何在开机期 + 后台断言「规则引用的 bundle 存在且 `codesign -v` 通过」，发现悬空引用就立即从 authdb 移除子规则？ | 实现守护 + 故意制造悬空引用，跑 `fail_open_probe.sh` 应从 VULN 变 SAFE | **G2 的真正解法**。E8/E11 证明 fail-open 无法靠规则结构关闭，只能预防悬空引用 + 运行期修复 |
+| **E12** | 健康检查守护：开机 + `WatchPaths` + 慢定时断言「规则引用的 bundle 存在且 `codesign` 通过」，悬空即从 authdb 移除子规则 | **已实现并真机验证**（[记录](../validation/2026-09-09-e12-healthcheck.md)）：真实 install.sh 装好守护，`rm` bundle 后**约 4 秒**规则自动退回纯密码，`security authorize` 从 YES 翻成 NO；uninstall 全清不锁死 | **G2 的解法**。E8/E11 证明 fail-open 无法靠规则结构关闭，只能预防悬空引用 + 运行期修复 |
 
 ### 2.4 关于那 1.5 秒：改掉它，不是写它
 
@@ -933,7 +933,7 @@ type UnlockSnapshot = {
 | # | 门禁 | 为什么 |
 |---|---|---|
 | G1 | 实验 **E1** 有结论，安装器实际生成的形态与被验证的形态一致 | 否则「我们会改动什么」那一屏说的不是安装器会做的事 |
-| G2 | **E3 的 fail-open 被预防关闭**：健康检查（E12）存在并常驻，制造悬空引用后 `tests/e2e/fail_open_probe.sh` 能从 VULN 恢复到 SAFE；安装/卸载顺序保证引用不悬空 | E3 实测出**空密码绕过**（[fail-open 记录](../validation/2026-09-09-e3-fail-open.md)）；E8/E11 证明规则结构关不掉它（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)），只能预防悬空引用 + 运行期修复。看门狗关闭的是「bundle 消失→修复」之间的时间窗 |
+| G2 | **E3 的 fail-open 被预防关闭 —— 已达成**：健康检查守护（E12）已实现并真机验证，制造悬空引用后约 4 秒自动退回纯密码（[E12 记录](../validation/2026-09-09-e12-healthcheck.md)）；安装/卸载顺序保证引用不悬空 | E3 实测出**空密码绕过**（[fail-open 记录](../validation/2026-09-09-e3-fail-open.md)）；E8/E11 证明规则结构关不掉它（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)），只能预防悬空引用 + 运行期修复。看门狗关闭的是「bundle 消失→修复」之间的时间窗（实测数秒） |
 | G3 | **R-P4** permit 换成 IPC 并落地 R-P1/R-P2/R-P5 | 今天任何本地进程 `touch /tmp/repose-permit` 就能越过锁屏；守护进程崩溃 = 永久免密 |
 | G4 | 「手机不在场 + **正确密码**」这一格在真机上跑通（即演练 A 的自动化版本） | 产品依赖的那一格实验室里没测过 |
 | G5 | **R-P6** 证据通道存在 | 没有它，F22 分流塌成两路，且面板会显示猜出来的「已加载」 |

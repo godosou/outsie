@@ -26,7 +26,17 @@ if [[ "${MODE}" != "permit" && "${MODE}" != "log" ]]; then
     echo "usage: sudo $0 [permit|log]" >&2
     exit 2
 fi
-MECHANISM="${BUNDLE_NAME}:${MODE},privileged"
+# The ",privileged" suffix decides which host runs the mechanism: with it, the
+# root authorizationhost; without it, SecurityAgent in the user's context. The
+# one third-party plugin observed working on a real Mac
+# (CodexComputerUseAuthorizationPlugin:allow) does NOT use it, so this is an
+# experimental variable rather than a setting -- flip it with PRIVILEGED=0.
+PRIVILEGED="${PRIVILEGED:-1}"
+if [[ "${PRIVILEGED}" == "1" ]]; then
+    MECHANISM="${BUNDLE_NAME}:${MODE},privileged"
+else
+    MECHANISM="${BUNDLE_NAME}:${MODE}"
+fi
 
 cd "$(dirname "$0")"
 [[ $EUID -eq 0 ]] || { echo "Must run as root (sudo $0 ${MODE})." >&2; exit 1; }
@@ -43,6 +53,15 @@ if [[ "${CUR_CLASS}" != "rule" ]]; then
     exit 1
 fi
 
+# E12 health-check daemon: reverts the screensaver rule to password-only if the
+# bundle ever goes missing out-of-band (Trash, failed upgrade, OS migration),
+# which is the only defence against the E3 fail-open (no rule shape closes it;
+# see docs/validation/2026-09-09-e11-lockscreen-grant-model.md).
+SRC_DIR="$(dirname "$0")"
+SUPPORT_DIR="/Library/Application Support/ReposeSpike"
+DAEMON_LABEL="ai.repose.spike.healthcheck"
+DAEMON_PLIST="/Library/LaunchDaemons/${DAEMON_LABEL}.plist"
+
 cat <<EOF
 This will make the following changes to THIS machine:
 
@@ -55,9 +74,14 @@ This will make the following changes to THIS machine:
   4. Prepend '${SUBRULE}' to '${RIGHT}'. k-of-n is left exactly as it is; the
      install refuses unless it is already 1, so the spike runs first and the
      normal password path stays as the fallback.
+  5. Install the health-check daemon '${DAEMON_LABEL}':
+       support  ${SUPPORT_DIR}/
+       daemon   ${DAEMON_PLIST}
+     It reverts '${RIGHT}' to password-only if the bundle ever disappears while
+     the rule still references it (the E3 fail-open).
 
-uninstall.sh restores the backup exactly, removes '${SUBRULE}', and deletes
-the bundle.
+uninstall.sh restores the backup exactly, removes '${SUBRULE}', deletes the
+bundle, and removes the health-check daemon.
 EOF
 # --yes exists so the A1 ladder can be re-run identically three times if the
 # first signing configuration does not load. A prompt in the middle of a
@@ -153,6 +177,21 @@ security authorizationdb read "${RIGHT}" > "${NEW_RULE}"
 "$(dirname "$0")/authdb-edit" add-subrule "${NEW_RULE}" "${SUBRULE}"
 security authorizationdb write "${RIGHT}" < "${NEW_RULE}"
 rm -f "${NEW_RULE}"
+
+echo "==> Installing health-check daemon ${DAEMON_LABEL}"
+# healthcheck.sh looks for authdb-edit beside itself, so both land in the same
+# root-owned directory. The daemon runs as root; these must not be writable by
+# anyone else, or the very thing guarding the unlock rule could be swapped out.
+install -d -o root -g wheel -m 0755 "${SUPPORT_DIR}"
+install -o root -g wheel -m 0755 "${SRC_DIR}/healthcheck.sh" "${SUPPORT_DIR}/healthcheck.sh"
+install -o root -g wheel -m 0755 "${SRC_DIR}/authdb-edit"    "${SUPPORT_DIR}/authdb-edit"
+install -o root -g wheel -m 0644 "${SRC_DIR}/${DAEMON_LABEL}.plist" "${DAEMON_PLIST}"
+# Reload cleanly: bootout an old instance (ignore "not loaded"), then bootstrap.
+launchctl bootout "system/${DAEMON_LABEL}" 2>/dev/null || true
+launchctl bootstrap system "${DAEMON_PLIST}" \
+    || echo "    NOTE: could not bootstrap the daemon; it will start on next boot." >&2
+# Run it once now so a fresh install is verified immediately, not on next boot.
+launchctl kickstart "system/${DAEMON_LABEL}" 2>/dev/null || true
 
 echo "Done. New '${RIGHT}':"
 security authorizationdb read "${RIGHT}" 2>/dev/null | plutil -extract rule xml1 -o - -
