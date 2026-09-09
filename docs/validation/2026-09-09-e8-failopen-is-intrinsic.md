@@ -1,8 +1,16 @@
-# E8 —— fail-open 是 evaluate-mechanisms 的通性；但存在 fail-closed 形态（有代价）
+# E8 —— fail-open 是 evaluate-mechanisms 的通性；~~但存在 fail-closed 形态~~（锁屏上不存在，见 E11）
 
 日期：2026-09-09
 
-状态：**已确认（CONFIRMED）**，全程命令行、焦点无关、每次都无条件还原规则。
+> **部分收回 → 见 [E11](2026-09-09-e11-lockscreen-grant-model.md)。**
+> 本文「机制 + 后接 builtin 密码机制 = fail-closed 骨架」的结论**建立在命令行行为上**
+> （机制 `Allow` 会继续到 `builtin:authenticate`、`Deny` 才停）。真实锁屏**相反**：机制
+> `Allow` 直接解锁、`Deny` 硬失败且不退到密码机制。所以那个 fail-closed 骨架在锁屏上**不存在**，
+> 这一部分收回。仍然成立的是：**fail-open 是 `evaluate-mechanisms` 对缺失机制的通性**（下文对照表），
+> 以及由此得到的「免密与缺失即 fail-closed 用规则结构不可兼得、只能靠预防」——E11 进一步坐实为唯一路径。
+
+状态：fail-open 通性部分**已确认（CONFIRMED）**；fail-closed 骨架部分**已被 E11 收回**。
+全程命令行、焦点无关、每次都无条件还原规则。
 
 承接 [E3 fail-open](2026-09-09-e3-fail-open.md)。E3 证明了当前 `k-of-n=1` 形态在
 bundle 缺失时可被空密码绕过。E8 要回答的是：**这个 fail-open 能不能靠换规则形态关掉。**

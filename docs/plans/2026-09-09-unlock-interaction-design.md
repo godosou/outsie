@@ -106,9 +106,10 @@
 | **E5** | `LoginwindowText` 在插件生效后的锁屏界面上还显不显示？ | 一条 root `defaults write`，与安装共用同一次授权 | 决定「按一下回车」这句提示能不能出现在它唯一有用的那一刻。也决定 §5.9 那个开关要不要做 |
 | **E6** | mechanism 超时压到 250ms、由守护进程从缓存立即应答，端到端是否稳定？ | 改 `PERMIT_TIMEOUT_MS`，接 IPC 后跑验收 | 决定「手机不在时每次密码解锁要不要先卡一下」。见 §2.4 |
 | **E7** | `,privileged` 变体为什么不被调用？ | 见 `docs/plans/2026-09-09-permit-design.md` | 决定 `peer_identity.rs` 的对端签名 pin 怎么写 |
-| **E8** | 换规则形态能否关掉 fail-open？ | 逐一换形态、移走 bundle、CLI authorize | **已答**（[记录](../validation/2026-09-09-e8-failopen-is-intrinsic.md)）：缺失机制被 authd 当「该步通过」，所以机制是**唯一关卡**就 fail-open；其后**跟一个必然运行的 builtin 密码机制**就 **fail-closed**。安全骨架 = 「机制 + `builtin:authenticate`」的必经链 |
+| **E8** | 换规则形态能否关掉 fail-open？ | 逐一换形态、移走 bundle、CLI authorize，再到真实锁屏验证 | **已答，但要看锁屏而非 CLI**：CLI 上「机制 + 后接 builtin 密码机制」像是 fail-closed；**真实锁屏相反**（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)）——机制 `Allow` 直接解锁、`Deny` 硬失败且不退到密码机制。**没有既免密又缺失即 fail-closed 的规则形态**。仍成立：fail-open 是 evaluate-mechanisms 缺失机制的通性 |
 | **E9** | bundle 在位但**签名失效/无法加载**（比删除更贴近升级现实）时是什么行为？ | 破坏签名或替换成坏二进制，跑 `fail_open_probe.sh` | 决定健康检查是查「bundle 存在」还是必须查「`codesign -v` 通过」 |
-| **E10** | 在 E8b 的 fail-closed 骨架上，机制如何在**手机在场时**向授权 context 注入凭据、让后续 `builtin:authenticate` **静默通过**，从而恢复免密？口令如何存储与保护？ | 机制内 `SetContextValue` 回填用户名/口令，跑验收 | **免密且安全的可行性核心**。E8b 已证「机制返回 Allow 不跳过后续密码机制」，所以免密只能靠注入凭据。E10 未落地前：安全的形态不免密，免密的形态不安全 |
+| ~~**E10**~~ | ~~机制向 context 注入凭据让 builtin:authenticate 静默通过~~ | — | **已收回**（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)）：锁屏上手机在场时机制 `Allow` 本身就解锁，`builtin:authenticate` 不运行，没有可注入的对象，注入正确/错误凭据结果相同。前提不成立 |
+| **E12** | 健康检查：如何在开机期 + 后台断言「规则引用的 bundle 存在且 `codesign -v` 通过」，发现悬空引用就立即从 authdb 移除子规则？ | 实现守护 + 故意制造悬空引用，跑 `fail_open_probe.sh` 应从 VULN 变 SAFE | **G2 的真正解法**。E8/E11 证明 fail-open 无法靠规则结构关闭，只能预防悬空引用 + 运行期修复 |
 
 ### 2.4 关于那 1.5 秒：改掉它，不是写它
 
@@ -212,7 +213,7 @@
 
 ### 3.4 不变量（每条都要能在界面上被验证）
 
-1. **任何状态下，密码都能进，且插件失灵时必须 fail-closed（要求密码），绝不 fail-open（免密放行）。** E3 实测出当前 `k-of-n=1` 形态在 bundle 缺失时是 fail-open 的——空密码即可绕过锁屏（[记录](../validation/2026-09-09-e3-fail-open.md)）。所以这条不变量今天**不成立**，是发布阻塞（门禁 G2），需要靠规则结构而非运行时补救来关闭（见 E8）。界面在每个失败态里主动申明密码可用，不等用户问。
+1. **任何状态下，密码都能进，且插件失灵时必须 fail-closed（要求密码），绝不 fail-open（免密放行）。** E3 实测出当前 `k-of-n=1` 形态在 bundle 缺失时是 fail-open 的——空密码即可绕过锁屏（[记录](../validation/2026-09-09-e3-fail-open.md)）。E8/E11 进一步证明**没有既免密又缺失即 fail-closed 的规则形态**，所以这条不变量不能靠规则结构达成，只能靠**预防悬空引用 + 运行期修复**（健康检查，见 E12）。今天**不成立**，是发布阻塞（门禁 G2）。界面在每个失败态里主动申明密码可用，不等用户问。
 2. **只有 S6a 是绿点。** S6b「手机不在」是中性灰，不是黄色警告——这是这个功能每天要经历几十次的正常状态。
 3. **每个非就绪状态有且只有一个主按钮**，按钮名是动词。
 4. **全局横幅只为「按回车真的会失败且需要你动手」出现**，不为「手机不在」出现，也不为「没开」出现。这是对现有 `.security-alert` 用法的刻意偏离：闲置锁屏是安全功能，没开就该被念叨；手机钥匙是便利功能，没开不该。
@@ -932,7 +933,7 @@ type UnlockSnapshot = {
 | # | 门禁 | 为什么 |
 |---|---|---|
 | G1 | 实验 **E1** 有结论，安装器实际生成的形态与被验证的形态一致 | 否则「我们会改动什么」那一屏说的不是安装器会做的事 |
-| G2 | **E3 的 fail-open 被结构性地关闭**：bundle 缺失时锁屏必须 fail-closed（要求密码），且 `tests/e2e/fail_open_probe.sh` 报 SAFE | E3 实测出**空密码绕过**（[fail-open 记录](../validation/2026-09-09-e3-fail-open.md)）；当前 `k-of-n=1` 形态是 fail-open 的，看门狗无法在锁屏时补救，安全必须来自规则结构（见 E8） |
+| G2 | **E3 的 fail-open 被预防关闭**：健康检查（E12）存在并常驻，制造悬空引用后 `tests/e2e/fail_open_probe.sh` 能从 VULN 恢复到 SAFE；安装/卸载顺序保证引用不悬空 | E3 实测出**空密码绕过**（[fail-open 记录](../validation/2026-09-09-e3-fail-open.md)）；E8/E11 证明规则结构关不掉它（[E11](../validation/2026-09-09-e11-lockscreen-grant-model.md)），只能预防悬空引用 + 运行期修复。看门狗关闭的是「bundle 消失→修复」之间的时间窗 |
 | G3 | **R-P4** permit 换成 IPC 并落地 R-P1/R-P2/R-P5 | 今天任何本地进程 `touch /tmp/repose-permit` 就能越过锁屏；守护进程崩溃 = 永久免密 |
 | G4 | 「手机不在场 + **正确密码**」这一格在真机上跑通（即演练 A 的自动化版本） | 产品依赖的那一格实验室里没测过 |
 | G5 | **R-P6** 证据通道存在 | 没有它，F22 分流塌成两路，且面板会显示猜出来的「已加载」 |

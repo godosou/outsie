@@ -1,9 +1,14 @@
-# E10 —— 机制向 context 注入凭据让 builtin:authenticate 静默通过：注入 API 通，命令行无法证伪，决定性验证待锁屏
+# E10 —— 机制向 context 注入凭据让 builtin:authenticate 静默通过：已在锁屏上证伪，收回
 
 日期：2026-09-09
 
-状态：**部分完成**。注入侧已跑通；「`builtin:authenticate` 是否消费」在命令行上无法判定，
-需要在真实锁屏 + 真实口令下验证。
+> **已收回 → 见 [E11](2026-09-09-e11-lockscreen-grant-model.md)。**
+> 后来在真实锁屏上做了 A/B：手机在场时机制 `Allow` **本身就解锁**，`builtin:authenticate`
+> 不会运行，注入正确与错误凭据结果相同。**E10 的前提（注入让 builtin 静默通过）在锁屏不成立，
+> 无的放矢。** 本文以下为当时「部分完成」阶段的记录，保留以存证；结论以 E11 为准。
+
+状态（历史）：**部分完成 → 已收回**。注入 API 本身可用（`SetContextValue` 返回成功），
+但「让 `builtin:authenticate` 静默通过」这个目标在锁屏上不成立——见 E11。
 
 ## 背景
 
