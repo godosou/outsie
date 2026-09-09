@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import type { UnlockDesktopBridge } from './lib/unlock'
 
 export type DesktopCommandName =
   | 'toggle-pause'
@@ -8,6 +9,11 @@ export type DesktopCommandName =
   | 'postpone-break'
   | 'strict-break-finished'
   | 'idle-lock-failed'
+  // Phone Key drill results (§6.4). Must also appear in `commandNames` below,
+  // or the allowlist in parseCommand silently drops them.
+  | 'unlock-drill-passed'
+  | 'unlock-drill-failed'
+  | 'unlock-drill-not-observed'
 
 export type DesktopCommand = { command: DesktopCommandName; breakId: string | null }
 export type DesktopLifecycleEvent =
@@ -35,6 +41,7 @@ declare global {
       showBreak: () => void
       postponeBreak: () => Promise<boolean>
       openSecuritySettings: () => void
+      unlock?: UnlockDesktopBridge
     }
     webkitAudioContext?: typeof AudioContext
   }
@@ -47,6 +54,9 @@ const commandNames = new Set<DesktopCommandName>([
   'postpone-break',
   'strict-break-finished',
   'idle-lock-failed',
+  'unlock-drill-passed',
+  'unlock-drill-failed',
+  'unlock-drill-not-observed',
 ])
 
 function parseCommand(value: unknown): DesktopCommand | null {
@@ -109,6 +119,9 @@ export async function initializeDesktopBridge() {
     }
   }
 
+  const unlockSnapshotCallbacks = new Set<(snapshot: unknown) => void>()
+  const unlockPresenceCallbacks = new Set<(presence: unknown) => void>()
+
   await listen<unknown>('repose-command', event => {
     const command = parseCommand(event.payload)
     if (command) commandCallbacks.forEach(callback => callback(command))
@@ -117,6 +130,30 @@ export async function initializeDesktopBridge() {
     const lifecycle = parseLifecycle(event.payload)
     if (lifecycle) dispatchLifecycle(lifecycle)
   })
+  await listen<unknown>('repose-unlock-snapshot', event => {
+    unlockSnapshotCallbacks.forEach(callback => callback(event.payload))
+  })
+  await listen<unknown>('repose-unlock-presence', event => {
+    unlockPresenceCallbacks.forEach(callback => callback(event.payload))
+  })
+
+  // Phone Key bridge. Method names map to unlock.rs commands (§6.2); the panel
+  // re-normalizes every returned snapshot as untrusted input.
+  const unlock: UnlockDesktopBridge = {
+    getSnapshot: () => invoke<unknown>('unlock_get_snapshot'),
+    preflight: () => invoke<unknown>('unlock_preflight'),
+    install: value => invoke<unknown>('unlock_install', { value }),
+    repair: value => invoke<unknown>('unlock_repair', { value }),
+    uninstall: () => invoke<unknown>('unlock_uninstall'),
+    setEnabled: value => invoke<unknown>('unlock_set_enabled', { value }),
+    revokeDevice: value => invoke<unknown>('unlock_revoke_device', { value }),
+    beginPairing: () => invoke<unknown>('unlock_pair_begin'),
+    calibrateSample: value => invoke<unknown>('unlock_calibrate_sample', { value }),
+    async startDrill(value) { await invoke('unlock_drill_start', { value }) },
+    async openBluetoothSettings() { await invoke('unlock_open_bluetooth_settings') },
+    onSnapshot(callback) { unlockSnapshotCallbacks.add(callback); return () => unlockSnapshotCallbacks.delete(callback) },
+    onPresence(callback) { unlockPresenceCallbacks.add(callback); return () => unlockPresenceCallbacks.delete(callback) },
+  }
 
   window.repose = {
     isDesktop: true,
@@ -145,6 +182,7 @@ export async function initializeDesktopBridge() {
     showBreak() { /* set_status creates the native cover after the phase changes. */ },
     postponeBreak() { return invoke<boolean>('postpone_break') },
     openSecuritySettings() { void invoke('open_security_settings') },
+    unlock,
   }
 
   try {

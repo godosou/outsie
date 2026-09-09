@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
+import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
 import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
 import { localDateKey } from './lib/timer'
 import { getShortBreakVoice } from './lib/reposeVoice'
 import { getEyeCareTip } from './lib/eyeCareTips'
+import { deriveGlobalBanner, normalizeUnlockSnapshot, type UnlockSnapshot } from './lib/unlock'
+import './phone-key.css'
 
 type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
@@ -114,7 +117,9 @@ export default function App() {
     try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30 } : defaults } catch { return defaults }
   })
   const [securityError, setSecurityError] = useState(() => { try { return localStorage.getItem('repose-security-error') === 'true' } catch { return false } })
+  const [unlockSnapshot, setUnlockSnapshot] = useState<UnlockSnapshot | null>(null)
   const strictBreak = Boolean(window.repose) && desktopPreferences.strictBreaks
+  const unlockBanner = unlockSnapshot ? deriveGlobalBanner(unlockSnapshot) : null
 
   const audio = useRef<AudioContext | null>(null)
   const previousPhase = useRef(phase)
@@ -168,6 +173,14 @@ export default function App() {
     try { localStorage.setItem('repose-desktop-preferences', JSON.stringify(desktopPreferences)) } catch { /* Optional persistence. */ }
     window.repose?.setPreferences(desktopPreferences)
   }, [desktopPreferences])
+  useEffect(() => {
+    const unlock = window.repose?.unlock
+    if (!unlock) return
+    let alive = true
+    void (async () => { try { const raw = await unlock.getSnapshot(); if (alive) setUnlockSnapshot(normalizeUnlockSnapshot(raw)) } catch { /* banner stays hidden until a snapshot arrives */ } })()
+    const off = unlock.onSnapshot(raw => { if (alive) setUnlockSnapshot(normalizeUnlockSnapshot(raw)) })
+    return () => { alive = false; off() }
+  }, [])
   useEffect(() => {
     document.title = `${time(remaining)} · ${inBreak ? '好好休息' : running ? '专注中' : '已暂停'} — Repose`
     window.repose?.setStatus({ running, phase, remaining, breakId, canPostpone, postponeSeconds })
@@ -289,6 +302,7 @@ export default function App() {
       <header className="page-heading"><div><div className="eyebrow">{titles[page].eyebrow}</div><h1>{titles[page].title}</h1><p>{titles[page].subtitle}</p></div><button className={`reminder-status ${running ? '' : 'is-paused'}`} disabled={Boolean(postponedBreak)} onClick={() => { initAudio(); timer.toggleRunning() }}><span className={`status-dot ${running ? '' : 'paused'}`} />{postponedBreak ? '已延迟一次 · 即将休息' : running ? '休息提醒已开启' : '休息提醒已暂停'}<ChevronRight size={14} /></button></header>
 
       {window.repose && !desktopPreferences.idleLockEnabled && <div className="security-alert" role="alert"><ShieldCheck size={19} /><div><strong>{securityError ? '安全锁屏需要系统授权' : '安全锁屏尚未开启'}</strong><p>{securityError ? '当前自动锁屏未生效。请在系统设置 → 隐私与安全性 → 辅助功能中允许 Repose，然后重新开启 30 秒安全锁屏。' : '目前离开电脑后不会自动锁屏。请在偏好设置中开启 30 秒无操作安全锁屏。'}</p></div><button className="text-button" onClick={() => navigate('settings')}>前往设置<ArrowRight size={15} /></button></div>}
+      {unlockBanner && <div className={`security-alert${unlockBanner.tone === 'danger' ? ' pk-danger' : ''}`} role="alert"><KeyRound size={19} /><div><strong>{unlockBanner.title}</strong><p>{unlockBanner.body}</p></div><button className="text-button" onClick={() => navigate('settings')}>{unlockBanner.action.label}<ArrowRight size={15} /></button></div>}
       {page === 'overview' && <div className="page-enter">
         <div className="hero-grid">
           <section className="timer-card" aria-label="休息计时器">
@@ -390,6 +404,7 @@ export default function App() {
           <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '首次使用安全锁屏，请在系统设置中允许 Repose 使用辅助功能；如果系统询问自动化权限，也请允许。锁屏只检测空闲时长，不读取或记录按键内容。' : '网页仅预览界面。全局活动检测、跨屏遮罩和 macOS 安全锁屏均在 Mac App 中运行。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
           <p className="security-limit">强制休息限制日常操作；系统级结束进程或关机仍由 macOS 管理。</p>
         </section>
+        <UnlockSettingsPanel bridge={window.repose?.unlock} onToast={showToast} />
 <section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Repose · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
 
       <footer className="page-footer"><span><Leaf size={13} strokeWidth={1.5} />更好的状态，来自恰到好处的停顿。</span><span>MADE FOR A SLOWER, BETTER DAY<span className="footer-flower">✳</span></span></footer>
