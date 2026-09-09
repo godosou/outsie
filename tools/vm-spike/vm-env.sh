@@ -62,11 +62,16 @@ export REPOSE_LOCKSTATE_CMD="${REPOSE_SSH} 'ioreg -n Root -d1 -a | plutil -extra
 export REPOSE_LOCK_PRECHECK_CMD="${REPOSE_SSH} 'sysadminctl -screenLock status 2>&1'"
 export REPOSE_LOCK_CMD="${REPOSE_SSH} 'sudo launchctl asuser \$(stat -f %u /dev/console) open -a /System/Library/CoreServices/ScreenSaverEngine.app'"
 
-# Waking the guest is what starts the authorization evaluation; without it the
-# mechanism is never invoked and the test would time out against a working
-# plugin. caffeinate -u asserts user activity, which is exactly the signal a
-# keypress would produce.
-export REPOSE_WAKE_CMD="${REPOSE_SSH} 'caffeinate -u -t 1'"
+# Waking is a GUI action, not an ssh one. A1 measured that the mechanism is not
+# invoked when the machine locks, nor when the password field appears -- only
+# when an unlock is submitted. caffeinate -u, which an earlier version used,
+# asserts user activity without submitting anything, so the mechanism never ran
+# and the result was indistinguishable from a plugin macOS had refused to load.
+# Resolved from the repo root rather than BASH_SOURCE: this file is sourced,
+# and under zsh BASH_SOURCE does not name it, so the path silently came out
+# wrong -- pointing at a script that does not exist, which would have looked
+# like a wake that did nothing.
+export REPOSE_WAKE_CMD="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null)/tools/vm-spike/vm-wake-submit.sh"
 
 # The simulated presence source for the first phase. Phase two replaces these
 # two commands with the real BLE bridge and changes nothing else.
