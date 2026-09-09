@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchDaemon for repose-permitd. It runs as root (no UserName key => root),
+  which is required to own the socket root:_securityagent, to read the
+  root-owned presence file, and to call SecCodeCheckValidity on another process.
+
+  The daemon creates and binds its own unix socket, so there is NO <Sockets>
+  key here and no launchd socket activation -- keeping the socket's owner/group/
+  mode under the daemon's own control (0660 root:_securityagent inside a 0750
+  root:_securityagent directory).
+
+  Installed to /Library/LaunchDaemons/ by install-permitd.sh. Throwaway spike.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>ai.repose.spike.permitd</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Library/Application Support/ReposeSpike/repose-permitd</string>
+	</array>
+
+	<key>RunAtLoad</key>
+	<true/>
+
+	<!-- Keep it alive: if it ever exits, the mechanism must fall back to the
+	     password (fail closed), and launchd restarts the daemon so the next
+	     attempt can succeed again. -->
+	<key>KeepAlive</key>
+	<true/>
+
+	<!-- Logs land where the rest of the spike looks. -->
+	<key>StandardOutPath</key>
+	<string>/var/log/repose-permitd.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/repose-permitd.log</string>
+
+	<key>ProcessType</key>
+	<string>Interactive</string>
+</dict>
+</plist>
