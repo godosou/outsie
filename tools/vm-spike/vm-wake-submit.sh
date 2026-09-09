@@ -14,22 +14,44 @@
 # real product gesture -- wake the Mac and press Return, with the phone standing
 # in for the password.
 #
-# Requires the host to have granted Accessibility to the terminal running this.
-# Without it osascript is refused and the keystrokes go nowhere, which looks
-# exactly like a plugin that was never loaded.
+# WHY IT CHECKS THAT THE INPUT ARRIVED
+# ------------------------------------
+# `set frontmost to true` can report success and change nothing. It has done so
+# repeatedly here: the terminal driving the test stays frontmost, the keystrokes
+# land in it instead of the VM, and the guest never sees an unlock attempt. The
+# acceptance test then reports "Mac did NOT unlock", which is a statement about
+# the feature -- and it is false. The real event was that nobody knocked.
+#
+# Three consecutive runs were lost to exactly this before the check existed, and
+# the give-away was only visible by asking the guest how long since it last saw
+# input. So this script now asks, before and after, and fails loudly rather than
+# letting a delivery failure be reported as a product failure.
 
 set -uo pipefail
 
 APP="${REPOSE_VM_APP:-tart}"
+SSH="${REPOSE_SSH:-}"
 
 osa() { osascript -e "$1" >/dev/null 2>&1; }
 
-# Focus first. Three separate experiments were invalidated by keystrokes landing
-# in whatever else happened to be frontmost, with the guest's HID idle time
-# climbing untouched the whole time.
-osa "tell application \"System Events\" to tell process \"${APP}\" to set frontmost to true" \
-  || { echo "vm-wake-submit: cannot focus ${APP}; is Accessibility granted?" >&2; exit 1; }
+# Seconds since the guest last saw any HID input. Empty if unreadable.
+guest_idle() {
+  [ -n "$SSH" ] || return 0
+  eval "${SSH} 'ioreg -c IOHIDSystem | grep -m1 HIDIdleTime | sed \"s/.*= //\" | awk \"{printf \\\"%.0f\\\", \\\$1/1000000000}\"'" 2>/dev/null
+}
+
+before="$(guest_idle)"
+
+osa "tell application \"System Events\" to tell process \"${APP}\" to set frontmost to true"
 sleep 0.6
+
+front="$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)"
+if [ -n "$front" ] && [ "$front" != "$APP" ]; then
+  echo "vm-wake-submit: could not bring ${APP} to the front (still '${front}')." >&2
+  echo "  Keystrokes would land in ${front}, and the acceptance test would read" >&2
+  echo "  that as the Mac failing to unlock. Click the VM window once and rerun." >&2
+  exit 1
+fi
 
 # Dismiss the screensaver so the password field exists.
 osa 'tell application "System Events" to key code 49'
@@ -45,3 +67,16 @@ sleep 0.4
 # Return with nothing typed. The mechanism decides; the password path only sees
 # this if the mechanism denies.
 osa 'tell application "System Events" to key code 36'
+sleep 1
+
+# Confirm the guest actually received something. A rising idle time means every
+# keystroke above went somewhere else.
+after="$(guest_idle)"
+if [ -n "$before" ] && [ -n "$after" ]; then
+  if [ "$after" -ge "$before" ] 2>/dev/null; then
+    echo "vm-wake-submit: the guest saw no input (idle ${before}s -> ${after}s)." >&2
+    echo "  The keystrokes did not reach the VM. Whatever the acceptance test" >&2
+    echo "  reports after this would be about delivery, not about unlocking." >&2
+    exit 1
+  fi
+fi
