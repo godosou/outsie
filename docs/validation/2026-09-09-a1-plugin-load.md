@@ -45,9 +45,9 @@ to enable SecurityAgent」，以及三轮毫无动静的实验。
 `com.openai.sky.CUAService.AuthorizationPlugin.remote` 此刻就与 `use-login-window-ui`
 并列在同一条规则里，`k-of-n=1`。
 
-**所以「安装器实际生成的形态能不能加载插件」目前是未知的**，而这正是安装器会生成的形态
-（`authdb-edit add-subrule` 是前置插入并保留原有条目）。**被验证的形态安装器不会生成，
-安装器生成的形态没被验证过。** 这是 A3 的前置实验，见交互设计文档的 E1。
+**2026-09-09 14:00 已由 E1 实测回答：安装器生成的形态可以触发插件链，两个方向都对。**
+不需要修改 `use-login-window-ui`，锁屏界面与「谁能解锁」的语义都不改变。
+见 [E1 记录](2026-09-09-e1-stock-rule.md)。
 
 **2. 授权求值发生在「提交解锁尝试」时，不是唤醒时。** 按键唤醒画面后
 `SecurityAgent` 并未启动；只有输入密码并回车才触发求值。这对产品是硬约束：
