@@ -40,6 +40,18 @@ guest_idle() {
   eval "${SSH} 'ioreg -c IOHIDSystem | grep -m1 HIDIdleTime | sed \"s/.*= //\" | awk \"{printf \\\"%.0f\\\", \\\$1/1000000000}\"'" 2>/dev/null
 }
 
+# The host's own lock state comes first. A locked host has no GUI session to
+# inject into, so activation fails, window enumeration returns nothing, and
+# clicks take no focus -- all of which look like deep macOS restrictions and are
+# not. Several rounds of diagnosis went into that mistake; this check is one
+# line and ends it.
+host_locked="$(ioreg -n Root -d1 -a 2>/dev/null | plutil -extract IOConsoleLocked raw -o - - 2>/dev/null)"
+if [ "$host_locked" = "true" ]; then
+  echo "vm-wake-submit: this Mac is locked, so there is no GUI session to type into." >&2
+  echo "  Nothing sent from here can reach the VM. Unlock this Mac and rerun." >&2
+  exit 1
+fi
+
 before="$(guest_idle)"
 
 osa "tell application \"System Events\" to tell process \"${APP}\" to set frontmost to true"
