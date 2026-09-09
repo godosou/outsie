@@ -95,22 +95,42 @@ sub add_subrule {
           . "a failure of the spike would leave no way in.")
         unless has_fallback(@without);
 
-    # k-of-n=1 means any single sub-rule succeeding is enough, which is what
-    # lets the spike run first and the password path still work when it denies.
-    # Rather than set it and try to restore it on uninstall -- an asymmetry that
-    # would leave a machine permanently weakened if the surgical removal path
-    # ever ran -- refuse to touch a rule that is not already 1. The stock macOS
-    # screensaver rule is 1, so the ordinary case needs no change at all.
+    # k-of-n governs how many sub-rules must succeed. Absent means ALL of them
+    # must, which is the dangerous case: insert a mechanism into a rule like
+    # that and the moment it denies, the whole rule denies and the password path
+    # goes with it. That is the actual lockout. So k-of-n=1 is not an
+    # optimisation here, it is the thing that keeps the fallback reachable.
+    #
+    # Setting it is only safe when it does not change what the rule already
+    # means:
+    #   absent, one entry   -> "all of 1" and "1 of 1" are the same rule. Safe.
+    #   absent, many entries-> genuinely relaxes "all must pass". Refuse.
+    #   already 1           -> nothing to do.
+    #   anything else       -> genuinely relaxes it. Refuse.
     my ($kofn, $krc) = plutil_get($path, 'k-of-n', 'raw');
-    my $shown = ($krc == 0 && defined $kofn) ? $kofn : 'absent';
-    die_msg("this rule has k-of-n=$shown, not 1. Setting it to 1 would "
-          . "permanently weaken the rule from 'all sub-rules must pass' to 'any "
-          . "one may', and uninstall could not reliably put it back. Inspect it "
-          . "by hand:\n  security authorizationdb read system.login.screensaver")
-        unless $krc == 0 && defined $kofn && $kofn eq '1';
+    my $have = ($krc == 0 && defined $kofn) ? $kofn : undef;
+    my $set_kofn = 0;
+    if (defined $have && $have eq '1') {
+        # already what we need
+    } elsif (!defined $have && @rule == 1) {
+        $set_kofn = 1;
+    } else {
+        my $shown = defined $have ? $have : 'absent';
+        die_msg("this rule has k-of-n=$shown with " . scalar(@rule) . " entries. "
+              . "Setting it to 1 would relax 'all sub-rules must pass' into 'any "
+              . "one may', which is a real weakening of a rule somebody else "
+              . "configured. Inspect it by hand:\n"
+              . "  security authorizationdb read system.login.screensaver");
+    }
 
     write_rule($path, $sub, @without);
-    print "added $sub; rule is now [" . join(', ', $sub, @without) . "] (k-of-n left at 1)\n";
+    if ($set_kofn) {
+        system('plutil', '-replace', 'k-of-n', '-integer', '1', $path) == 0
+            or die_msg("could not set k-of-n");
+    }
+    print "added $sub; rule is now [" . join(', ', $sub, @without) . "]"
+        . ($set_kofn ? " (k-of-n set to 1; it was absent on a single-entry rule,"
+                     . " which means the same thing)" : " (k-of-n already 1)") . "\n";
 }
 
 sub remove_subrule {
@@ -130,7 +150,19 @@ sub remove_subrule {
           . "instead of writing this.") unless has_fallback(@after);
 
     write_rule($path, @after);
-    print "removed $sub; rule is now [" . join(', ', @after) . "]\n";
+    # Restore the stock shape when we are back to a single entry. "1 of 1" and
+    # "all of 1" are the same rule, so this cannot change behaviour either way;
+    # it just avoids leaving a key behind that was not there before.
+    my $removed_kofn = 0;
+    if (@after == 1) {
+        my ($k, $krc) = plutil_get($path, 'k-of-n', 'raw');
+        if ($krc == 0 && defined $k && $k eq '1') {
+            system('plutil', '-remove', 'k-of-n', $path) == 0 and $removed_kofn = 1;
+        }
+    }
+    print "removed $sub; rule is now [" . join(', ', @after) . "]"
+        . ($removed_kofn ? " (k-of-n removed, back to the stock single-entry shape)" : "")
+        . "\n";
 }
 
 sub validate {

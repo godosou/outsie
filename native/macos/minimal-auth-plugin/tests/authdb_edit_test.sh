@@ -106,11 +106,39 @@ fixture "$f" "{'class':'rule','rule':['a','use-login-window-ui'],'k-of-n':2}"
   && ok "the refused rule keeps its original k-of-n" \
   || no "the refused rule keeps its original k-of-n" "now $(kofn_of "$f")"
 
+# Absent k-of-n means "all sub-rules must pass". Inserting a mechanism into a
+# rule like that and leaving it absent is the real lockout: the moment our
+# mechanism denies, the whole rule denies and takes the password path with it.
+# On a single-entry rule, setting it to 1 changes nothing ("all of 1" is "1 of
+# 1"), so it is safe and necessary. This is the stock macOS 14 shape.
 f="$WORK/kofnmissing.plist"
 fixture "$f" "{'class':'rule','rule':['use-login-window-ui']}"
 "$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1 \
-  && no "add refuses when k-of-n is absent" "it wrote anyway" \
-  || ok "add refuses when k-of-n is absent"
+  && ok "add sets k-of-n=1 when absent on a single-entry rule" \
+  || no "add sets k-of-n=1 when absent on a single-entry rule" "it refused"
+[ "$(kofn_of "$f")" = "1" ] \
+  && ok "the stock single-entry rule ends up with k-of-n=1" \
+  || no "the stock single-entry rule ends up with k-of-n=1" "got $(kofn_of "$f")"
+
+# With more than one entry it is a genuine relaxation of somebody else's rule.
+f="$WORK/kofnmissingmulti.plist"
+fixture "$f" "{'class':'rule','rule':['com.vendor.thing','use-login-window-ui']}"
+"$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1 \
+  && no "add refuses when k-of-n is absent on a multi-entry rule" "it wrote anyway" \
+  || ok "add refuses when k-of-n is absent on a multi-entry rule"
+[ "$(kofn_of "$f")" = "unset" ] \
+  && ok "the refused multi-entry rule keeps k-of-n absent" \
+  || no "the refused multi-entry rule keeps k-of-n absent" "got $(kofn_of "$f")"
+
+# Round trip on the stock shape must put it back exactly, k-of-n included.
+f="$WORK/stockroundtrip.plist"
+fixture "$f" "{'class':'rule','rule':['use-login-window-ui']}"
+"$EDIT" add-subrule "$f" "$SUB" >/dev/null 2>&1
+"$EDIT" remove-subrule "$f" "$SUB" >/dev/null 2>&1
+[ "$(rule_of "$f")" = "use-login-window-ui" ] && [ "$(kofn_of "$f")" = "unset" ] \
+  && ok "stock shape round trips exactly, k-of-n included" \
+  || no "stock shape round trips exactly, k-of-n included" \
+        "rule=$(rule_of "$f") k-of-n=$(kofn_of "$f")"
 
 # --- remove ---------------------------------------------------------------
 

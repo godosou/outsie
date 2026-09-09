@@ -116,8 +116,12 @@ cleanup() {
     >/tmp/a1-uninstall.txt 2>&1 \
     && note "uninstalled" \
     || note "UNINSTALL FAILED -- roll the VM back to repose-spike-clean"
-  sshv 'security authorizationdb read system.login.screensaver 2>/dev/null | grep -c ai.repose.spike' \
-    | grep -q '^0$' && note "screensaver rule is clean" || note "WARNING: rule still references the spike"
+  # grep -c exits 1 when the count is zero, and pipefail turns that into a
+  # failed pipeline -- so the clean case reported a warning. Compare the value.
+  local refs
+  refs="$(sshv 'security authorizationdb read system.login.screensaver 2>/dev/null | grep -c ai.repose.spike || true' | tr -dc '0-9')"
+  if [ "${refs:-1}" = "0" ]; then note "screensaver rule is clean"
+  else note "WARNING: rule still references the spike (${refs})"; fi
 }
 trap cleanup EXIT
 
