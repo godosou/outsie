@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -308,6 +309,30 @@ int main(int argc, char **argv)
          * and allows on a permit it was never meant to see. */
         check("permit timeout leaves room inside the stay-locked window",
               elapsed < 5000, detail);
+    }
+
+    /* 5b. A FIFO planted at the permit path must not hang the mechanism.
+     *     Opening a FIFO for reading blocks until a writer appears, and any
+     *     local user can create one without privilege. Before O_NONBLOCK this
+     *     open never returned, leaving a root mechanism stuck inside
+     *     authorizationhost with the unlock UI frozen behind it -- and looking
+     *     exactly like macOS refusing to load the plugin. If this test ever
+     *     hangs rather than fails, that regression is back. */
+    {
+        unlink(PERMIT_PATH);
+        if (mkfifo(PERMIT_PATH, 0666) == 0) {
+            long long elapsed = 0;
+            run_mechanism(iface, plugin, "permit", &elapsed);
+            char detail[64];
+            snprintf(detail, sizeof detail, "took %lldms", elapsed);
+            check("a FIFO at the permit path does not block the mechanism",
+                  elapsed < 5000, detail);
+            check("a FIFO at the permit path is not accepted as a permit",
+                  g_lastResult == kAuthorizationResultDeny, NULL);
+            unlink(PERMIT_PATH);
+        } else {
+            printf("  skip mkfifo unavailable, FIFO case not covered\n");
+        }
     }
 
     /* 6. An unrecognised mechanism id must deny. Defaulting it to allow is how

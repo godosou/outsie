@@ -16,6 +16,7 @@
 
 #include <fcntl.h>
 #include <os/log.h>
+#include <sys/stat.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -107,8 +108,15 @@ static void repose_log(const char *fmt, ...)
      * append root-owned output to a file of their choosing. O_NOFOLLOW refuses
      * that, and 0600 keeps the log itself from being readable by whoever wants
      * to know when the screen was unlocked. */
-    int fd = open(LOG_PATH, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0600);
+    /* O_NONBLOCK here too: a FIFO planted at this path would otherwise block
+     * a root mechanism forever. Losing the log is far better than hanging. */
+    int fd = open(LOG_PATH, O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0600);
     if (fd < 0) {
+        return;
+    }
+    struct stat lst;
+    if (fstat(fd, &lst) != 0 || !S_ISREG(lst.st_mode)) {
+        close(fd);
         return;
     }
     FILE *f = fdopen(fd, "a");
@@ -140,15 +148,34 @@ static int wait_for_permit(void)
 {
     int waited_ms = 0;
     for (;;) {
-        /* open rather than access: access() checks with the real uid, which
-         * is not necessarily the one this privileged mechanism runs as, and it
-         * follows symlinks. Neither subtlety belongs in the one check that
-         * decides whether a screen unlocks. */
-        int fd = open(PERMIT_PATH, O_RDONLY | O_NOFOLLOW);
+        /* O_NONBLOCK and a regular-file check, not just O_NOFOLLOW.
+         *
+         * O_NOFOLLOW stops a symlink but does nothing about a FIFO, and opening
+         * a FIFO for reading blocks until somebody opens the write end. Any
+         * local user can `mkfifo /tmp/repose-permit` -- it needs no privilege --
+         * and this open, running as root inside authorizationhost, would then
+         * never return. The timeout below could not save it: the block happens
+         * inside open(), before any of this loop runs. The unlock UI would hang
+         * with a root mechanism stuck behind it, and the symptom is
+         * indistinguishable from macOS refusing to load the plugin at all --
+         * which is the one question this whole experiment exists to answer.
+         *
+         * Deliberately NOT checking st_uid: in the walking skeleton the permit
+         * is written over ssh by the ordinary account, not by root. Requiring
+         * root ownership here would make the mechanism deny every time and look
+         * like a transport failure. Ownership is the product's problem to solve
+         * by moving the file somewhere only root can write; see README. */
+        int fd = open(PERMIT_PATH, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
         if (fd >= 0) {
+            struct stat st;
+            int regular = (fstat(fd, &st) == 0) && S_ISREG(st.st_mode);
             close(fd);
-            repose_log("permit: %s present after %dms", PERMIT_PATH, waited_ms);
-            return 1;
+            if (regular) {
+                repose_log("permit: %s present after %dms", PERMIT_PATH, waited_ms);
+                return 1;
+            }
+            repose_log("permit: %s exists but is not a regular file; ignoring",
+                       PERMIT_PATH);
         }
         if (waited_ms >= PERMIT_TIMEOUT_MS) {
             repose_log("permit: %s absent after %dms, giving up", PERMIT_PATH,
