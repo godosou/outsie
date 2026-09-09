@@ -1,0 +1,6 @@
+2026-09-09T11:43:02.835 pid=7893 uid=92 AuthorizationPluginCreate hostVersion=4
+2026-09-09T11:43:02.835 pid=7893 uid=92 MechanismCreate id=permit mode=permit
+2026-09-09T11:43:02.838 pid=7893 uid=92 MechanismInvoke enter mode=permit
+2026-09-09T11:43:02.838 pid=7893 uid=92 permit: /tmp/repose-permit present after 0ms
+2026-09-09T11:43:02.838 pid=7893 uid=92 MechanismInvoke result=Allow
+2026-09-09T11:43:02.838 pid=7893 uid=92 MechanismDestroy
