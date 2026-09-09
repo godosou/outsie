@@ -13,7 +13,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="Repose BLE Spike"
+        android:label="Repose"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity

@@ -4,71 +4,187 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.ViewGroup
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.widget.Button
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.WindowInsetsController
+import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 
-class MainActivity : Activity() {
+/**
+ * Host for the Repose 手机钥匙 product shell. One Activity, four screens, a small manual
+ * navigator, and a two-item bottom nav. The advertise toggle on the home screen drives the
+ * existing [BleSpikeService] — the product's "advertise on/off" IS start/stop advertising.
+ */
+class MainActivity : Activity(), Nav {
 
     private companion object {
         const val REQUEST_PERMISSIONS = 7
-        const val REFRESH_MS = 1_000L
     }
 
-    private lateinit var status: TextView
+    private lateinit var store: AppStore
+    private lateinit var contentFrame: FrameLayout
+    private lateinit var bottomNav: LinearLayout
+    private lateinit var navHome: LinearLayout
+    private lateinit var navMacs: LinearLayout
+
     private val main = Handler(Looper.getMainLooper())
-    private val onStateChanged: () -> Unit = { main.post { render() } }
-    private val ticker = object : Runnable {
-        override fun run() {
-            render()
-            main.postDelayed(this, REFRESH_MS)
-        }
-    }
+    private var current: Screen = Screen.HOME
+    private var currentView: ScreenView? = null
+
+    private val onStateChanged: () -> Unit = { main.post { currentView?.onState?.invoke() } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        status = TextView(this).apply {
-            typeface = Typeface.MONOSPACE
-            textSize = 12f
-            setPadding(32, 32, 32, 32)
+        store = AppStore(this)
+        val pal = ReposeTheme.of(this)
+
+        // Paint behind the system bars so there is no light flash in dark mode.
+        window.setBackgroundDrawable(ColorDrawable(pal.background))
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            fitsSystemWindows = true // API 35 forces edge-to-edge; this pads for the bars.
+            setBackgroundColor(pal.background)
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
         }
-        val start = Button(this).apply {
-            text = "Start advertising"
-            setOnClickListener { requestPermissionsThenStart() }
+
+        contentFrame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
         }
-        val stop = Button(this).apply {
-            text = "Stop"
-            setOnClickListener { stopService(Intent(context, BleSpikeService::class.java)) }
-        }
-        setContentView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                // API 35 enforces edge-to-edge; without this the buttons hide under the status bar.
-                fitsSystemWindows = true
-                addView(start, matchWidth())
-                addView(stop, matchWidth())
-                addView(ScrollView(context).apply { addView(status) }, matchWidth())
-            },
-        )
+        bottomNav = buildBottomNav(pal)
+
+        root.addView(contentFrame)
+        root.addView(bottomNav)
+        setContentView(root)
+        applyBarIconContrast() // after setContentView: the decor view now exists.
+
         SpikeState.addListener(onStateChanged)
+
+        go(if (store.paired) Screen.HOME else Screen.PAIRING)
     }
 
-    private fun matchWidth() =
-        LinearLayout.LayoutParams(MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+    override fun onDestroy() {
+        SpikeState.removeListener(onStateChanged)
+        super.onDestroy()
+    }
 
-    override fun onResume() { super.onResume(); main.post(ticker) }
+    // ---- Navigation ----
 
-    override fun onPause() { main.removeCallbacks(ticker); super.onPause() }
+    override fun go(screen: Screen) {
+        current = screen
+        val pal = ReposeTheme.of(this)
+        val view = when (screen) {
+            Screen.PAIRING -> buildPairingScreen(this, store, this)
+            Screen.HOME -> buildHomeScreen(this, store, this) { enable -> onAdvertiseChange(enable) }
+            Screen.KEEPALIVE -> buildKeepAliveScreen(this, this)
+            Screen.MACS -> buildMacsScreen(this, store, this)
+        }
+        currentView = view
+        contentFrame.removeAllViews()
+        contentFrame.addView(
+            view.root,
+            FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT),
+        )
+        val showNav = screen == Screen.HOME || screen == Screen.MACS
+        bottomNav.visibility = if (showNav) View.VISIBLE else View.GONE
+        setNavSelected(pal, screen)
+    }
 
-    override fun onDestroy() { SpikeState.removeListener(onStateChanged); super.onDestroy() }
+    override fun back() {
+        when (current) {
+            Screen.KEEPALIVE -> go(Screen.HOME)
+            Screen.MACS -> go(Screen.HOME)
+            else -> finish()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        when (current) {
+            Screen.KEEPALIVE, Screen.MACS -> go(Screen.HOME)
+            else -> super.onBackPressed()
+        }
+    }
+
+    // ---- Bottom navigation ----
+
+    private fun buildBottomNav(pal: Palette): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(pal.surface)
+        }
+        bar.addView(
+            View(this).apply { setBackgroundColor(pal.divider) },
+            LinearLayout.LayoutParams(MATCH_PARENT, dp(1)),
+        )
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        navHome = navItem(pal, "🛡", "主屏") { go(Screen.HOME) }
+        navMacs = navItem(pal, "💻", "我的 Mac") { go(Screen.MACS) }
+        row.addView(navHome, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        row.addView(navMacs, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        bar.addView(row)
+        return bar
+    }
+
+    private fun navItem(pal: Palette, glyph: String, label: String, onClick: () -> Unit): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(10))
+            minimumHeight = dp(60)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            addView(
+                TextView(context).apply {
+                    text = glyph
+                    gravity = Gravity.CENTER
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                    tag = "glyph"
+                },
+            )
+            addView(
+                TextView(context).apply {
+                    text = label
+                    gravity = Gravity.CENTER
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    tag = "label"
+                },
+                LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(3) },
+            )
+        }
+
+    private fun setNavSelected(pal: Palette, screen: Screen) {
+        tint(navHome, if (screen == Screen.HOME) pal.accent else pal.textSecondary)
+        tint(navMacs, if (screen == Screen.MACS) pal.accent else pal.textSecondary)
+    }
+
+    private fun tint(item: LinearLayout, color: Int) {
+        (item.findViewWithTag<TextView>("glyph"))?.setTextColor(color)
+        (item.findViewWithTag<TextView>("label"))?.setTextColor(color)
+    }
+
+    // ---- Advertise toggle -> BleSpikeService ----
+
+    private fun onAdvertiseChange(enable: Boolean) {
+        if (enable) requestPermissionsThenStart() else stopAdvertising()
+    }
+
+    private fun stopAdvertising() {
+        stopService(Intent(this, BleSpikeService::class.java))
+        SpikeState.event("stop requested")
+    }
 
     private fun missingPermissions(): List<String> {
         val wanted = mutableListOf(
@@ -107,6 +223,7 @@ class MainActivity : Activity() {
             startSpike()
         } else {
             SpikeState.event("denied: ${blocked.joinToString()}")
+            currentView?.onState?.invoke() // snap the toggle back off
         }
     }
 
@@ -115,7 +232,13 @@ class MainActivity : Activity() {
         SpikeState.event("start requested")
     }
 
-    private fun render() {
-        status.text = SpikeState.render()
+    // ---- Theming ----
+
+    private fun applyBarIconContrast() {
+        val light = !ReposeTheme.isNight(this)
+        val controller = window.insetsController ?: return
+        val mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        controller.setSystemBarsAppearance(if (light) mask else 0, mask)
     }
 }
