@@ -86,6 +86,13 @@ pub(crate) const AUTHORIZATIONHOST_REQUIREMENT: &str =
 - 如果最终用非特权变体，对端要求必须改成 SecurityAgent 的签名标识；
 - 如果要用特权变体，得先搞清楚它为什么不被调用。
 
+> **E7 已解（2026-09-09，见 [../validation/2026-09-09-e4-e7-followups.md](../validation/2026-09-09-e4-e7-followups.md)）**：
+> 特权变体**确实被调用**，以 **uid=0（root，authorizationhost）** 运行；此前「不被调用」是输入被饿死的
+> 作废实验造成的误判。于是二选一清晰了：
+> - **特权变体** → 对端是 authorizationhost（root），本文件里那个 `com.apple.authorizationhost` pin
+>   **本就正确**，consume socket 可 `0600 root`（root 客户端），最省事；
+> - **非特权变体** → 对端是 `uid=92 _securityagent`，pin 改成 SecurityAgent 标识，socket 需 `0660` + 受限组让 uid 92 连。
+
 **这两条路的安全性质不同**，值得单独决策而不是顺手选一个：特权变体以 root 运行，
 能读只有 root 可读的东西，但一旦出问题影响面更大；非特权变体权限更小，
 但守护进程必须接受一个非 root 对端的请求。
