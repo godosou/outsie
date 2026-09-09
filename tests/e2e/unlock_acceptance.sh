@@ -134,8 +134,11 @@ preflight() {
   # Only the real run needs to begin unlocked. A dry run never locks anything,
   # so refusing there would make the wiring check fail on a machine that simply
   # happens to be locked -- which is most machines nobody is sitting at.
-  if [ "$DRY_RUN" != "1" ] && is_locked; then
-    fail "screen is already locked; this test must start from an unlocked session"
+  if [ "$DRY_RUN" != "1" ]; then
+    is_locked; local pre_rc=$?
+    [ "$pre_rc" -le 1 ] || fail "the lock-state oracle is unreadable (exit ${pre_rc});
+      refusing to start rather than guessing the target's state"
+    [ "$pre_rc" != "0" ] || fail "screen is already locked; this test must start from an unlocked session"
   fi
 }
 

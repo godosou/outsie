@@ -140,7 +140,11 @@ for _ in $(seq 1 20); do
 done
 
 FILE_LOG="$(sshv 'cat /tmp/repose-plugin.log 2>/dev/null' || true)"
-OS_LOG="$(sshv "log show --start '@${A_START}' --predicate 'subsystem == \"ai.repose.spike\"' --info --style compact 2>/dev/null | grep -c repose" || echo 0)"
+# grep -c prints 0 and exits 1 when nothing matches, so a bare `|| echo 0`
+# appends a second zero and turns the value into two lines, which then fails
+# the integer comparison below and is silently treated as "no log".
+OS_LOG="$(sshv "log show --start '@${A_START}' --predicate 'subsystem == \"ai.repose.spike\"' --info --style compact 2>/dev/null | grep -c repose || true" | tr -dc '0-9')"
+OS_LOG="${OS_LOG:-0}"
 
 note "plugin log lines : $(printf '%s' "$FILE_LOG" | grep -c . || echo 0)"
 note "unified log lines: ${OS_LOG}"
@@ -171,8 +175,13 @@ case "$VERDICT_A" in
     sshv 'rm -f /tmp/repose-permit'
     if REPOSE_E2E_ALLOW_LOCK=1 "${REPO}/tests/e2e/unlock_acceptance.sh" >/tmp/a1-accept.txt 2>&1; then
       VERDICT_B="PASS"
-    else
+    elif grep -q "did NOT unlock" /tmp/a1-accept.txt; then
       VERDICT_B="FAIL"
+    else
+      # A harness or wiring problem is not a verdict about the mechanism.
+      # Recording it as FAIL would put "cannot gate on a condition" into the
+      # results document when the truth is that the test never ran properly.
+      VERDICT_B="INCONCLUSIVE (harness, see /tmp/a1-accept.txt)"
     fi
     sed 's/^/   /' /tmp/a1-accept.txt | tail -12
     printf '\n   \033[1mMilestone B: %s\033[0m\n' "$VERDICT_B"

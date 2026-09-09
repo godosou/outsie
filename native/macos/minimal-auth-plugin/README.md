@@ -32,8 +32,8 @@ Both mechanisms live in `ReposeSpike.bundle`; `install.sh` picks which one runs.
   screen, `authorizationhost` loaded and called the plugin. That is the answer
   we came for.
 - **Milestone B — file trigger** (`install.sh permit`, the default):
-  `MechanismInvoke` polls `/tmp/repose-permit` for up to 10s. Present →
-  `Allow` (unlock without the password). Absent after 10s → `Deny`, and the
+  `MechanismInvoke` polls `/tmp/repose-permit` for briefly (1.5s). Present →
+  `Allow` (unlock without the password). Absent briefly (1.5s) → `Deny`, and the
   system falls back to the normal password field. Every decision is logged.
 
 ## Build (safe on any Mac)
@@ -56,14 +56,14 @@ sudo ./uninstall.sh
 
 sudo ./install.sh            # milestone B: file-triggered (permit)
 touch /tmp/repose-permit     # lock screen -> unlocks within ~1s
-rm /tmp/repose-permit        # lock screen -> 10s wait -> password field
+rm /tmp/repose-permit        # lock screen -> 1.5s wait -> password field
 sudo ./uninstall.sh
 ```
 
 ### How it wires in (and how it backs out)
 
 `install.sh` mirrors the pattern that is already demonstrably accepted by
-`authorizationhost`: it creates a cdhash-pinned `evaluate-mechanisms` right
+`authorizationhost`: it creates a `evaluate-mechanisms` right
 `ai.repose.spike` holding the single mechanism, then prepends that right to
 `system.login.screensaver` and sets `k-of-n=1` so the spike runs first while the
 normal authentication path stays as a fallback. The full original
