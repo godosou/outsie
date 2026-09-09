@@ -57,6 +57,13 @@ TARGET="${REPOSE_TARGET:-this machine}"
 # removes the typing, not the waking.
 WAKE_CMD="${REPOSE_WAKE_CMD:-caffeinate -u -t 1}"
 
+# Optional precondition check. A screen-lock delay other than "immediate" means
+# locking only dims the display and the session is never actually locked, so
+# every assertion below would be about a machine that was never locked. The
+# failure is silent in the worst way: with a plugin installed you get a log line
+# proving the mechanism ran next to an oracle reading unlocked.
+LOCK_PRECHECK_CMD="${REPOSE_LOCK_PRECHECK_CMD:-}"
+
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
@@ -131,6 +138,19 @@ preflight() {
   "$LOCKSTATE" --raw >/dev/null 2>&1 || fail "lock-state oracle unreadable on this host"
   [ -n "$LEAVE_CMD" ] || fail "REPOSE_LEAVE_CMD is not set (see header for per-step values)"
   [ -n "$RETURN_CMD" ] || fail "REPOSE_RETURN_CMD is not set (see header for per-step values)"
+  if [ -n "$LOCK_PRECHECK_CMD" ]; then
+    local delay
+    delay="$(bash -c "$LOCK_PRECHECK_CMD" 2>&1 | tail -1)"
+    case "$delay" in
+      *immediate*) say "  screen lock   : immediate" ;;
+      *) fail "the target's screen-lock delay is not immediate:
+      ${delay}
+      Locking would only dim the display and leave the session unlocked, so
+      nothing this test measures would be real. Fix it on the target:
+        sysadminctl -screenLock immediate -password <pw>" ;;
+    esac
+  fi
+
   # Only the real run needs to begin unlocked. A dry run never locks anything,
   # so refusing there would make the wiring check fail on a machine that simply
   # happens to be locked -- which is most machines nobody is sitting at.
