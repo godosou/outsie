@@ -29,6 +29,9 @@ REPO="$(cd "${HERE}/../.." && pwd)"
 ANDROID="${REPO}/tools/ble-spike/android"
 MAC="${REPO}/tools/ble-spike/mac"
 DURATION="${1:-20}"
+
+# Root without a terminal: see the file for why.
+. "$(cd "${HERE}/../../tools/lib" && pwd)/run-root.sh"
 KEY_ID="${REPOSE_KEY_ID:-1}"
 KEY_FILE="${REPOSE_KEY_DIR:-/var/db/repose-unlock}/presence-key.${KEY_ID}"
 
@@ -59,12 +62,11 @@ echo
 
 # --- preflight: everything that would make a result meaningless ---------------
 
-sudo -n true 2>/dev/null || {
-  echo "  The verifier reads a root-only key file, so this test needs sudo."
-  echo "  Run 'sudo -v' first, then rerun."
-  void "no sudo credential cached"
-}
-sudo test -f "$KEY_FILE" || void "no presence key at ${KEY_FILE}; run tools/ble-spike/provision-dev-key.sh"
+# The key's ownership and mode are readable without root -- its directory is
+# traversable and only the file is 0600 -- so the precondition can be checked
+# before anything asks for a password.
+[ -e "$KEY_FILE" ] || void "no presence key at ${KEY_FILE}; run tools/ble-spike/provision-dev-key.sh"
+run_root_is_cached || echo "  (macOS will ask for your password once, after both captures)"
 
 for target in rssi-scan presence-verify; do
   src="${MAC}/${target}.swift"
@@ -90,9 +92,14 @@ note "verifier self-test passed"
 IMP_APK="${ANDROID}/app/build/outputs/apk/imposter/debug/app-imposter-debug.apk"
 [ -f "$IMP_APK" ] || void "build it first: (cd ${ANDROID} && ./gradlew assembleImposterDebug)"
 
-# --- one leg: run only the named package and see what the Mac makes of it -----
+# --- one leg: run only the named package, and record what the Mac hears --------
+#
+# Capture first, verify later. The verifier needs root, and every privileged call
+# may cost an authorization dialog; asking twice in the middle of a timed
+# measurement invites clicking through without reading. Both legs are captured
+# unprivileged, then judged in a single root call below.
 
-# $1 = package, $2 = label. Leaves the annotated CSV in ${WORK}/$2.csv
+# $1 = package, $2 = label. Leaves the raw scanner CSV in ${WORK}/$2.raw
 run_leg() {
   local pkg="$1" label="$2"
   adbs shell am force-stop "$GENUINE" >/dev/null 2>&1
@@ -100,43 +107,38 @@ run_leg() {
   sleep 2
   adbs shell am start -n "${pkg}/${ACTIVITY}" --ez autostart true >/dev/null 2>&1
   sleep 4
-
-  "${MAC}/rssi-scan" --duration "$DURATION" 2> "${WORK}/${label}.scan.log" \
-    | sudo "${MAC}/presence-verify" --key-dir "$(dirname "$KEY_FILE")" \
-        > "${WORK}/${label}.csv" 2> "${WORK}/${label}.verify.log"
+  "${MAC}/rssi-scan" --duration "$DURATION" > "${WORK}/${label}.raw" 2> "${WORK}/${label}.scan.log"
 }
 
-count() { grep -c ",$1\$" "${WORK}/${2}.csv" 2>/dev/null; true; }
-rows()  { [ -f "${WORK}/${1}.csv" ] && wc -l < "${WORK}/${1}.csv" | tr -d ' '; }
+count() { grep -c ",$1$" "${WORK}/${2}.csv" 2>/dev/null; true; }
+rows()  { [ -f "${WORK}/${1}.raw" ] && wc -l < "${WORK}/${1}.raw" | tr -d ' '; }
 
 # --- leg 1: the real phone must be accepted ----------------------------------
 
 echo "leg 1: the genuine app"
 run_leg "$GENUINE" genuine
-G_ROWS="$(rows genuine)"; G_VALID="$(count VALID genuine)"; G_INVALID="$(count INVALID genuine)"
-G_NOKEY="$(count NOKEY genuine)"
-note "rows=${G_ROWS} VALID=${G_VALID} INVALID=${G_INVALID} NOKEY=${G_NOKEY}"
-
-if [ "${G_ROWS:-0}" -eq 0 ]; then
-  void "the genuine phone never got on the air (0 advertisements seen). Open the app,
+G_ROWS="$(rows genuine)"
+note "advertisements heard: ${G_ROWS:-0}"
+[ "${G_ROWS:-0}" -gt 0 ] || void "the genuine phone never got on the air. Open the app,
         allow Bluetooth, and confirm the beacon is running."
-fi
-if [ "${G_NOKEY}" -gt 0 ]; then
-  sed -n '1,3p' "${WORK}/genuine.verify.log" >&2
-  void "the Mac holds no usable key for the keyId the phone is broadcasting"
-fi
-[ "${G_VALID}" -gt 0 ] \
-  && ok "the paired phone is accepted (${G_VALID} verified beacons)" \
-  || no "the paired phone is accepted" \
-        "0 of ${G_ROWS} beacons verified -- phone and Mac hold different keys, or their
-         clocks differ by more than a window"
 
 # --- leg 2: a device we never provisioned must not be -------------------------
 
 echo
 echo "leg 2: the imposter"
-adbs install -r -t "$IMP_APK" >/dev/null 2>&1 || void "could not install the imposter"
-note "imposter installed as ${IMPOSTER}"
+# Install only when it is not already there. On this OEM an adb install raises a
+# "继续安装" confirmation on the phone AND drops the app's runtime permissions,
+# both of which need a human with the handset. Reinstalling every run turned a
+# test into a chore, so a good install is kept between runs.
+if adbs shell pm list packages 2>/dev/null | grep -q "package:${IMPOSTER}"; then
+  note "imposter already installed"
+else
+  adbs install -r -t "$IMP_APK" >/dev/null 2>&1 || void "could not install the imposter.
+        This phone raises a 继续安装 confirmation for adb installs -- tap it, or run:
+          adb -s ${SERIAL} install -r -t ${IMP_APK}
+        and confirm on the handset, then rerun."
+  note "imposter installed as ${IMPOSTER}"
+fi
 
 # Runtime permissions cannot be granted over adb on this OEM build. Without them
 # the imposter never advertises, which is indistinguishable from an imposter that
@@ -154,13 +156,40 @@ if [ "$PERMS_OK" != "1" ]; then
 fi
 
 run_leg "$IMPOSTER" imposter
-I_ROWS="$(rows imposter)"; I_VALID="$(count VALID imposter)"; I_INVALID="$(count INVALID imposter)"
-note "rows=${I_ROWS} VALID=${I_VALID} INVALID=${I_INVALID}"
-
-if [ "${I_ROWS:-0}" -eq 0 ]; then
-  void "the imposter never got on the air (0 advertisements). Zero samples is not a
+I_ROWS="$(rows imposter)"
+note "advertisements heard: ${I_ROWS:-0}"
+[ "${I_ROWS:-0}" -gt 0 ] || void "the imposter never got on the air. Zero samples is not a
         pass: it means the attack was never attempted."
+
+# --- judge both captures, once, as root --------------------------------------
+
+echo
+echo "verifying both captures against ${KEY_FILE}"
+run_root "'${MAC}/presence-verify' --key-dir '$(dirname "$KEY_FILE")' \
+  < '${WORK}/genuine.raw'  > '${WORK}/genuine.csv'  2> '${WORK}/genuine.verify.log' ; \
+  '${MAC}/presence-verify' --key-dir '$(dirname "$KEY_FILE")' \
+  < '${WORK}/imposter.raw' > '${WORK}/imposter.csv' 2> '${WORK}/imposter.verify.log' ; \
+  chmod 644 '${WORK}/genuine.csv' '${WORK}/imposter.csv' '${WORK}/genuine.verify.log' \
+             '${WORK}/imposter.verify.log'" \
+  || void "the verifier could not be run as root (was the prompt cancelled?)"
+
+G_VALID="$(count VALID genuine)"; G_INVALID="$(count INVALID genuine)"; G_NOKEY="$(count NOKEY genuine)"
+I_VALID="$(count VALID imposter)"; I_INVALID="$(count INVALID imposter)"
+
+note "genuine : VALID=${G_VALID} INVALID=${G_INVALID} NOKEY=${G_NOKEY}"
+note "imposter: VALID=${I_VALID} INVALID=${I_INVALID}"
+
+if [ "${G_NOKEY}" -gt 0 ]; then
+  sed -n '1,3p' "${WORK}/genuine.verify.log" >&2
+  void "the Mac holds no usable key for the keyId the phone is broadcasting"
 fi
+
+[ "${G_VALID}" -gt 0 ] \
+  && ok "the paired phone is accepted (${G_VALID} verified beacons)" \
+  || no "the paired phone is accepted" \
+        "0 of ${G_ROWS} beacons verified -- phone and Mac hold different keys, or their
+         clocks differ by more than a window"
+
 [ "${I_VALID}" -eq 0 ] \
   && ok "an unprovisioned device is refused (${I_INVALID} beacons, none verified)" \
   || no "an unprovisioned device is refused" \
@@ -176,8 +205,11 @@ else
      "genuine VALID=${G_VALID} (want >0), imposter VALID=${I_VALID} (want 0)"
 fi
 
+# Stopped, not uninstalled: see the install block above. It advertises nothing
+# while force-stopped, and keeping it spares the next run two dialogs that only a
+# person holding the phone can dismiss.
 adbs shell am force-stop "$IMPOSTER" >/dev/null 2>&1
-adbs uninstall "$IMPOSTER" >/dev/null 2>&1 && note "imposter uninstalled"
+note "imposter stopped (left installed so the next run needs no taps)"
 adbs shell am start -n "${GENUINE}/${ACTIVITY}" --ez autostart true >/dev/null 2>&1
 
 echo

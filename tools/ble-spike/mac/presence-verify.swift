@@ -299,7 +299,25 @@ while let line = readLine(strippingNewline: true) {
         print("\(line),MALFORMED")
         continue
     }
-    let now = fixedNow ?? Int64(Date().timeIntervalSince1970)
+    // Judge each row against the moment it was HEARD, not the moment it is read.
+    //
+    // Using the wall clock made the verdict depend on how long a row sat in the
+    // pipe. That is invisible in the live pipeline, where rows arrive at once,
+    // and wrong everywhere else: the impersonation test captures both legs and
+    // then verifies, so its genuine beacons were 60-90s old by the time they
+    // were judged -- every one of them correctly minted, every one reported
+    // INVALID, because their windows really had passed. The question worth
+    // asking is whether the beacon was current when it reached the antenna, and
+    // the scanner already stamps exactly that.
+    //
+    // It costs no freshness. The stamp is written by our own scanner, never by
+    // the advertiser, and the permit's own staleness is the bridge's wall clock.
+    // A future stamp is refused rather than trusted, so a bad clock cannot mint
+    // validity.
+    let stamped = Int64(f[0]).map { $0 / 1000 }
+    let wall = Int64(Date().timeIntervalSince1970)
+    let heardAt = stamped.map { min($0, wall + windowSeconds) } ?? wall
+    let now = fixedNow ?? heardAt
     let auth: String
     if let keyId = UInt8(f[4]), let tag = hexDecode(f[5]) {
         auth = verify(keyId: keyId, tag: tag, now: now, keys: keys)
