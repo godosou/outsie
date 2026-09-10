@@ -11,8 +11,23 @@ import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Screen 1 — 配对确认. Shows the pairing code the Mac must echo. No real crypto tonight:
- * confirming just flips the local "paired" flag and drops the user onto the guarding home.
+ * Screen 1 — 配对确认.
+ *
+ * The intended flow: the Mac and the phone exchange a key, both show the same
+ * short code derived from it, and the user confirms they match. That is what
+ * defeats an impersonator, because a device that never paired cannot produce
+ * the key.
+ *
+ * NONE OF THAT IS IMPLEMENTED YET. Confirming flips a local flag. The code is
+ * generated on the phone and never leaves it, so the Mac cannot be showing the
+ * same one. See docs/validation/2026-09-09-e13-no-device-identity.md.
+ *
+ * The copy below used to describe the intended flow as though it were real --
+ * telling the user their device is identified by an exchanged key, and that the
+ * Mac was displaying this code. Both were false. A screen that makes a security
+ * claim its code does not implement is the same failure this project has spent
+ * days correcting in its own documents, except aimed at the user. The text now
+ * says what actually happens, and the banner says it first.
  */
 fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val pal = ReposeTheme.of(context)
@@ -23,8 +38,18 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
         title = "确认这是同一台设备",
     ) { column ->
         column.addView(
-            Ui.body(context, pal, "Mac 上现在应当显示下面这串。不一致就别继续。"),
+            Ui.amberNote(
+                context,
+                pal,
+                "开发预览：密钥交换尚未实现。这一步目前只是记下「已配对」，" +
+                    "不校验任何东西，也挡不住冒充设备。",
+            ),
             Ui.lp(top = context.dp(10)),
+        )
+
+        column.addView(
+            Ui.body(context, pal, "下面这串码由手机本机生成，Mac 还看不到它。"),
+            Ui.lp(top = context.dp(14)),
         )
 
         // The code — the single most important thing on the screen.
@@ -62,28 +87,34 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
             },
             Ui.lp(width = WRAP_CONTENT, right = context.dp(8)),
         )
-        statusRow.addView(Ui.secondary(context, pal, "已连上 MacBook Pro（工作）"), Ui.lp(width = WRAP_CONTENT))
+        // Seeded sample data, not a real connection. Labelled as such rather than
+        // left to read as a live status line.
+        statusRow.addView(
+            Ui.secondary(context, pal, "MacBook Pro（工作）· 示例数据"),
+            Ui.lp(width = WRAP_CONTENT),
+        )
         column.addView(statusRow, Ui.lp(top = context.dp(16)))
 
         column.addView(
             Ui.infoNote(
                 context,
                 pal,
-                "Repose 不用蓝牙地址认设备——地址每几分钟自己变一次。认的是配对时交换的那把钥匙。",
+                "设计目标：不用蓝牙地址认设备（地址每几分钟自己变一次），改用配对时交换的密钥。" +
+                    "目前尚未实现，所以在场判定还认不出「是不是这台手机」。",
             ),
             Ui.lp(top = context.dp(18)),
         )
 
         column.addView(
-            Ui.primaryButton(context, pal, "一致，完成配对") {
+            Ui.primaryButton(context, pal, "继续（不校验）") {
                 store.paired = true
                 nav.go(Screen.HOME)
             },
             Ui.lp(top = context.dp(24)),
         )
         column.addView(
-            Ui.ghostButton(context, pal, "不一致，取消") {
-                Toast.makeText(context, "已取消。两串不一致时，别完成配对。", Toast.LENGTH_LONG).show()
+            Ui.ghostButton(context, pal, "取消") {
+                Toast.makeText(context, "已取消。", Toast.LENGTH_LONG).show()
             },
             Ui.lp(top = context.dp(12)),
         )
