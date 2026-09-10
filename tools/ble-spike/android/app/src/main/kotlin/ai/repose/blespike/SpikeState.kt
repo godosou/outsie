@@ -18,11 +18,13 @@ object SpikeState {
 
     @Volatile var serviceRunning = false
     @Volatile var advertising = false
-    @Volatile var gattOpen = false
-    @Volatile var liveConnections = 0
-    @Volatile var totalConnections = 0
-    @Volatile var reads = 0
     @Volatile var startedAtUptime = 0L
+
+    /** True only when the tag is minted from a provisioned key. See [PresenceBeacon]. */
+    @Volatile var authentic = false
+    @Volatile var fingerprint: String? = null
+    @Volatile var beaconCounter = 0L
+    @Volatile var beaconsSent = 0
 
     @Synchronized fun addListener(listener: () -> Unit) { listeners += listener }
 
@@ -47,14 +49,13 @@ object SpikeState {
         return """
             service:      ${if (serviceRunning) "RUNNING" else "stopped"}
             advertising:  ${if (advertising) "YES" else "no"}
-            gatt server:  ${if (gattOpen) "open" else "closed"}
-            connections:  $liveConnections live / $totalConnections total
-            reads served: $reads
+            presence key: ${if (authentic) "provisioned ${fingerprint ?: "?"}" else "NONE — tag is worthless"}
+            window:       $beaconCounter ($beaconsSent beacons sent)
             uptime:       $uptime
 
-            service uuid: ${SpikeContract.SERVICE_UUID}
-            char uuid:    ${SpikeContract.CHARACTERISTIC_UUID}
-            payload:      "${SpikeContract.PAYLOAD}"
+            service uuid: ${SpikeContract.PRESENCE_SERVICE_UUID}  (16-bit FFF0)
+            payload:      version(1) ‖ keyId(1) ‖ HMAC tag(${SpikeContract.TAG_LEN})
+            window size:  ${SpikeContract.WINDOW_SECONDS}s
 
             --- events (newest first) ---
         """.trimIndent() + "\n" + log.joinToString("\n")

@@ -1,14 +1,35 @@
 #!/bin/bash
 #
-# B2: turn the BLE RSSI stream into the presence signal the unlock plugin reads.
+# B2: turn the verified BLE stream into the presence signal the unlock plugin reads.
 #
-# rssi-scan.swift only measures: it prints one CSV row per discovery
-# (unix_ms,rssi,peripheral_id_prefix) and decides nothing. This bridge is the
-# decision. It consumes that stream on stdin, applies near/far hysteresis so the
-# phone drifting a dBm around a threshold does not flap the lock, and while the
-# phone is "present" it REFRESHES the permit every few seconds. When the phone
-# leaves -- or the stream goes quiet, or this bridge dies -- the permit is
-# cleared / allowed to go stale, and the plugin falls back to the password.
+# The pipeline is three processes, each of which can only do one thing:
+#
+#   rssi-scan | sudo presence-verify | permit-bridge.sh
+#   measures    authenticates          decides
+#
+# rssi-scan holds no key and decides nothing. presence-verify holds the key and
+# has no radio. This bridge holds neither and makes the near/far call. It applies
+# hysteresis so the phone drifting a dBm around a threshold does not flap the
+# lock, and while the phone is "present" it REFRESHES the permit every few
+# seconds. When the phone leaves -- or the stream goes quiet, or this bridge dies
+# -- the permit is cleared / allowed to go stale, and the plugin falls back to
+# the password.
+#
+# BOTH GATES, NOT EITHER
+# ----------------------
+# A row counts as the phone only when auth=VALID *and* rssi >= NEAR. Before E13
+# was fixed there was no auth field at all: presence meant "some Android is
+# broadcasting a UUID published in this repository", so anyone could unlock this
+# Mac by walking past it with a copy of our app. RSSI was never a second factor
+# for that -- proximity is not identity, and an imposter standing next to the Mac
+# has excellent RSSI.
+#
+# There is deliberately no switch to turn the auth gate off. A safeguard with an
+# opt-out defaults to the state someone forgot to change, and this project has
+# already shipped three documents describing protections the code did not have.
+# Rows without a verdict field are treated as unverified and ignored, so pointing
+# this bridge at the raw scanner (no verifier in the pipe) yields no permits
+# rather than every permit.
 #
 # WHY REFRESH, NOT WRITE-ONCE
 # ---------------------------
@@ -60,8 +81,9 @@ is_dbm() { case "$1" in ''|*[!0-9-]*) return 1 ;; -[0-9]*|[0-9]*) return 0 ;; *)
 present=0
 last_sample=0
 last_refresh=0
+last_reject=""
 
-log "starting: near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
+log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
 
 # read -t returns >128 on timeout, non-zero on EOF. On EOF we stop; on timeout we
 # fall through to the staleness/refresh housekeeping with no new sample.
@@ -82,8 +104,21 @@ while :; do
     now="$(now_s)"
 
     if [ -n "${line}" ]; then
-        # CSV: unix_ms,rssi,id -- take field 2.
+        # CSV: unix_ms,rssi,peer,ver,key_id,tag,auth
         rssi="$(printf '%s' "${line}" | cut -d, -f2 | tr -d '[:space:]')"
+        auth="$(printf '%s' "${line}" | cut -d, -f7 | tr -d '[:space:]')"
+
+        # An unverified row is not a weak signal, it is a device we cannot name.
+        # It updates nothing -- not even last_sample -- so a stream of imposter
+        # beacons cannot hold a stale permit alive.
+        if [ "${auth}" != "VALID" ]; then
+            if [ -n "${auth}" ] && [ "${auth}" != "${last_reject}" ]; then
+                last_reject="${auth}"
+                log "ignoring ${auth} beacons (rssi=${rssi}) -- not the paired device"
+            fi
+            rssi=""
+        fi
+
         if is_dbm "${rssi}"; then
             last_sample="${now}"
             if [ "${rssi}" -ge "${NEAR_DBM}" ]; then

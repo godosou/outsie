@@ -1,6 +1,9 @@
 # Issue 0002 · Authenticated presence (only the paired phone can unlock)
 
-- **Status:** open · design done, prototype exists (unsafe, not wired), needs production implementation
+- **Status:** open · **beacon half built and wired (2026-09-10); not yet demonstrated on the
+  radio.** The pairing half is still not built — `K` currently arrives over a labelled USB
+  development channel, so this issue does not close. See
+  [验证记录](../validation/2026-09-10-authenticated-presence.md) for what is and is not proven.
 - **Priority:** HIGH (security) — a distribution gate
 - **Area:** Android (pairing + beacon) + Mac (verifier + bridge gate) + pairing key store
 - **Filed:** 2026-09-10
@@ -35,16 +38,27 @@ counts as "present" and can unlock the paired Mac — there is **no authenticati
 - **D3 (MEDIUM):** the Mac presence-key file must be verified `root:wheel 0600` before trust (R-P7),
   not read from any path.
 - Fix the Swift compile errors (`PresenceVerify` scope / `@main` in a top-level file).
-- Make the bridge auth-gate opt-in (`REPOSE_REQUIRE_AUTH`) until pairing+beacon are real, so the
-  working file-permit flow isn't broken in the meantime.
+  **Done** — the shipped verifier is `tools/ble-spike/mac/presence-verify.swift`, built and
+  self-tested against OpenSSL-generated vectors.
+
+**Withdrawn:** "make the bridge auth-gate opt-in (`REPOSE_REQUIRE_AUTH`) until pairing+beacon are
+real, so the working file-permit flow isn't broken in the meantime." Two things were wrong with
+it. The file-permit flow is a *different* presence source — the VM harness writes the permit over
+ssh and never goes through the bridge — so the gate breaks nothing. And a safeguard with an
+opt-out defaults to whichever state someone last forgot to set; on this project, that is exactly
+how three artifacts came to describe protections the code did not have. The gate is
+unconditional, and `permit-bridge-test.sh` asserts that no bypass variable exists.
 
 ## Residual (honest, by design)
 
 A real-time **relay** tunnels a genuine current beacon next to the Mac, defeating the short WINDOW
-and the RSSI gate. Software can't close it without a GATT challenge (blows the 3s budget) or hardware
-ranging (unavailable). The beacon is therefore a *proximity gate*, not proof of the phone — an actual
-unlock still requires the non-replayable identity challenge/response, and within-window replay is
-bounded by WINDOW + RSSI + the daemon's per-attempt consume (issue #? / gap #3, done).
+and the RSSI gate. Software can't close it without a GATT challenge (blows the 1.5s permit budget)
+or hardware ranging (unavailable).
+
+**Correction.** This used to end "an actual unlock still requires the non-replayable identity
+challenge/response." No such challenge/response exists in this pipeline. A verified beacon *is*
+what lets an empty password through, so a successful relay — or a replay inside its window —
+unlocks the Mac. WINDOW and RSSI are the only bounds; there is nothing behind them.
 
 ## Acceptance
 

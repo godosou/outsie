@@ -4,120 +4,131 @@ import android.content.Context
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Screen 1 — 配对确认.
+ * Screen 1 — 密钥状态.
  *
- * The intended flow: the Mac and the phone exchange a key, both show the same
- * short code derived from it, and the user confirms they match. That is what
- * defeats an impersonator, because a device that never paired cannot produce
- * the key.
+ * This screen used to show a locally-generated code and tell the user the Mac was
+ * displaying the same one and that a key identified this device. All of it was false:
+ * confirming set a boolean. It was rewritten once to say so plainly, and is rewritten
+ * again here now that a key actually exists.
  *
- * NONE OF THAT IS IMPLEMENTED YET. Confirming flips a local flag. The code is
- * generated on the phone and never leaves it, so the Mac cannot be showing the
- * same one. See docs/validation/2026-09-09-e13-no-device-identity.md.
+ * What it shows now is checkable. The fingerprint is a hash of the real presence key
+ * `K` held in the Keystore; the Mac's provisioning tool prints the same eight
+ * characters for the same key. Matching them is a genuine (if manual) confirmation
+ * that both ends hold one key. Not matching means the phone is broadcasting tags this
+ * Mac will reject.
  *
- * The copy below used to describe the intended flow as though it were real --
- * telling the user their device is identified by an exchanged key, and that the
- * Mac was displaying this code. Both were false. A screen that makes a security
- * claim its code does not implement is the same failure this project has spent
- * days correcting in its own documents, except aimed at the user. The text now
- * says what actually happens, and the banner says it first.
+ * What it still is NOT: pairing. `K` arrives over a USB development channel, which
+ * assumes whoever holds the cable is the owner. The MITM-resistant SAS exchange in
+ * the design (§1) is not built. The banner says which of the two you are looking at,
+ * because the distance between "a key exists" and "the key was established safely" is
+ * exactly where this project's earlier claims went wrong.
  */
 fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val pal = ReposeTheme.of(context)
+    val provisioned = PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)
+    val fingerprint = PresenceKey.fingerprint(context)
 
     val root = screenScaffold(
         context = context,
         pal = pal,
-        title = "确认这是同一台设备",
+        title = if (provisioned) "这台手机已有在场密钥" else "这台手机还没有在场密钥",
     ) { column ->
         column.addView(
             Ui.amberNote(
                 context,
                 pal,
-                "开发预览：密钥交换尚未实现。这一步目前只是记下「已配对」，" +
-                    "不校验任何东西，也挡不住冒充设备。",
+                "开发预览：密钥通过 USB 直接写入，等于默认「拿着线的人就是机主」。" +
+                    "带防中间人校验的正式配对（两端比对 6 位数字）尚未实现。",
             ),
             Ui.lp(top = context.dp(10)),
         )
 
-        column.addView(
-            Ui.body(context, pal, "下面这串码由手机本机生成，Mac 还看不到它。"),
-            Ui.lp(top = context.dp(14)),
-        )
+        if (provisioned) {
+            column.addView(
+                Ui.body(context, pal, "把下面这串和 Mac 上 provision-dev-key.sh 打印的对一下。不一致就说明不是同一把钥匙。"),
+                Ui.lp(top = context.dp(14)),
+            )
 
-        // The code — the single most important thing on the screen.
-        val codeCard = Ui.card(context, pal).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
+            val codeCard = Ui.card(context, pal).apply { gravity = Gravity.CENTER_HORIZONTAL }
+            codeCard.addView(
+                Ui.secondary(context, pal, "密钥指纹").apply { gravity = Gravity.CENTER },
+                Ui.lp(width = WRAP_CONTENT),
+            )
+            codeCard.addView(
+                TextView(context).apply {
+                    text = fingerprint ?: "????????"
+                    setTextColor(pal.accent)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 38f)
+                    typeface = Typeface.create("monospace", Typeface.BOLD)
+                    gravity = Gravity.CENTER
+                    letterSpacing = 0.24f
+                    maxLines = 1
+                },
+                Ui.lp(width = WRAP_CONTENT, top = context.dp(8)),
+            )
+            column.addView(codeCard, Ui.lp(top = context.dp(18)))
+
+            column.addView(
+                Ui.infoNote(
+                    context,
+                    pal,
+                    "指纹是 K 的哈希，不是 K 的一部分——它可以给别人看，密钥本身不可导出，" +
+                        "只能在安全芯片里参与签名。",
+                ),
+                Ui.lp(top = context.dp(18)),
+            )
+
+            column.addView(
+                Ui.primaryButton(context, pal, "继续") {
+                    store.paired = true
+                    nav.go(Screen.HOME)
+                },
+                Ui.lp(top = context.dp(24)),
+            )
+            column.addView(
+                Ui.ghostButton(context, pal, "删除这把密钥") {
+                    PresenceKey.delete(context, SpikeContract.PRESENCE_KEY_ID)
+                    store.paired = false
+                    Toast.makeText(context, "已删除。信标将开始广播无效标签。", Toast.LENGTH_LONG).show()
+                    nav.go(Screen.PAIRING)
+                },
+                Ui.lp(top = context.dp(12)),
+            )
+        } else {
+            column.addView(
+                Ui.body(
+                    context,
+                    pal,
+                    "现在信标照常广播，但标签是用一把随机数临时凑出来的——Mac 会看见这台手机，" +
+                        "然后拒绝它。这就是没有密钥时应有的样子。",
+                ),
+                Ui.lp(top = context.dp(14)),
+            )
+            column.addView(
+                Ui.infoNote(
+                    context,
+                    pal,
+                    "在 Mac 上执行：\n" +
+                        "tools/ble-spike/provision-dev-key.sh\n\n" +
+                        "它会生成一把 K，写进 Mac 的 root 专有文件，推送到这台手机，" +
+                        "然后重启信标。完成后回到这个界面会看到指纹。",
+                ),
+                Ui.lp(top = context.dp(18)),
+            )
+            column.addView(
+                Ui.primaryButton(context, pal, "重新检查") { nav.go(Screen.PAIRING) },
+                Ui.lp(top = context.dp(24)),
+            )
+            column.addView(
+                Ui.ghostButton(context, pal, "先跳过") { nav.go(Screen.HOME) },
+                Ui.lp(top = context.dp(12)),
+            )
         }
-        codeCard.addView(
-            Ui.secondary(context, pal, "配对码").apply { gravity = Gravity.CENTER },
-            Ui.lp(width = WRAP_CONTENT),
-        )
-        codeCard.addView(
-            TextView(context).apply {
-                text = store.pairingCode
-                setTextColor(pal.accent)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 38f)
-                typeface = Typeface.create("monospace", Typeface.BOLD)
-                gravity = Gravity.CENTER
-                letterSpacing = 0.28f
-                maxLines = 1
-            },
-            Ui.lp(width = WRAP_CONTENT, top = context.dp(8)),
-        )
-        column.addView(codeCard, Ui.lp(top = context.dp(18)))
-
-        // Connection status line.
-        val statusRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        statusRow.addView(
-            TextView(context).apply {
-                text = "●"
-                setTextColor(pal.accent)
-                textSize = 12f
-            },
-            Ui.lp(width = WRAP_CONTENT, right = context.dp(8)),
-        )
-        // Seeded sample data, not a real connection. Labelled as such rather than
-        // left to read as a live status line.
-        statusRow.addView(
-            Ui.secondary(context, pal, "MacBook Pro（工作）· 示例数据"),
-            Ui.lp(width = WRAP_CONTENT),
-        )
-        column.addView(statusRow, Ui.lp(top = context.dp(16)))
-
-        column.addView(
-            Ui.infoNote(
-                context,
-                pal,
-                "设计目标：不用蓝牙地址认设备（地址每几分钟自己变一次），改用配对时交换的密钥。" +
-                    "目前尚未实现，所以在场判定还认不出「是不是这台手机」。",
-            ),
-            Ui.lp(top = context.dp(18)),
-        )
-
-        column.addView(
-            Ui.primaryButton(context, pal, "继续（不校验）") {
-                store.paired = true
-                nav.go(Screen.HOME)
-            },
-            Ui.lp(top = context.dp(24)),
-        )
-        column.addView(
-            Ui.ghostButton(context, pal, "取消") {
-                Toast.makeText(context, "已取消。", Toast.LENGTH_LONG).show()
-            },
-            Ui.lp(top = context.dp(12)),
-        )
     }
 
     return ScreenView(root)

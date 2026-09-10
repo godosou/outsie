@@ -43,11 +43,23 @@ run "acceptance test wiring (dry run)" env \
     REPOSE_LEAVE_CMD='true' REPOSE_RETURN_CMD='true' \
     tests/e2e/unlock_acceptance.sh --dry-run
 
+# Authenticated presence. The beacon verifier's arithmetic is checked against
+# OpenSSL-generated vectors, and the bridge's auth gate in a sandbox. Neither
+# needs a radio. What neither can check is whether the phone builds the same
+# pre-image byte for byte -- only the impersonation test, with the real phone,
+# does that.
+run "presence beacon verifier (known-answer vectors)" \
+    tools/ble-spike/mac/presence-verify --self-test
+run "presence verifier behaviour" tools/ble-spike/mac/presence-verify-test.sh
+run "permit bridge auth + proximity gates" tools/ble-spike/mac/permit-bridge-test.sh
+
 if [ "$ALL" = "1" ]; then
   run "mac BLE scanner compiles" \
-      swiftc -O tools/ble-spike/mac/rssi-scan.swift -o /tmp/rssi-scan-check
-  run "android BLE peripheral builds" \
-      env -C tools/ble-spike/android ./gradlew --no-daemon -q assembleDebug
+      swiftc -O tools/ble-spike/mac/rssi-scan.swift -o /tmp/rssi-scan-check \
+      -framework CoreBluetooth
+  run "android app builds (both flavours)" \
+      env -C tools/ble-spike/android ./gradlew --no-daemon -q \
+      assembleGenuineDebug assembleImposterDebug
 else
   printf '\nskipped: Swift and Android builds (pass --all to include them)\n'
 fi
@@ -60,6 +72,9 @@ if [ ${#FAILED[@]} -eq 0 ]; then
   echo "  - does macOS load an ad-hoc signed Authorization Plugin   (needs the VM)"
   echo "  - does the phone keep advertising in Doze                 (needs the phone)"
   echo "  - has any real screen ever been unlocked by this          (needs both)"
+  echo "  - do the phone and the Mac agree on the beacon pre-image, and is an"
+  echo "    unprovisioned device actually refused on the air        (needs the phone:"
+  echo "      sudo -v && tests/e2e/impersonation_test.sh)"
   exit 0
 fi
 printf 'failed: %s\n' "${FAILED[*]}"

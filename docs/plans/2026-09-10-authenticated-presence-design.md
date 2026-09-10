@@ -352,11 +352,17 @@ pretend to solve it. What **bounds** it:
   grant unbounded unlocks — it grants presence for one short window, still subject to the full
   identity-key unlock challenge/response for an actual unlock.
 
-Note the layering: a valid beacon proves **proximity of the paired device**, which gates the
-permit; it is **not** itself an unlock authorization. A full unlock still runs codex
-`repose-unlock-v1` (P-256 challenge/response with Mac-chosen nonce + monotonic replay counter),
-which is *not* replayable. So the replay window buys an attacker "the Mac believes my phone is
-nearby for ≤ 60 s," not "the Mac is unlocked."
+**Correction (2026-09-10).** This paragraph used to read: a valid beacon is only a proximity
+gate, a full unlock still runs codex `repose-unlock-v1`, so the replay window buys "the Mac
+believes my phone is nearby," not "the Mac is unlocked." That is false. `repose-unlock-v1` is
+not implemented and is not in this pipeline; the permit a verified beacon writes is *exactly*
+what lets an empty password through. A replayed beacon inside its window buys an unlock.
+
+So the window length is the whole of the replay defence, which is why §4.1 shortens it rather
+than leaning on a second factor. This is the fourth place on this project where a weaker
+decision was justified by a safeguard that does not exist — the same error the pairing screen
+and §5 made — and it is written out here rather than quietly deleted because the pattern is
+more dangerous than any one instance of it.
 
 ### 4.2 Relay (§9.3)
 
@@ -464,10 +470,9 @@ is the trust anchor.
 **A real-time relay** (§4.2) is the one adversary this design does **not** stop: colluding
 radios tunnel the genuine, current advertisement next to the Mac, defeating both the WINDOW and
 the RSSI gate. Software cannot close this without a challenge (budget-forbidden) or hardware
-ranging (unavailable). This is the acknowledged residual, consistent with §9.3 — and the reason
-a valid beacon is only a *proximity gate*, with the actual unlock still gated by the
-non-relayable identity challenge/response.
+ranging (unavailable). This is the acknowledged residual, consistent with §9.3. Nothing behind
+the beacon catches it: a successful relay unlocks the Mac.
 
-**What no attacker gets from any of the above:** `K`, `IK_P`'s private key (hardware-bound,
-non-exportable), or the ability to unlock without also passing the codex `repose-unlock-v1`
-identity challenge/response.
+**What no attacker gets from any of the above:** `K` itself, or `IK_P`'s private key — both
+hardware-bound and non-exportable. Everything else an attacker might want is bounded by the
+window and the RSSI gate, and by nothing else. There is no second factor on this path.

@@ -41,11 +41,16 @@ def main():
             if not line or line.startswith("#"):
                 continue
             parts = line.split(",")
-            if len(parts) != 3:
+            # 3 fields is the pre-authentication format; 6 adds the beacon payload
+            # and 7 the verifier's verdict. Accepting all three keeps the older
+            # captures in docs/validation readable, which matters because their
+            # numbers are cited as measured facts elsewhere.
+            if len(parts) not in (3, 6, 7):
                 bad += 1
                 continue
             try:
-                rows.append((int(parts[0]), int(parts[1]), parts[2]))
+                rows.append((int(parts[0]), int(parts[1]), parts[2],
+                             parts[6] if len(parts) == 7 else None))
             except ValueError:
                 bad += 1
 
@@ -64,8 +69,12 @@ def main():
     deltas = sorted(b[0] - a[0] for a, b in zip(rows, rows[1:]))
     rssis = sorted(r[1] for r in rows)
     peers = {}
-    for _, _, pid in rows:
+    for _, _, pid, _ in rows:
         peers[pid] = peers.get(pid, 0) + 1
+    verdicts = {}
+    for _, _, _, auth in rows:
+        if auth is not None:
+            verdicts[auth] = verdicts.get(auth, 0) + 1
 
     def ts(ms):
         return datetime.fromtimestamp(ms / 1000, timezone.utc).astimezone().isoformat(
@@ -119,21 +128,44 @@ def main():
               + "#" * max(1, int(40 * n / len(rssis))))
     print()
 
-    print("peripherals")
-    for pid, n in sorted(peers.items(), key=lambda kv: -kv[1]):
-        print(f"  {pid}     {n}")
+    if verdicts:
+        print("authentication")
+        for v, n in sorted(verdicts.items(), key=lambda kv: -kv[1]):
+            print(f"  {v:<10}   {n:6d}  ({100.0 * n / len(rows):.1f}%)")
+        if not verdicts.get("VALID"):
+            print("  ^^ nothing verified. Either no key is provisioned on this Mac, or the")
+            print("     phone and the Mac disagree about the beacon pre-image. Both look")
+            print("     identical to a phone that is out of range.")
+        print()
+    else:
+        print("authentication   not measured (no verdict column: the verifier was not")
+        print("                 in the pipeline, so these samples say a device was near,")
+        print("                 not that it was YOUR device)")
+        print()
 
-    # Android rotates its BLE private address roughly every 15 minutes, so one
-    # phone can surface as several peripheral ids. The aggregate gaps above are
-    # computed across every id at once, which lets one advertiser's samples fill
-    # another's silence -- exactly the direction that makes a dying advertiser
-    # look healthy. Break it down whenever there is more than one.
+    print("peripherals")
+    for pid, n in sorted(peers.items(), key=lambda kv: -kv[1])[:10]:
+        print(f"  {pid}     {n}")
+    if len(peers) > 10:
+        print(f"  ... and {len(peers) - 10} more")
+
+    # Android rotates its BLE private address roughly every 15 minutes, and the
+    # beacon restarts advertising every WINDOW to re-mint its tag, which draws a
+    # fresh address too. So many ids is now normal and says nothing about identity
+    # -- identity is the key. What it still distorts is the gap arithmetic: the
+    # aggregate is computed across every id at once, letting one advertiser's
+    # samples fill another's silence, which is the direction that makes a dying
+    # advertiser look healthy.
     if len(peers) > 1:
         print()
-        print("  WARNING: more than one peripheral matched this service UUID, so the")
+        print("  NOTE: several peripheral ids, which is expected (address rotation +")
+        print("  a re-mint every 30s). It does NOT mean several devices. But the")
         print("  aggregate gap numbers above UNDERSTATE how long any single advertiser")
         print("  was silent. Per-peripheral:")
-        for pid, _ in sorted(peers.items(), key=lambda kv: -kv[1]):
+        # Capped: with a re-mint every 30s an overnight run produces hundreds of
+        # short-lived ids, and printing all of them buries the numbers that matter.
+        # A per-id span near 30s is the beacon working as designed, not a gap.
+        for pid, _ in sorted(peers.items(), key=lambda kv: -kv[1])[:10]:
             prows = [r for r in rows if r[2] == pid]
             if len(prows) < 2:
                 print(f"    {pid}  single sample at {ts(prows[0][0])}")

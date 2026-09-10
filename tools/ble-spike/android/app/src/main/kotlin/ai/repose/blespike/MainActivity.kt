@@ -70,6 +70,21 @@ class MainActivity : Activity(), Nav {
         SpikeState.addListener(onStateChanged)
 
         go(if (store.paired) Screen.HOME else Screen.PAIRING)
+
+        // A test seam, not a feature: `am start ... --ez autostart true` begins
+        // advertising without a human finding a toggle. The impersonation test has to
+        // drive both this app and its imposter twin identically, and locating a button
+        // by its on-screen label made the test depend on the wording of a UI that is
+        // still being redesigned -- a relabelled control would have looked exactly like
+        // a device that was correctly refused.
+        //
+        // It grants nothing new: MainActivity is the launcher activity, so anything
+        // that can send this could already tap the toggle. Permissions are still asked
+        // for the same way, so a first run still needs a human.
+        if (intent?.getBooleanExtra("autostart", false) == true) {
+            SpikeState.event("autostart requested (test seam)")
+            requestPermissionsThenStart()
+        }
     }
 
     override fun onDestroy() {

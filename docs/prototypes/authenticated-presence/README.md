@@ -1,4 +1,12 @@
-# Authenticated-presence prototype — UNSAFE, NOT WIRED
+# Authenticated-presence prototype — SUPERSEDED for the beacon, still unsafe for pairing
+
+> **2026-09-10.** The *beacon* half of this prototype has been reimplemented and wired into
+> the app and the Mac pipeline: `PresenceKey.kt`, `PresenceBeacon.kt`, `presence-verify.swift`.
+> Use those, not the copies here. The *pairing* half (`ReposePairing.kt`, `PairingCrypto.kt`,
+> `ReposeIdentityKey.kt`) is still unwired and still carries defect D1 below.
+>
+> Two of this README's recommendations were followed and one was rejected — see the end.
+
 
 These files are a **prototype** of deferred security item #1 (authenticated presence:
 only the *paired* phone counts as "present", so a random Android broadcasting the public
@@ -29,13 +37,24 @@ Tracking + full defect list: [docs/issues/0002-authenticated-presence.md](../../
   be completed arbitrarily later.
 - **D3 (MEDIUM): the Mac presence-key file is trusted without checking `root:wheel 0600` ownership.**
 - Swift compile errors (`PresenceVerify` not in scope / `@main` in a top-level file) were present.
-- Wiring the Mac verifier's auth-gate into `permit-bridge.sh` (count only `auth=VALID`) is correct in
-  principle but **breaks the working file-permit flow until real pairing+beacon exist** — so the
-  gate must be opt-in (e.g. `REPOSE_REQUIRE_AUTH`) until crypto is production-ready.
+- ~~Wiring the Mac verifier's auth-gate into `permit-bridge.sh` (count only `auth=VALID`) is correct
+  in principle but **breaks the working file-permit flow until real pairing+beacon exist** — so the
+  gate must be opt-in (e.g. `REPOSE_REQUIRE_AUTH`) until crypto is production-ready.~~
+  **Rejected, 2026-09-10.** The premise was wrong: the file-permit flow is a different presence
+  source (the VM harness writes the permit over ssh, never through the bridge), so the gate broke
+  nothing. And an opt-in safeguard defaults to whatever nobody set. The gate is unconditional.
+
+## What was followed
+D2 and D3 are both closed in the shipped code: the verifier refuses a key file that is not
+`root:wheel 0600` rather than using it (D3), and there is no TTL-free QR path because there is no
+QR path at all yet (D2 — `K` arrives over a labelled USB channel that claims no MITM resistance).
+D1 stands: real pairing is still unbuilt, which is why issue 0002 remains open.
 
 ## What IS sound (kept for the eventual real implementation)
 The **design** (SAS-guarded ECDH → HKDF → non-exportable HMAC key; a truncated rotating HMAC beacon
-in the advertisement's service-data verified without a GATT connection; fail-closed bridge) is sound
-and honest about the residual: a real-time **relay** defeats the WINDOW + RSSI gate and can only be
-closed with a GATT challenge (too slow) or hardware ranging — so the beacon is a *proximity gate*,
-not proof of the phone; an actual unlock still needs the non-replayable identity challenge/response.
+in the advertisement's service-data verified without a GATT connection; fail-closed bridge) is sound.
+
+**Correction.** This paragraph used to end: the beacon is a proximity gate, "an actual unlock still
+needs the non-replayable identity challenge/response." There is no such challenge/response in this
+pipeline — a verified beacon is precisely what lets an empty password through. A real-time relay,
+or a replay inside the 30s window, therefore unlocks the Mac. WINDOW and RSSI are the only bounds.

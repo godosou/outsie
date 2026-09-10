@@ -19,14 +19,42 @@
 
 ## 两端契约
 
+> **2026-09-10 起，下面这张旧表已作废。** 那两个常量公开印在本仓库里，所以它们
+> 谁也认不出来 —— 任何设备广播同一个 UUID 都会被当成「你的手机」（[E13](../../docs/validation/2026-09-09-e13-no-device-identity.md)）。
+> GATT 服务端已删除，connect→read 那条路径已从判定中移除。
+
 | | 值 |
 |---|---|
-| Service UUID | `7265706F-7365-0001-8000-00805F9B34FB` |
-| Characteristic UUID | `7265706F-7365-0002-8000-00805F9B34FB` |
-| 特征值内容 | ASCII `repose-hello`（只读，无 notify） |
+| Service UUID | `0000FFF0-…`（16-bit **FFF0**） |
+| Service Data | `version(1) ‖ keyId(1) ‖ HMAC-SHA256(K, msg)[0..8)` |
+| pre-image | `"repose-presence-v1 beacon" ‖ keyId(1) ‖ counter(8, 大端)` |
+| counter | `floor(unix_seconds / 30)`，**不上天线**，两端各自从时钟算 |
+| 可连接性 | 否（`setConnectable(false)`） |
 
-改任何一端都必须同步改另一端。Mac 侧的 payload 是字面量，改了 Kotlin 不会编译报错，
-只会在 stderr 打印 `MISMATCH` 然后继续跑。
+改任何一端都必须同步改另一端，而且这次改错**不会有任何报错**：pre-image 不一致的
+症状是标签永远验不过，看起来和手机不在范围内完全一样。所以两端各自与 OpenSSL 对答案
+（`presence-verify --self-test`、`presence-vectors.sh`），彼此之间靠
+`tests/e2e/impersonation_test.sh` 在真机上对。
+
+旧的 128-bit UUID 与 `repose-hello` 只保留在 `SpikeContract` 里作历史记录，不参与判定。
+
+## 管线
+
+```
+rssi-scan  |  sudo presence-verify  |  permit-bridge.sh
+只测量         只认证                   只判远近
+无密钥         无无线电                 两者都无
+```
+
+拿着密钥的进程不碰无线电，碰无线电的进程没有密钥可泄。
+
+下发一把开发密钥（**不是配对**，没有防中间人，见脚本头部说明）：
+
+```bash
+tools/ble-spike/provision-dev-key.sh          # 两端各自显示同一个指纹
+tools/ble-spike/provision-dev-key.sh --show
+tools/ble-spike/provision-dev-key.sh --revoke
+```
 
 ## 手机端
 
@@ -68,19 +96,24 @@ CSV 里会出现几小时的空白，看起来和「手机不广播了」一模�
 首次运行会弹 macOS 蓝牙权限，授权的是**父终端应用**（Terminal / iTerm），不是这个二进制。
 每换一个终端都要重新授权一次；一旦点过拒绝就不再弹，程序直接 `exit(2)`。
 
-CSV 格式：`unix_ms,rssi,peripheral_id_prefix`，无表头。
+CSV 格式：`unix_ms,rssi,peripheral_id_prefix,version,key_id,tag_hex`，无表头。
+经 `presence-verify` 后追加一列 `auth`（`VALID` / `INVALID` / `NOKEY` / `MALFORMED`）。
+没有载荷的广播也照样输出（后三列为 `-`）—— 「看见了但用不了」是信息，不是该丢掉的行。
 
 ## 分级验证，不许跳级
 
 | 级别 | 内容 | 通过判据 |
 |---|---|---|
-| **B-1** | 桌面明屏 5 分钟，相距 1 米 | Mac 读到 `repose-hello` **之后 CSV 仍持续出行**；`gaps > 10s` 为 0；`peripherals` 只有一个 id |
+| **B-1** | 桌面明屏 5 分钟，相距 1 米 | CSV 持续出行且 `auth=VALID`；`gaps > 10s` 为 0 |
 | **B-2** | 锁屏 10 分钟，**不插 USB** | 区分「一锁屏就停」和「进深度 Doze 才停」 |
 | **B-3** | 整夜 8 小时 | 只有 B-1、B-2 都干净才开始 |
 
-B-1 那条「读完之后 CSV 仍在出行」是专门用来验证一个已修复的 bug：Android 的广播实例在
-建立连接后会自动停止，如果断连后不重启广播，手机就会在 Mac 读完的那一刻永久闭嘴，
-整夜数据全空 —— 而我们会把它误读成「realme 掐了蓝牙」。
+旧版这里有一条「`peripherals` 只有一个 id」的判据，现在**必须删掉**：地址每几分钟自己
+轮换一次，而且每 30 秒重算标签时会停止再启动广播，也会换一个地址。所以一次整夜观测里
+出现几百个 id 是正常的。身份是密钥，不是地址 —— 把地址当身份正是 E13 的成因之一。
+
+同样作废的是「读完之后 CSV 仍在出行」：那条判据针对的是「建立连接后广播自动停止」这个
+坑，而现在的信标不可连接，没有连接可建。
 
 ## 观测期间的硬性要求
 
