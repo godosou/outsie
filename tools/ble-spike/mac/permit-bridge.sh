@@ -51,6 +51,28 @@
 # synthetic RSSI, so all of the hysteresis/staleness logic is checked with no
 # radio and no VM.
 #
+# WHY 12, AND WHY 8 WAS WRONG
+# ---------------------------
+# STALE_S was 8. A 5-minute capture with the phone sitting still 1m away
+# (2026-09-10, 342 samples) measured the interval between advertisements as
+# p50 0.13s, p90 2.99s, p99 6.67s, max 8.98s -- and TWO gaps at or over 8s.
+# So at 8s the bridge would decide the phone had left roughly every 2.5
+# minutes while it lay motionless on the desk, and the screen would ask for a
+# password with the phone right there.
+#
+# That silence is not the phone. CoreBluetooth delivers discoveries in bursts
+# and then goes quiet for seconds; p50 of 0.13s next to a max of 9s is a duty
+# cycle, not a fading signal. A threshold underneath that noise floor cannot
+# tell "gone" from "between bursts", so it produces only false alarms.
+#
+# Raising it costs nothing in security, because STALE_S is NOT the bound on how
+# long a departed phone stays "present". The plugin's PERMIT_FRESHNESS_S (15s)
+# is: the permit ages out on its own once this bridge stops refreshing it,
+# whether or not the bridge ever notices. STALE_S only makes the withdrawal
+# earlier than that. So the useful range is (observed max gap, freshness), and
+# permit-bridge-test.sh asserts the default stays inside it -- reading the 15
+# out of plugin.c, so changing that value there fails a test here.
+#
 # CALIBRATION IS NOT DONE (that is B3). The thresholds below are conservative
 # placeholders tied to the spike's MEDIUM tx power (rssi at ~1 m measured -84..-77
 # dBm). Do not ship these numbers; they exist so the mechanism can be exercised.
@@ -59,7 +81,9 @@ set -uo pipefail
 
 NEAR_DBM="${REPOSE_NEAR_DBM:--72}"     # >= this: near enough to count as present
 FAR_DBM="${REPOSE_FAR_DBM:--85}"       # <= this: far enough to count as gone
-STALE_S="${REPOSE_STALE_S:-8}"         # no sample for this long -> treat as gone
+STALE_S="${REPOSE_STALE_S:-12}"        # no sample for this long -> treat as gone
+                                       # (see "WHY 12" below; it was 8, which was
+                                       # under the radio's own noise floor)
 REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while present
                                        # (must be < plugin's PERMIT_FRESHNESS_S=15)
 
