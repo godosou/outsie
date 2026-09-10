@@ -106,9 +106,42 @@ repose_vm_check() {
   eval "${REPOSE_SSH} 'sudo -n true'" >/dev/null 2>&1 \
     && echo "yes" \
     || echo "NO -- REPOSE_LOCK_CMD needs it; see FIRST-BOOT.md"
+  printf 'gui session '
+  if repose_vm_gui_ready >/dev/null 2>&1; then
+    echo "logged in (console uid $(eval "${REPOSE_CONSOLE_UID_CMD}" 2>/dev/null | tr -d '[:space:]'))"
+  else
+    echo "NOBODY LOGGED IN -- that screen is the boot login window, which does not"
+    echo "               use the screensaver right; the mechanism will never run there"
+  fi
   printf 'guest os    '
   eval "${REPOSE_SSH} 'sw_vers -productVersion; sw_vers -buildVersion'" 2>&1 | tr '\n' ' '
   echo
+}
+
+# Is anyone actually logged into the guest's GUI?
+#
+# This cost several rounds of wrong diagnosis. A freshly booted VM sits at the
+# BOOT LOGIN WINDOW, which evaluates `system.login.console`. Our mechanism is
+# installed on `system.login.screensaver`, so it is never consulted there -- the
+# plugin log stays empty, the screen stays locked, and every symptom reads as
+# "macOS refused to load the plugin". Nothing was wrong with the plugin; the test
+# was knocking on a different door.
+#
+# The two screens look nearly identical, which is what makes it expensive. This
+# tells them apart: with nobody logged in, /dev/console belongs to root.
+export REPOSE_CONSOLE_UID_CMD="${REPOSE_SSH} 'stat -f %u /dev/console'"
+
+repose_vm_gui_ready() {
+  local uid
+  uid="$(eval "${REPOSE_CONSOLE_UID_CMD}" 2>/dev/null | tr -d '[:space:]')"
+  if [ "${uid}" = "0" ] || [ -z "${uid}" ]; then
+    echo "vm-env: nobody is logged into ${VM}'s GUI (console uid=${uid:-unreadable})." >&2
+    echo "  That screen is the BOOT LOGIN WINDOW, which uses system.login.console --" >&2
+    echo "  a different right from the system.login.screensaver our mechanism is on." >&2
+    echo "  Testing there measures nothing: log in first, then lock the screen." >&2
+    return 1
+  fi
+  return 0
 }
 
 repose_vm_close() {
