@@ -24,16 +24,25 @@
 # TWO TIERS, BY PRIVILEGE
 # -----------------------
 # Tier U (unprivileged) always runs: the client fail-closed / bounded matrix,
-# and the daemon's own fail-closed startup guard (it must refuse to run non-root).
+# and the daemon's own fail-closed startup guard (it must refuse to run non-root
+# by default, i.e. with the test seam OFF).
 #
-# Tier R (the daemon's serve path) needs root and runs ONLY when this script is
-# itself run as root (e.g. `sudo ./permit_daemon_test.sh` on a disposable Mac).
+# Tier R (the daemon's serve path -- present->ALLOW->consume, replay->DENY,
+# stale->DENY, malformed->DENY, bounded timeout, peer-verify reject) now runs in
+# BOTH privilege modes:
+#   - as root: exactly as before, against a scratch socket + root-owned scratch
+#     presence file, with --insecure-skip-peer-verify.
+#   - unprivileged: via the daemon's OFF-by-default test seam
+#     REPOSE_PERMIT_ALLOW_NONROOT=1, which relaxes ONLY the euid==0 startup guard
+#     and the presence root-owner check (repose-permitd.c) so the same
+#     consume/replay/stale/malformed matrix can be exercised in a sandbox. Every
+#     other property -- the 40-byte frame validation, freshness/skew, the
+#     single-consume watermark, nonce echo -- is unchanged and fully exercised.
 # It is NOT a VM test -- it uses --insecure-skip-peer-verify on a scratch socket
-# and a scratch presence file. Root is unavoidable here because the daemon, by
-# design, refuses to start unless euid==0 (repose-permitd.c main) and only trusts
-# a root-owned presence file (consume_presence's st.st_uid==0 check). There is no
-# seam to bypass either in a sandbox, so with no root Tier R is cleanly SKIPPED
-# and reported -- see the "MISSING TEST SEAMS" note printed at the end.
+# and a scratch presence file. The one case that stays root-only is the
+# non-root-owned-presence DENY (R6): under the seam that check is deliberately
+# relaxed, and an unprivileged runner cannot chown a file off itself anyway, so
+# R6 is skipped without root.
 #
 # The end-to-end proof that the REAL SecurityAgent / authorizationhost peer is
 # ACCEPTED (SecCodeCheckValidity against the pinned designated requirement) can
@@ -337,11 +346,22 @@ kill "${MOCKD_PID}" 2>/dev/null; wait "${MOCKD_PID}" 2>/dev/null; MOCKD_PID=""
 # Tier R -- daemon serve path; needs root (see header). Skipped otherwise.
 # ======================================================================== #
 echo
-echo "Tier R (root): daemon presence / consume / malformed / peer-verify"
+if is_root; then
+    echo "Tier R (root): daemon presence / consume / malformed / peer-verify"
+else
+    echo "Tier R (unprivileged via REPOSE_PERMIT_ALLOW_NONROOT test seam):"
+    echo "         daemon presence / consume / malformed / peer-verify"
+fi
 
-SKIP_R_REASON=""
+# The daemon serve path runs unprivileged through its OFF-by-default test seam;
+# as root the seam is not needed. SEAM_ENV is an env-assignment token that is
+# empty for root and "REPOSE_PERMIT_ALLOW_NONROOT=1" otherwise. Launching the
+# daemon through `env ${SEAM_ENV}` works in both cases (env with no assignment
+# just runs the command). The seam relaxes ONLY the euid==0 startup guard and
+# the presence root-owner check -- nothing else in the consume path.
+SEAM_ENV=""
 if ! is_root; then
-    SKIP_R_REASON="not running as root"
+    SEAM_ENV="REPOSE_PERMIT_ALLOW_NONROOT=1"
 fi
 
 # Start the daemon on a scratch socket + scratch presence file. $1 socket, $2
@@ -349,9 +369,16 @@ fi
 DAEMON_LOG=""
 start_daemon() {
     local s="$1" p="$2" extra="$3"
+    # The R-cases reuse one socket path. Remove any lingering socket from the
+    # previous case FIRST, so the readiness loop below can only observe THIS
+    # daemon's socket -- which appears after it has seeded its single-consume
+    # watermark. Otherwise we could return on a stale socket, touch the presence
+    # file, and only then have the new daemon start and seed a watermark that is
+    # already newer than the touch (making a fresh presence look already-spent).
+    rm -f "${s}" 2>/dev/null
     DAEMON_LOG="${TMP}/daemon.$$.$RANDOM.log"
     # shellcheck disable=SC2086
-    "${DAEMON}" --socket "${s}" --presence "${p}" --freshness 15 ${extra} >"${DAEMON_LOG}" 2>&1 &
+    env ${SEAM_ENV} "${DAEMON}" --socket "${s}" --presence "${p}" --freshness 15 ${extra} >"${DAEMON_LOG}" 2>&1 &
     local i
     for i in $(seq 1 40); do [ -S "${s}" ] && return 0; sleep 0.1; done
     return 1
@@ -367,20 +394,6 @@ probe_verdict() {
     run_bounded 5 env REPOSE_PERMIT_SOCK_PATH="${s}" "${PROBE}" 2>/dev/null
 }
 
-if [ -n "${SKIP_R_REASON}" ]; then
-    for c in \
-        "present presence -> ALLOW and is consumed" \
-        "replay of the same touch -> DENY (single-consume, gap #3)" \
-        "a newer touch -> ALLOW again" \
-        "absent presence -> DENY" \
-        "stale presence -> DENY" \
-        "non-root-owned presence -> DENY" \
-        "short / bad-magic request -> DENY and does not consume" \
-        "request that never half-closes -> daemon times out (bounded), DENY" \
-        "peer verification rejects an allowed-uid non-Apple caller"; do
-        skp "${c} -- ${SKIP_R_REASON} (re-run as: sudo ${BASH_SOURCE[0]})"
-    done
-else
     S="${TMP}/ipc/permit.sock"     # daemon mkdir's the parent 0750 in scratch mode
     P="${TMP}/presence"
 
@@ -423,7 +436,14 @@ else
     fi
 
     # R6: fresh but NOT root-owned -> DENY (the anyone-could-have-written guard).
-    if start_daemon "${S}" "${P}" "--insecure-skip-peer-verify"; then
+    # This one is inherently root-only: the test seam DELIBERATELY relaxes the
+    # presence root-owner check (that is how the rest of the matrix runs
+    # unprivileged), so under the seam the check is not in force and there is
+    # nothing to assert; and an unprivileged runner cannot chown a file off
+    # itself to set the case up. Exercised only when we are actually root.
+    if ! is_root; then
+        skp "non-root-owned presence -> DENY -- root-only (the owner check is relaxed under REPOSE_PERMIT_ALLOW_NONROOT; run as: sudo ${BASH_SOURCE[0]})"
+    elif start_daemon "${S}" "${P}" "--insecure-skip-peer-verify"; then
         : > "${P}"
         # Hand ownership to a non-root uid. Prefer 'nobody'; fall back to uid 1.
         chown nobody "${P}" 2>/dev/null || chown 1 "${P}" 2>/dev/null
@@ -491,7 +511,6 @@ else
         skp "peer-verify reject case -- daemon could not start with verification ON (see log)"
         [ -n "${DAEMON_LOG}" ] && sed 's/^/      /' "${DAEMON_LOG}"
     fi
-fi
 
 # The uid->requirement SELECTION function (design 8.1.E) is internal to
 # repose_peer_verify.c and not separately exported, so it cannot be unit-tested
@@ -500,22 +519,22 @@ skp "uid->designated-requirement selector unit test -- not exported by repose_pe
 
 echo
 echo "${pass} passed, ${fail} failed, ${skip} skipped"
-if [ "${skip}" -gt 0 ] && ! is_root; then
+if ! is_root; then
     cat <<'NOTE'
 
-MISSING TEST SEAMS (design gap to record in 2026-09-09-permit-ipc-design.md):
-  The daemon's serve path (present->ALLOW->consume, replay->DENY, malformed,
-  peer-verify) could not be exercised WITHOUT root because repose-permitd:
-    (a) refuses to start unless euid==0 (main: geteuid()!=0 -> return 1), and
-    (b) requires the presence file to be root-owned (consume_presence:
-        st.st_uid!=0 -> deny).
-  Section 8.1.B of the design anticipated "relax the uid check under the test
-  flag" but the daemon ships no such flag. To make the full matrix runnable in
-  an unprivileged sandbox, add EITHER a REPOSE_PERMIT_ALLOW_NONROOT test seam
-  (skip the euid==0 startup guard) AND a presence owner-check relaxation, OR a
-  single --insecure-test-mode flag gating both. The socket path seam already
-  exists (--socket / client REPOSE_PERMIT_SOCK_PATH); no new socket seam needed.
-  Until then, run this test as root on a disposable Mac to cover Tier R:
+NOTE ON TIER R WITHOUT ROOT:
+  The daemon serve path above (present->ALLOW->consume, replay->DENY,
+  stale->DENY, malformed->DENY, bounded timeout, peer-verify reject) ran
+  unprivileged through the daemon's OFF-by-default test seam
+  REPOSE_PERMIT_ALLOW_NONROOT=1, which relaxes ONLY the euid==0 startup guard and
+  the presence root-owner check (repose-permitd.c). The frame validation,
+  freshness/skew, single-consume watermark and nonce echo were all exercised
+  unchanged. Two things still require real root and are skipped here:
+    - the non-root-owned-presence DENY (R6): that check is exactly what the seam
+      relaxes, so it can only be asserted with the seam OFF, i.e. as root; and
+    - the SecurityAgent/authorizationhost ACCEPT half of peer verification, which
+      is VM-only (design 8.2). R9 covers the local REJECT half here.
+  To also cover R6, run as root on a disposable Mac:
       sudo native/macos/minimal-auth-plugin/tests/permit_daemon_test.sh
 NOTE
 fi

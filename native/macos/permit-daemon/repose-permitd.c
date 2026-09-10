@@ -60,6 +60,18 @@ static const char *g_presence_path;
 static long g_freshness_s;
 static long g_skew_s;
 static int g_skip_verify; /* debug only; loudly refused unless flagged */
+/*
+ * TEST-ONLY seam. OFF by default. Set via REPOSE_PERMIT_ALLOW_NONROOT=1 (env).
+ * It relaxes EXACTLY two things so tests/permit_daemon_test.sh can exercise the
+ * full consume/replay/stale/malformed matrix in an unprivileged sandbox:
+ *   (a) the euid==0 startup guard (main), and
+ *   (b) the presence-file root-owner check (consume_presence, st.st_uid==0).
+ * It does NOT touch the wire format, the single-consume watermark, the
+ * freshness/skew/regular-file/NOFOLLOW hardening, or the peer allowlist. Peer
+ * verification stays its own separate seam (--insecure-skip-peer-verify). This
+ * must NEVER be set in production; startup logs a loud warning when it is.
+ */
+static int g_allow_nonroot;
 
 /* -------- single-consume state (single-threaded => naturally atomic) -------- */
 /* The mtime of the most recent presence assertion we have already spent on an
@@ -204,17 +216,27 @@ static int bind_listen(void)
         close(fd);
         return -1;
     }
-    if (chown(g_sock_path, REPOSE_PERMIT_ROOT_UID,
-              REPOSE_PERMIT_SECURITYAGENT_GID) != 0) {
-        logf("chown socket to 0:%d failed: %s",
-             REPOSE_PERMIT_SECURITYAGENT_GID, strerror(errno));
-        close(fd);
-        return -1;
-    }
-    if (chmod(g_sock_path, 0660) != 0) {
-        logf("chmod 0660 socket failed: %s", strerror(errno));
-        close(fd);
-        return -1;
+    /* For a scratch/debug --socket (not the production path) skip taking
+     * root:_securityagent ownership of the socket node -- exactly as
+     * prepare_dir() already skips it for the socket's directory. A non-root test
+     * run cannot chown a node to uid 0 (EPERM) and would otherwise die here
+     * before any consume/replay case could run; peer verification, not the
+     * socket mode, is the security boundary and scratch runs disable it. The
+     * production path always keeps the chown/chmod and treats failure as fatal. */
+    const int is_production = (strcmp(g_sock_path, REPOSE_PERMIT_SOCK_PATH) == 0);
+    if (is_production) {
+        if (chown(g_sock_path, REPOSE_PERMIT_ROOT_UID,
+                  REPOSE_PERMIT_SECURITYAGENT_GID) != 0) {
+            logf("chown socket to 0:%d failed: %s",
+                 REPOSE_PERMIT_SECURITYAGENT_GID, strerror(errno));
+            close(fd);
+            return -1;
+        }
+        if (chmod(g_sock_path, 0660) != 0) {
+            logf("chmod 0660 socket failed: %s", strerror(errno));
+            close(fd);
+            return -1;
+        }
     }
     if (listen(fd, LISTEN_BACKLOG) != 0) {
         logf("listen failed: %s", strerror(errno));
@@ -246,9 +268,15 @@ static int consume_presence(void)
         return 0;
     }
     if (st.st_uid != 0) {
-        logf("presence: %s not root-owned (uid=%d); deny", g_presence_path,
-             (int)st.st_uid);
-        return 0;
+        if (!g_allow_nonroot) {
+            logf("presence: %s not root-owned (uid=%d); deny", g_presence_path,
+                 (int)st.st_uid);
+            return 0;
+        }
+        /* TEST-ONLY (REPOSE_PERMIT_ALLOW_NONROOT): accept a presence file owned
+         * by the unprivileged test user. Production always requires uid 0. */
+        logf("presence: %s owned by uid=%d accepted -- TEST-ONLY seam active",
+             g_presence_path, (int)st.st_uid);
     }
     double age = difftime(time(NULL), st.st_mtime);
     if (age > (double)g_freshness_s) {
@@ -406,6 +434,7 @@ int main(int argc, char **argv)
     g_freshness_s = env_long("REPOSE_PERMIT_FRESHNESS_S", PRESENCE_FRESHNESS_S_DEFAULT);
     g_skew_s = env_long("REPOSE_PERMIT_SKEW_S", PRESENCE_SKEW_S_DEFAULT);
     g_skip_verify = 0;
+    g_allow_nonroot = (env_long("REPOSE_PERMIT_ALLOW_NONROOT", 0) != 0);
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--socket") == 0 && i + 1 < argc) {
@@ -425,11 +454,19 @@ int main(int argc, char **argv)
         }
     }
 
+    if (g_allow_nonroot) {
+        logf("WARNING: REPOSE_PERMIT_ALLOW_NONROOT set -- TEST-ONLY seam ACTIVE: "
+             "the euid==0 startup guard and the presence root-owner check are "
+             "RELAXED. This must NEVER be used in production.");
+    }
+
     /* Must be root: to own the socket root:_securityagent, to read the
      * root-owned presence file, and because SecCodeCheckValidity on another
      * process is a privileged operation. If we are not root, refuse to start
-     * rather than come up in a half-secure state. */
-    if (geteuid() != 0) {
+     * rather than come up in a half-secure state. The REPOSE_PERMIT_ALLOW_NONROOT
+     * test seam relaxes ONLY this startup guard (and the presence owner check)
+     * so the sandbox test can run unprivileged; it is OFF by default. */
+    if (geteuid() != 0 && !g_allow_nonroot) {
         logf("must run as root (euid=%d); refusing to start", (int)geteuid());
         return 1;
     }

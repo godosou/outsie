@@ -12,7 +12,7 @@ What these patches add:
 
 1. Build `repose-permitd` (clang only, no Rust) and install it to
    `/Library/Application Support/ReposeSpike/repose-permitd`.
-2. Create the socket directory `/var/run/repose-spike/ipc` with the exact
+2. Create the socket directory `/var/run/repose-permitd` with the exact
    `root:_securityagent 0750`.
 3. Install the LaunchDaemon plist (`ai.repose.spike.permitd.plist`) `root:wheel 0644` and
    `bootstrap` it (with `bootout` of any old instance first).
@@ -69,7 +69,7 @@ PERMITD_SRC_BIN="../permit-daemon/build/repose-permitd"  # built by ../permit-da
 # directory-traversal gate admits ONLY root + uid 92 (the non-privileged mechanism
 # host) and excludes ordinary users (design §3.1/§3.2). One config serves both the
 # privileged (uid 0) and non-privileged (uid 92) install variants.
-PERMITD_IPC_DIR="/var/run/repose-spike/ipc"
+PERMITD_IPC_DIR="/var/run/repose-permitd"
 PERMITD_SOCK_GROUP="_securityagent"
 ```
 
@@ -141,7 +141,7 @@ Insert immediately AFTER that anchor:
 # permit IPC consume-daemon, installed by install.sh.
 PERMITD_LABEL="ai.repose.spike.permitd"
 PERMITD_PLIST="/Library/LaunchDaemons/${PERMITD_LABEL}.plist"
-PERMITD_IPC_DIR="/var/run/repose-spike/ipc"
+PERMITD_IPC_DIR="/var/run/repose-permitd"
 ```
 
 ### Hunk 2b — bootout + remove the daemon (before the rule stops referencing the mechanism)
@@ -179,9 +179,9 @@ directory beside it.
 ```bash
 cd native/macos/permit-daemon && ./build.sh
 cd ../minimal-auth-plugin && make && sudo ./install.sh permit
-# socket:  srw-rw---- root _securityagent  /var/run/repose-spike/ipc/permit.sock
-# dir:     drwxr-x--- root _securityagent  /var/run/repose-spike/ipc
-ls -le /var/run/repose-spike/ipc /var/run/repose-spike/ipc/permit.sock
+# socket:  srw-rw---- root _securityagent  /var/run/repose-permitd/permit.sock
+# dir:     drwxr-x--- root _securityagent  /var/run/repose-permitd
+ls -le /var/run/repose-permitd /var/run/repose-permitd/permit.sock
 launchctl print system/ai.repose.spike.permitd | sed -n '1,20p'
 ```
 
@@ -190,5 +190,5 @@ Uninstall leaves nothing behind:
 ```bash
 sudo ./uninstall.sh
 launchctl print system/ai.repose.spike.permitd   # => could not find service (expected)
-ls /var/run/repose-spike/ipc                       # => No such file or directory (expected)
+ls /var/run/repose-permitd                       # => No such file or directory (expected)
 ```

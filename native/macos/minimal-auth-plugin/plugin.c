@@ -23,6 +23,11 @@
 #include <Security/AuthorizationPlugin.h>
 #include <Security/AuthorizationTags.h>
 
+/* Daemon-backed "consume" mode: ask repose-permitd over the unix socket instead
+ * of reading the permit file directly. The client is fail-closed and bounded --
+ * see ../permit-daemon/repose_permit_client.{c,h}. */
+#include "repose_permit_client.h"
+
 #include <fcntl.h>
 #include <os/log.h>
 #include <sys/stat.h>
@@ -75,7 +80,8 @@ typedef struct {
 typedef enum {
     kModeUnknown = 0, /* fail closed: an id we do not recognise denies */
     kModeLog,         /* milestone A */
-    kModePermit,      /* milestone B */
+    kModePermit,      /* milestone B: file-based permit poll */
+    kModeConsume,     /* gap #3: ask repose-permitd, single-consume over the socket */
 } MechanismMode;
 
 typedef struct {
@@ -92,6 +98,9 @@ static MechanismMode mode_for(AuthorizationMechanismId mechanismId)
     if (strcmp(mechanismId, "permit") == 0) {
         return kModePermit;
     }
+    if (strcmp(mechanismId, "consume") == 0) {
+        return kModeConsume;
+    }
     if (strcmp(mechanismId, "log") == 0) {
         return kModeLog;
     }
@@ -103,6 +112,7 @@ static const char *mode_name(MechanismMode mode)
     switch (mode) {
     case kModeLog: return "log";
     case kModePermit: return "permit";
+    case kModeConsume: return "consume";
     default: return "unknown";
     }
 }
@@ -287,6 +297,18 @@ static OSStatus MechanismInvoke(AuthorizationMechanismRef inMechanism)
         break;
     case kModePermit:
         result = wait_for_permit() ? kAuthorizationResultAllow : kAuthorizationResultDeny;
+        break;
+    case kModeConsume:
+        /* Daemon-backed: repose_request_permit() is fail-closed and bounded --
+         * it denies on connect failure, timeout, short read, bad frame, an
+         * unmatched nonce, or any non-ALLOW verdict, and never blocks
+         * indefinitely (its deadline is under PERMIT_TIMEOUT_MS). Allow only on
+         * a CONSUMED verdict, which closes gap #3: a single distinct presence
+         * assertion authorises at most one unlock. If the daemon is down or the
+         * socket is missing the call returns 0 here, so this denies and the
+         * password field appears -- it does not hang. */
+        result = repose_request_permit() ? kAuthorizationResultAllow
+                                         : kAuthorizationResultDeny;
         break;
     default:
         /* A mechanism id we do not recognise means the authorization database

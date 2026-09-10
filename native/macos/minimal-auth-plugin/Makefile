@@ -5,6 +5,13 @@ ARCHS       := -arch arm64 -arch x86_64
 CFLAGS      := -Wall -Wextra -Werror -O1 -bundle $(ARCHS)
 FRAMEWORKS  := -framework Security -framework CoreFoundation
 
+# Daemon-backed "consume" mode links the permit client into the bundle. The
+# client is plain BSD sockets + arc4random_buf on libSystem -- no extra
+# frameworks -- so it cross-compiles under $(CFLAGS) with just an include path.
+CLIENT_DIR  := ../permit-daemon
+CLIENT_SRC  := $(CLIENT_DIR)/repose_permit_client.c
+CLIENT_HDRS := $(CLIENT_DIR)/repose_permit_client.h $(CLIENT_DIR)/repose_permit_wire.h
+
 TEST_BIN    := build/plugin_contract_test
 # The test dlopens the bundle, so it is built for the host arch only.
 TESTFLAGS   := -Wall -Wextra -Werror -O1
@@ -13,11 +20,11 @@ TESTFLAGS   := -Wall -Wextra -Werror -O1
 
 all: $(BUNDLE)
 
-$(BUNDLE): plugin.c Info.plist
+$(BUNDLE): plugin.c $(CLIENT_SRC) $(CLIENT_HDRS) Info.plist
 	rm -rf $(BUNDLE)
 	mkdir -p $(BUNDLE)/Contents/MacOS
 	cp Info.plist $(BUNDLE)/Contents/Info.plist
-	clang $(CFLAGS) $(FRAMEWORKS) -o $(BINARY) plugin.c
+	clang $(CFLAGS) $(FRAMEWORKS) -I$(CLIENT_DIR) -o $(BINARY) plugin.c $(CLIENT_SRC)
 	codesign --force --sign - --timestamp=none $(BUNDLE)
 
 verify: $(BUNDLE)
