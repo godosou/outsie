@@ -1,9 +1,11 @@
 # Issue 0002 · Authenticated presence (only the paired phone can unlock)
 
-- **Status:** open · **beacon half built and wired (2026-09-10); not yet demonstrated on the
-  radio.** The pairing half is still not built — `K` currently arrives over a labelled USB
-  development channel, so this issue does not close. See
-  [验证记录](../validation/2026-09-10-authenticated-presence.md) for what is and is not proven.
+- **Status:** open · **beacon half demonstrated on real hardware (2026-09-11): the paired
+  phone verified 16/16, an unpaired device on the air beside the Mac verified 0/24.** The
+  pairing half is still not built — `K` arrives over a labelled USB development channel — so
+  this issue stays open. See
+  [验证记录](../validation/2026-09-10-authenticated-presence.md) for the boundary of what
+  that run does and does not cover.
 - **Priority:** HIGH (security) — a distribution gate
 - **Area:** Android (pairing + beacon) + Mac (verifier + bridge gate) + pairing key store
 - **Filed:** 2026-09-10

@@ -1,16 +1,31 @@
-# 认证在场（`repose-presence-v1`）：已实现，**尚未在真机上验证**
+# 认证在场（`repose-presence-v1`）：**已验收**
 
-日期：2026-09-10
+日期：2026-09-10 实现 · **2026-09-11 真机验收通过**
 
-状态：**真机上跑通了，但正式的验收测试还差最后一步（需要 root 下发密钥）。**
+## 验收结果
 
-先说边界，因为这份文档最容易被误读成「E13 已经修好并验收」：
+```
+tests/e2e/impersonation_test.sh 25
+  genuine : VALID=16  INVALID=0  NOKEY=0
+  imposter: VALID=0   INVALID=24
+  ok  the paired phone is accepted (16 verified beacons)
+  ok  an unprovisioned device is refused (24 beacons, none verified)
+  ok  the Mac can tell the two apart
+  3 passed, 0 failed
+```
 
-> 真实无线电证据已经拿到（见下面「真机实测」一节），手机和 Mac 的 pre-image
-> **逐字节一致**，冒充者的标签对不上任何窗口。但这些是用 OpenSSL 手工比对得出的，
-> **`tests/e2e/impersonation_test.sh` 本身还没有跑过** —— 它要用真正的验证器读
-> root 专有密钥文件，需要一次 `sudo`。在它给出 `2 passed` 之前，
-> E13 的状态是「已实现并手工验证」，不是「已验收」。
+走的是产品链路本身（`rssi-scan | presence-verify`，验证器以 root 读
+`/var/db/repose-unlock/presence-key.1`），不是手工比对。
+
+**冒充者不是没上天线**：24 个样本、格式完全正确、信号就在旁边，一个都验不过。
+这正是 E13 那节「验收判据」要求的失败方式。
+
+## 边界：这一条通过了，别的没有
+
+- **没有验证完整解锁。** 证的是「Mac 能不能分辨这两台设备」。
+  从 permit 写入 → 插件 → 屏幕真的开了，这一段还没有用真实 BLE 跑通。
+- **没有验证配对安全。** `K` 仍然走 USB 下发，防不了中间人。
+- **没有验证续航/Doze。** B4，本来就排在最后。
 
 ## 改了什么
 
@@ -114,12 +129,14 @@ Mac 侧**不持有**这把密钥的文件（那一步要 root），所以下面�
 
 ## **没有**证明的（这一节比上一节重要）
 
-1. **`impersonation_test.sh` 本身没跑过。** 上面那张表是我用 OpenSSL 手工比对的，
-   走的不是产品链路：真正的验证器 `presence-verify` 要读
-   `/var/db/repose-unlock/presence-key.1`（root:wheel 0600），需要一次 `sudo`。
-   手工比对和验证器用的是同一段 pre-image，但**「同一段算法我算对了」和
-   「产品代码在产品路径上算对了」是两件事**，前者不能替后者签字。
-2. **permit 有没有真的因此被写/不写。** 上面验证的是标签本身，还没有把
+1. ~~`impersonation_test.sh` 本身没跑过。~~ **2026-09-11 已跑通,见开头。**
+
+   值得记下它为什么必须跑：推迟到两条腿都采完再验证，
+   导致验证器拿当前时钟去 judge 60~90 秒前的采样，**16 个正确铸造的信标全被判 INVALID**。
+   手工用 OpenSSL 比对完全看不出这个问题 —— 因为那段算法本来就是对的，
+   错的是产品代码里我刚写的那一行。**「同一段算法我算对了」不能替
+   「产品代码在产品路径上算对了」签字。**
+2. **permit 有没有真的因此被写/不写。** 验收证的是标签判定，还没有把
    `rssi-scan | presence-verify | permit-bridge.sh` 整条管线接起来跑一遍。
 3. **45 秒这个阈值够不够。** 尾巴只采了几分钟；一整个工作日几乎肯定更差。
    上界很清楚（2×WINDOW=60 秒），但真正合适的值要等长时间观测。
