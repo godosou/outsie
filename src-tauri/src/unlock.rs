@@ -300,6 +300,180 @@ fn variant_str(v: Option<RuleVariant>) -> Option<&'static str> {
     }
 }
 
+// ---- what the host actually looks like ------------------------------------
+
+/// Paths and labels the installer writes. Duplicated from install.sh, which is
+/// the source of truth; `unlock_installer_paths_agree` asserts they match, so a
+/// rename there fails a test here instead of silently making this panel report
+/// "not installed" on a machine that is installed.
+pub const BUNDLE_PATH: &str = "/Library/Security/SecurityAgentPlugins/ReposeSpike.bundle";
+pub const DAEMON_LABEL: &str = "ai.repose.spike.healthcheck";
+pub const SUBRULE_NAME: &str = "ai.repose.spike";
+pub const PRESENCE_KEY_DIR: &str = "/var/db/repose-unlock";
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PresenceKeyState {
+    /// No key file. Nothing can authenticate, so nothing can unlock.
+    Missing,
+    Ok,
+    /// Present but not root:wheel 0600 — a key someone else could rewrite is a
+    /// key someone else could become the paired phone with.
+    BadPermissions { detail: String },
+}
+
+/// One reading of the host, gathered by [HostMacBackend::observe]. Kept separate
+/// from [assess] so the interesting states -- especially the fail-open one, which
+/// is hard to produce on a real machine and dangerous to leave lying around --
+/// can be unit tested without a Mac in that condition.
+#[derive(Clone, Debug)]
+pub struct HostFacts {
+    pub rule_references_us: bool,
+    pub bundle_present: bool,
+    /// None when codesign could not be asked at all.
+    pub bundle_signature_ok: Option<bool>,
+    /// None when launchctl could not be asked at all.
+    pub daemon_loaded: Option<bool>,
+    pub presence_key: PresenceKeyState,
+}
+
+pub struct Assessment {
+    pub state: UnlockState,
+    pub presence: Presence,
+    pub components: Vec<UnlockComponent>,
+}
+
+fn component(
+    id: ComponentId,
+    health: Health,
+    detail: &str,
+    remediation: Option<Remediation>,
+) -> UnlockComponent {
+    UnlockComponent { id, health, detail: detail.into(), evidence: None, remediation }
+}
+
+/// Turn a reading of the host into what the panel shows.
+///
+/// The case this exists for is the third one below: the lock-screen rule points
+/// at our mechanism and the mechanism is not there. E3/E8/E11 established that
+/// macOS treats an un-instantiable step as *passed*, so that machine unlocks for
+/// anyone with no password, and no rule shape can prevent it. It is also the
+/// state a user reaches by dragging the app to the Trash. A panel that renders
+/// it as "组件缺失" among a list of tidy grey rows would be describing an open
+/// door as a missing accessory, so it gets `Broken`, `NeedsRepair`, and a
+/// sentence that says what is true right now.
+pub fn assess(f: &HostFacts) -> Assessment {
+    let mut components = Vec::new();
+
+    // --- rule + component, judged together ---------------------------------
+    let loadable = f.bundle_present && f.bundle_signature_ok != Some(false);
+    let dangling = f.rule_references_us && !loadable;
+
+    if f.rule_references_us {
+        components.push(component(
+            ComponentId::Rule,
+            if dangling { Health::Broken } else { Health::Ok },
+            if dangling { "指向一个装不上的组件" } else { "已就位" },
+            dangling.then_some(Remediation::UninstallAndRestore),
+        ));
+    }
+
+    if dangling {
+        let detail = if !f.bundle_present {
+            "组件不在了，但锁屏规则还指着它。macOS 会把装不上的这一步当作已通过 —— \
+             也就是说，现在任何人都可能不用密码就进得来。请立即修复或卸载。"
+        } else {
+            "组件在，但签名校验不通过，macOS 不会加载它。规则仍指着它，\
+             等于现在这台 Mac 可能不用密码就进得来。请立即修复或卸载。"
+        };
+        components.push(component(
+            ComponentId::Component,
+            Health::Broken,
+            detail,
+            Some(Remediation::ReinstallComponent),
+        ));
+    } else if f.bundle_present && !f.rule_references_us {
+        components.push(component(
+            ComponentId::Component,
+            Health::Degraded,
+            "组件已安装，但锁屏规则没有引用它 —— 解锁不会发生，密码照常可用。",
+            Some(Remediation::RepairRule),
+        ));
+    } else if f.bundle_present {
+        components.push(component(
+            ComponentId::Component,
+            match f.bundle_signature_ok {
+                Some(true) => Health::Ok,
+                // Unaskable is not the same as bad, and must not read as fine.
+                None => Health::Unknown,
+                Some(false) => Health::Broken,
+            },
+            match f.bundle_signature_ok {
+                Some(true) => "已安装，签名校验通过",
+                None => "已安装；这次没能校验签名",
+                Some(false) => "签名校验不通过",
+            },
+            None,
+        ));
+    }
+
+    // --- the health-check daemon -------------------------------------------
+    // Only meaningful once the rule references us: before that there is nothing
+    // for it to guard, and listing it as broken would be noise.
+    if f.rule_references_us {
+        components.push(match f.daemon_loaded {
+            Some(true) => component(ComponentId::Daemon, Health::Ok, "运行中", None),
+            Some(false) => component(
+                ComponentId::Daemon,
+                Health::Degraded,
+                "没有运行。它的职责是在组件被删掉时把规则改回只认密码；\
+                 它不在，那个窗口就没人盯着了。",
+                Some(Remediation::ReinstallComponent),
+            ),
+            None => component(ComponentId::Daemon, Health::Unknown, "这次没问出来", None),
+        });
+    }
+
+    // --- the presence key ---------------------------------------------------
+    components.push(match &f.presence_key {
+        PresenceKeyState::Ok => component(
+            ComponentId::Transport,
+            Health::Ok,
+            "已配置在场密钥。注意：这是通过 USB 下发的开发密钥，不是带防中间人校验的配对。",
+            None,
+        ),
+        PresenceKeyState::Missing => component(
+            ComponentId::Transport,
+            Health::Degraded,
+            "没有在场密钥。任何设备都无法通过认证，所以不会自动解锁 —— \
+             密码照常可用。运行 tools/ble-spike/provision-dev-key.sh 下发一把。",
+            Some(Remediation::RePair),
+        ),
+        PresenceKeyState::BadPermissions { detail } => component(
+            ComponentId::Transport,
+            Health::Broken,
+            detail,
+            Some(Remediation::RePair),
+        ),
+    });
+
+    // --- overall ------------------------------------------------------------
+    let state = if dangling {
+        UnlockState::NeedsRepair
+    } else if f.rule_references_us && f.bundle_present {
+        // Installed and consistent. Not `Ready`: nothing here has watched the
+        // mechanism actually run, and the app does not yet drive the BLE bridge.
+        UnlockState::AwaitingVerification
+    } else if f.rule_references_us || f.bundle_present {
+        UnlockState::HalfInstalled
+    } else {
+        UnlockState::NotInstalled
+    };
+
+    // The app does not read the radio; the bridge in tools/ble-spike does.
+    // Reporting Near/Away from here would be inventing a measurement.
+    Assessment { state, presence: Presence::TransportUnavailable, components }
+}
+
 // ---- backend trait + host implementation ---------------------------------
 
 /// Injectable so unit tests can drive a fake. The real implementation shells to
@@ -331,6 +505,54 @@ impl HostMacBackend {
         run_capture("/bin/date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]).unwrap_or_default()
     }
 
+    /// Read the host once. Every probe is read-only and none needs root: the key
+    /// file's directory is traversable, so its ownership and mode can be read
+    /// without reading the key -- which is the point, this process has no
+    /// business holding it.
+    fn observe(rule: Option<&str>) -> HostFacts {
+        let bundle_present = std::path::Path::new(BUNDLE_PATH).exists();
+        HostFacts {
+            rule_references_us: rule.is_some_and(|r| r.contains(SUBRULE_NAME)),
+            bundle_present,
+            // Failing to *run* codesign is not the same as codesign saying no.
+            // Collapsing them would report a healthy Mac as wide open, and a
+            // false alarm about the one state that really matters is how that
+            // alarm stops being read.
+            bundle_signature_ok: bundle_present
+                .then(|| run_status("/usr/bin/codesign", &["--verify", "--deep", BUNDLE_PATH]).ok())
+                .flatten(),
+            daemon_loaded: Some(
+                run_status("/bin/launchctl", &["print", &format!("system/{DAEMON_LABEL}")])
+                    .unwrap_or(false),
+            ),
+            presence_key: Self::presence_key_state(),
+        }
+    }
+
+    fn presence_key_state() -> PresenceKeyState {
+        use std::os::unix::fs::MetadataExt;
+        // Slot 1 is the only one the spike provisions. A missing file and an
+        // unreadable directory are both "no usable key", and both fail closed.
+        let path = format!("{PRESENCE_KEY_DIR}/presence-key.1");
+        let Ok(md) = std::fs::metadata(&path) else {
+            return PresenceKeyState::Missing;
+        };
+        let mode = md.mode() & 0o777;
+        if md.uid() == 0 && md.gid() == 0 && mode == 0o600 {
+            PresenceKeyState::Ok
+        } else {
+            PresenceKeyState::BadPermissions {
+                detail: format!(
+                    "在场密钥 {path} 应当是 root:wheel 0600，实际是 uid={} gid={} 权限={:o}。\
+                     验证器会拒绝使用它 —— 一把别人能改写的密钥，等于别人能冒充你的手机。",
+                    md.uid(),
+                    md.gid(),
+                    mode
+                ),
+            }
+        }
+    }
+
     fn read_rule() -> Option<String> {
         // security authorizationdb read … | plutil -extract rule json -o - -
         let raw = run_capture(
@@ -348,30 +570,17 @@ impl UnlockBackend for HostMacBackend {
         // daemon status file proves otherwise (not read tonight -> never).
         let read_at = Self::now_iso();
         let rule = Self::read_rule();
-        let referenced = rule.as_deref().is_some_and(|r| r.contains("ai.repose"));
         let macos_build = run_capture("/usr/bin/sw_vers", &["-buildVersion"]).unwrap_or_default();
 
-        let state = if !referenced { UnlockState::NotInstalled } else { UnlockState::AwaitingVerification };
         let variant = rule.as_deref().and_then(decide_variant);
-
-        let components = if referenced {
-            vec![UnlockComponent {
-                id: ComponentId::Rule,
-                health: Health::Ok,
-                detail: "已就位".into(),
-                evidence: None,
-                remediation: None,
-            }]
-        } else {
-            vec![]
-        };
+        let assessment = assess(&Self::observe(rule.as_deref()));
 
         Ok(UnlockSnapshot {
             read_at,
-            state,
-            presence: Presence::TransportUnavailable,
+            state: assessment.state,
+            presence: assessment.presence,
             variant,
-            components,
+            components: assessment.components,
             component_invocation: ComponentInvocation::NeverObserved,
             device: None,
             stats: UnlockStats { unlocks_today: 0, last_unlock_at: None },
@@ -692,5 +901,155 @@ mod tests {
         assert_eq!(decide_variant(r#"["ai.repose.unlock","authenticate-session-owner-or-admin"]"#), Some(RuleVariant::B));
         assert_eq!(decide_variant(r#"["something-else"]"#), None);
         assert_eq!(decide_variant("not json"), None);
+    }
+
+    // ---- assess ----------------------------------------------------------
+    //
+    // These drive the states the panel has to get right, without putting a real
+    // Mac into any of them. The fail-open one in particular must never be
+    // produced on a machine anyone uses: reaching it means that machine unlocks
+    // for anybody until it is repaired.
+
+    fn facts() -> HostFacts {
+        HostFacts {
+            rule_references_us: true,
+            bundle_present: true,
+            bundle_signature_ok: Some(true),
+            daemon_loaded: Some(true),
+            presence_key: PresenceKeyState::Ok,
+        }
+    }
+
+    fn find(a: &Assessment, id: ComponentId) -> &UnlockComponent {
+        a.components
+            .iter()
+            .find(|c| format!("{:?}", c.id) == format!("{id:?}"))
+            .unwrap_or_else(|| panic!("no {id:?} component in {:?}", a.components))
+    }
+
+    #[test]
+    fn a_clean_install_reports_everything_ok() {
+        let a = assess(&facts());
+        assert_eq!(a.state, UnlockState::AwaitingVerification);
+        assert_eq!(find(&a, ComponentId::Rule).health, Health::Ok);
+        assert_eq!(find(&a, ComponentId::Component).health, Health::Ok);
+        assert_eq!(find(&a, ComponentId::Daemon).health, Health::Ok);
+    }
+
+    #[test]
+    fn nothing_installed_lists_no_rule_or_component() {
+        let a = assess(&HostFacts {
+            rule_references_us: false,
+            bundle_present: false,
+            bundle_signature_ok: None,
+            daemon_loaded: Some(false),
+            presence_key: PresenceKeyState::Missing,
+        });
+        assert_eq!(a.state, UnlockState::NotInstalled);
+        assert!(a.components.iter().all(|c| !matches!(c.id, ComponentId::Rule | ComponentId::Component)));
+        // The daemon guards a rule that does not exist yet; listing it as broken
+        // would be noise on a machine where nothing is wrong.
+        assert!(a.components.iter().all(|c| !matches!(c.id, ComponentId::Daemon)));
+    }
+
+    #[test]
+    fn a_rule_pointing_at_a_missing_bundle_is_broken_not_merely_missing() {
+        // The user dragged the app to the Trash. macOS treats the step it can no
+        // longer instantiate as passed, so this Mac now opens with no password.
+        let a = assess(&HostFacts { bundle_present: false, bundle_signature_ok: None, ..facts() });
+        assert_eq!(a.state, UnlockState::NeedsRepair);
+        assert_eq!(find(&a, ComponentId::Component).health, Health::Broken);
+        // The rule is implicated too: it is the half that is pointing at nothing.
+        assert_eq!(find(&a, ComponentId::Rule).health, Health::Broken);
+        // And it must offer a way out, not just a red dot.
+        assert!(find(&a, ComponentId::Component).remediation.is_some());
+        // The wording has to say what is true now, not name a missing part.
+        let d = &find(&a, ComponentId::Component).detail;
+        assert!(d.contains("不用密码"), "detail did not state the consequence: {d}");
+    }
+
+    #[test]
+    fn an_unloadable_bundle_is_as_dangerous_as_a_missing_one() {
+        // Present on disk but macOS will not load it -- same fail-open, and much
+        // easier to mistake for healthy, since the file is right there.
+        let a = assess(&HostFacts { bundle_signature_ok: Some(false), ..facts() });
+        assert_eq!(a.state, UnlockState::NeedsRepair);
+        assert_eq!(find(&a, ComponentId::Component).health, Health::Broken);
+    }
+
+    #[test]
+    fn a_signature_we_could_not_check_is_unknown_not_ok_and_not_broken() {
+        // "codesign would not run" must render as neither fine nor catastrophic.
+        // Reporting it as broken would raise the wide-open alarm on a Mac that
+        // is probably healthy, and an alarm that cries wolf stops being read --
+        // which costs exactly the case it exists for.
+        let a = assess(&HostFacts { bundle_signature_ok: None, ..facts() });
+        assert_eq!(find(&a, ComponentId::Component).health, Health::Unknown);
+        assert_ne!(a.state, UnlockState::NeedsRepair);
+    }
+
+    #[test]
+    fn a_bundle_the_rule_does_not_reference_is_half_installed() {
+        let a = assess(&HostFacts { rule_references_us: false, ..facts() });
+        assert_eq!(a.state, UnlockState::HalfInstalled);
+        assert_eq!(find(&a, ComponentId::Component).health, Health::Degraded);
+        // This direction is safe -- no rule, no fail-open -- so it must not be
+        // dressed up in the same red as the dangling case.
+        assert!(find(&a, ComponentId::Component).detail.contains("密码照常可用"));
+    }
+
+    #[test]
+    fn a_stopped_daemon_is_degraded_and_says_what_is_unguarded() {
+        let a = assess(&HostFacts { daemon_loaded: Some(false), ..facts() });
+        assert_eq!(find(&a, ComponentId::Daemon).health, Health::Degraded);
+        // Still installed and working -- the guard is off, the feature is not broken.
+        assert_eq!(a.state, UnlockState::AwaitingVerification);
+    }
+
+    #[test]
+    fn no_presence_key_is_degraded_because_it_fails_closed() {
+        let a = assess(&HostFacts { presence_key: PresenceKeyState::Missing, ..facts() });
+        let t = find(&a, ComponentId::Transport);
+        assert_eq!(t.health, Health::Degraded);
+        assert!(t.detail.contains("密码照常可用"));
+    }
+
+    #[test]
+    fn a_world_writable_presence_key_is_broken_because_it_fails_open() {
+        let a = assess(&HostFacts {
+            presence_key: PresenceKeyState::BadPermissions { detail: "权限=666".into() },
+            ..facts()
+        });
+        assert_eq!(find(&a, ComponentId::Transport).health, Health::Broken);
+    }
+
+    #[test]
+    fn a_provisioned_key_is_never_described_as_pairing() {
+        // The key arrives over USB and defends against nobody in the middle.
+        // Three artifacts on this project have described protections the code
+        // did not have; this asserts the panel is not the fourth.
+        let a = assess(&facts());
+        let d = &find(&a, ComponentId::Transport).detail;
+        assert!(d.contains("不是"), "the transport row must disclaim pairing: {d}");
+    }
+
+    #[test]
+    fn unlock_installer_paths_agree() {
+        // install.sh is the source of truth for these; a rename there would
+        // otherwise make the panel quietly report "not installed" on a machine
+        // that is very much installed.
+        let script = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../native/macos/minimal-auth-plugin/install.sh"),
+        )
+        .expect("install.sh should be readable from the crate");
+        assert!(script.contains("BUNDLE_NAME=\"ReposeSpike\""), "bundle name changed");
+        assert!(script.contains(&format!("SUBRULE=\"{SUBRULE_NAME}\"")), "subrule name changed");
+        assert!(script.contains(&format!("DAEMON_LABEL=\"{DAEMON_LABEL}\"")), "daemon label changed");
+        assert!(
+            BUNDLE_PATH.ends_with("/ReposeSpike.bundle")
+                && script.contains("/Library/Security/SecurityAgentPlugins/"),
+            "bundle path changed"
+        );
     }
 }

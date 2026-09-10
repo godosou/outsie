@@ -369,16 +369,35 @@ export type GlobalBanner = {
 
 export function deriveGlobalBanner(snapshot: UnlockSnapshot): GlobalBanner | null {
   // The one place red is allowed: a dangling reference (rule present, component
-  // gone) is the fail-open emergency — but the health-check daemon auto-repairs,
-  // so we phrase it as "already handled".
+  // gone) is the fail-open emergency.
+  //
+  // This used to be titled 「检测到异常，已自动恢复到纯密码解锁」 and to tell the
+  // user 「Repose 的后台守护已把规则改回只认密码，一切安全」. That was false, and
+  // false in the worst possible direction. This snapshot is the app looking at
+  // the rule *right now* and finding it still pointing at a component that is
+  // not there — which is precisely the state the daemon would have removed had
+  // it repaired anything. Claiming the repair as done, at the one moment the Mac
+  // opens for anybody, told the user to relax exactly when they should not.
+  //
+  // The daemon may also simply not be running; that is a state this panel now
+  // reports separately. So the daemon is mentioned only when it is loaded, and
+  // then only as something that should act shortly — never as something that
+  // already has.
   const ruleBroken = snapshot.components.find(c => c.id === 'rule' && c.health === 'broken')
   const componentGone = snapshot.components.find(c => c.id === 'component' && c.health === 'broken')
   if (componentGone && snapshot.state === 'needs-repair') {
+    const daemon = snapshot.components.find(c => c.id === 'daemon')
+    const guarded = daemon?.health === 'ok'
     return {
       tone: 'danger',
-      title: '检测到异常，已自动恢复到纯密码解锁',
-      body: '解锁组件意外消失，而锁屏规则还指着它。Repose 的后台守护已把规则改回只认密码，一切安全。',
-      action: { label: '查看详情', command: 'repair-rule' },
+      title: '现在这台 Mac 可能不用密码就能进',
+      body: guarded
+        ? '解锁组件不在了，而锁屏规则还指着它 —— macOS 会把装不上的这一步当作已通过。'
+          + '后台守护正在运行，应该很快会把规则改回只认密码，但此刻还没有改回来。'
+          + '现在就修复，或者先卸载。'
+        : '解锁组件不在了，而锁屏规则还指着它 —— macOS 会把装不上的这一步当作已通过。'
+          + '本该自动修复的后台守护没有在运行，所以不会有人替你改回来。请立即修复或卸载。',
+      action: { label: '立即修复', command: 'reinstall-component' },
     }
   }
 

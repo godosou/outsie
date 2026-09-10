@@ -32,6 +32,11 @@ run() {
 cd "$REPO"
 
 run "web + lib unit tests" npm test --silent
+# The health assessment lives here: which host readings mean "this Mac opens for
+# anybody right now". That state is dangerous to reproduce on a real machine, so
+# these are the only place it is exercised at all.
+run "unlock backend health assessment" \
+    env -C src-tauri cargo test --lib --quiet
 run "acceptance harness self-test" tests/e2e/harness_selftest.sh
 run "acceptance test passes and fails correctly" tests/e2e/fake_target_test.sh
 run "authorization plugin, rule transform, install invariants" \

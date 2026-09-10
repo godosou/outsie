@@ -161,17 +161,41 @@ test('needs-repair raises an attention banner', () => {
   assert.equal(b!.tone, 'attention')
 })
 
-test('a vanished component (dangling reference) raises the red danger banner, framed as auto-handled', () => {
+// The banner for the fail-open state must describe the Mac as it is at this
+// instant. The app is looking at a rule that still points at a missing
+// component, so nothing has repaired anything yet -- an earlier version claimed
+// the daemon had already fixed it and that everything was safe, which told the
+// user to relax during the only state where the machine opens for anybody.
+test('a vanished component raises a danger banner that says the Mac is open NOW', () => {
   const b = deriveGlobalBanner(snapshot({
     state: 'needs-repair',
     components: [
-      { id: 'rule', health: 'degraded', detail: 'dangling' },
+      { id: 'rule', health: 'broken', detail: 'dangling' },
       { id: 'component', health: 'broken', detail: 'gone' },
+      { id: 'daemon', health: 'ok', detail: 'running' },
     ],
   }))
   assert.ok(b)
   assert.equal(b!.tone, 'danger')
-  assert.match(b!.title, /自动恢复/)
+  assert.match(b!.title, /不用密码/)
+  assert.doesNotMatch(b!.body, /一切安全/)
+  // It may say the daemon should act; it may not say it already has.
+  assert.doesNotMatch(b!.body, /已把规则改回/)
+  assert.match(b!.body, /还没有改回来/)
+})
+
+test('with the guard daemon stopped, the banner says nobody is coming to fix it', () => {
+  const b = deriveGlobalBanner(snapshot({
+    state: 'needs-repair',
+    components: [
+      { id: 'rule', health: 'broken', detail: 'dangling' },
+      { id: 'component', health: 'broken', detail: 'gone' },
+      { id: 'daemon', health: 'degraded', detail: 'not running' },
+    ],
+  }))
+  assert.ok(b)
+  assert.equal(b!.tone, 'danger')
+  assert.match(b!.body, /没有在运行/)
 })
 
 test('awaiting-verification raises the "not tried yet" banner', () => {
