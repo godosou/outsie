@@ -145,7 +145,7 @@ class MainActivity : Activity(), Nav {
             orientation = LinearLayout.HORIZONTAL
         }
         navHome = navItem(pal, "🛡", "主屏") { go(Screen.HOME) }
-        navMacs = navItem(pal, "💻", "我的 Mac") { go(Screen.MACS) }
+        navMacs = navItem(pal, "🔑", "这把钥匙") { go(Screen.MACS) }
         row.addView(navHome, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         row.addView(navMacs, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         bar.addView(row)

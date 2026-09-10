@@ -77,9 +77,17 @@
 .phone-key-panel .phone-key-detail summary::before { content: "▸"; margin-right: 7px; font-size: 10px; }
 .phone-key-panel .phone-key-detail[open] summary::before { content: "▾"; }
 .phone-key-panel .pk-klist { margin: 12px 0 0; display: grid; gap: 7px; }
-.phone-key-panel .pk-krow { display: grid; grid-template-columns: 64px 1fr; gap: 14px; font-size: 12.5px; }
+/* 64px fitted two-character labels. The names now say what each component is
+   ("锁屏规则", "自动修复"), and their explanations are full sentences, so the
+   column is sized for four characters and the value wraps under its own label
+   rather than against the panel edge. */
+.phone-key-panel .pk-krow { display: grid; grid-template-columns: 5em 1fr; gap: 14px; font-size: 12.5px; align-items: start; }
 .phone-key-panel .pk-krow dt { color: var(--muted); }
-.phone-key-panel .pk-krow dd { margin: 0; color: var(--text); }
+.phone-key-panel .pk-krow dd { margin: 0; color: var(--text); line-height: 1.55; }
+/* A broken component means this Mac may open with no password at all. It must
+   not be the same colour as "已就位". */
+.phone-key-panel .pk-krow dd.bad { color: #a3372f; }
+.phone-key-panel .pk-krow dd.warn { color: #8a6520; }
 .phone-key-panel .pk-krow dd.good { color: #5c7a45; }
 .phone-key-panel .pk-krow dd.bad { color: #aa6a58; }
 .phone-key-panel .pk-krow dd.warn { color: #9c7f4e; }

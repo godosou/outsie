@@ -13,7 +13,7 @@ import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } 
 import { KeyRound, Smartphone, ShieldCheck, X, Monitor } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
-  beginRequest, finishRequest, failRequest, canIssue,
+  beginRequest, finishRequest, failRequest, canIssue, healthClass,
   INITIAL_REQUEST_STATE,
   type UnlockSnapshot, type UnlockError, type PanelCommand, type RequestState,
   type UnlockDesktopBridge,
@@ -323,11 +323,22 @@ function asUnlockError(e: unknown): UnlockError {
   }
   return { code: 'daemon-unavailable', detail: typeof e === 'string' ? e : '后台没有响应' }
 }
+// These four names are what the reader has to map onto a sentence like "组件不在
+// 了，而锁屏规则还指着它". Generic words ('传输', '发放') made that sentence refer to
+// rows that were not obviously the ones named, so each label now says what the
+// thing is:
+//   rule       the macOS lock-screen authorization rule we add an entry to
+//   component  the plugin bundle macOS loads at the lock screen
+//   daemon     the background check that repairs the rule if the bundle vanishes
+//   transport  the presence key -- what makes a beacon yours rather than anyone's
 function componentLabel(id: string): string {
-  return id === 'rule' ? '规则' : id === 'component' ? '组件' : id === 'daemon' ? '发放' : '传输'
-}
-function healthClass(health: string): string {
-  return health === 'ok' ? 'good' : health === 'broken' ? 'bad' : health === 'degraded' ? 'warn' : ''
+  switch (id) {
+    case 'rule': return '锁屏规则'
+    case 'component': return '解锁组件'
+    case 'daemon': return '自动修复'
+    case 'transport': return '配对密钥'
+    default: return id
+  }
 }
 function formatTime(iso: string): string {
   const d = new Date(iso)

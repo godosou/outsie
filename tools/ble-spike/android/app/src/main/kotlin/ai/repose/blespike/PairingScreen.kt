@@ -131,5 +131,13 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
         }
     }
 
-    return ScreenView(root)
+    // The key arrives from the service, which starts after this screen is built, so
+    // the first render is taken before the import has happened. Without this the
+    // screen keeps saying "还没有在场密钥" on a phone that just got one -- and the
+    // instruction it prints is "run the provisioning script", which the user has
+    // already done. Rebuild when the answer changes; it settles after one pass
+    // because the rebuilt screen reads the same value.
+    return ScreenView(root, onState = {
+        if (PresenceKey.has(SpikeContract.PRESENCE_KEY_ID) != provisioned) nav.go(Screen.PAIRING)
+    })
 }

@@ -40,8 +40,14 @@ class AppStore(context: Context) {
             return generated
         }
 
+    /**
+     * Defaulted to 4 -- a number the home screen printed as "今天解锁 4 次" on a phone
+     * that had never unlocked anything. Nothing counts unlocks yet (the Mac does the
+     * unlocking and never reports back), so the honest default is 0 and the screen
+     * that used it no longer does.
+     */
     val unlocksToday: Int
-        get() = prefs.getInt(KEY_UNLOCKS, 4)
+        get() = prefs.getInt(KEY_UNLOCKS, 0)
 
     fun macs(): List<MacDevice> {
         val raw = prefs.getString(KEY_MACS, null) ?: return seedMacs().also { saveMacs(it) }
@@ -81,10 +87,16 @@ class AppStore(context: Context) {
         prefs.edit().putString(KEY_MACS, arr.toString()).apply()
     }
 
-    private fun seedMacs(): List<MacDevice> = listOf(
-        MacDevice("mbp", "MacBook Pro（工作）", "上次 14:22", enabled = true),
-        MacDevice("mba", "MacBook Air（家）", "3 天前", enabled = true),
-    )
+    /**
+     * Empty, and deliberately so.
+     *
+     * This used to return two invented Macs -- "MacBook Pro（工作）· 上次 14:22" --
+     * which the home screen then displayed as the machines this phone could unlock.
+     * On a phone that had never been paired with anything, that is a screen making up
+     * a security relationship. No pairing store exists yet, so the truthful answer is
+     * that this phone knows of no Macs, and the screens say that.
+     */
+    private fun seedMacs(): List<MacDevice> = emptyList()
 
     private companion object {
         const val KEY_PAIRED = "paired"

@@ -4,6 +4,7 @@ import {
   normalizeUnlockSnapshot,
   deriveUnlockView,
   deriveGlobalBanner,
+  healthClass,
   beginRequest,
   finishRequest,
   failRequest,
@@ -255,4 +256,31 @@ test('every remediation primitive has a label except leave-it-alone', () => {
   assert.equal(remediationLabel({ kind: 'revoke-device' }), '撤销这台设备')
   assert.equal(remediationLabel({ kind: 'uninstall-and-restore' }), '移除手机钥匙并还原系统设置')
   assert.equal(remediationLabel({ kind: 'leave-it-alone' }), null)
+})
+
+// ---- health colours are actually painted --------------------------------
+//
+// healthClass returned 'bad' for a broken component from the first version, and
+// phone-key.css had no rule for it. So the row meaning "this Mac may open with
+// no password right now" was drawn in the same colour as "已就位" -- the class
+// was emitted and nothing painted it, which no type checker can catch.
+
+test('every class healthClass can emit has a rule in phone-key.css', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { fileURLToPath } = await import('node:url')
+  const css = readFileSync(
+    fileURLToPath(new URL('../phone-key.css', import.meta.url)), 'utf8')
+  for (const health of ['ok', 'degraded', 'broken', 'unknown']) {
+    const cls = healthClass(health)
+    if (!cls) continue // 'unknown' deliberately inherits the default colour
+    assert.ok(
+      css.includes(`dd.${cls}`),
+      `healthClass('${health}') returns '${cls}' but phone-key.css never styles dd.${cls}`,
+    )
+  }
+})
+
+test('broken and ok do not share a class', () => {
+  assert.notEqual(healthClass('broken'), healthClass('ok'))
+  assert.notEqual(healthClass('degraded'), healthClass('ok'))
 })

@@ -515,3 +515,17 @@ export function remediationLabel(remediation: Remediation): string | null {
     case 'leave-it-alone': return null
   }
 }
+
+
+/**
+ * The CSS class a component's health renders as.
+ *
+ * Lives here rather than in the panel so a test can check the other half of the
+ * contract: every class this can return must have a rule in phone-key.css. It
+ * returned 'bad' for a broken component from the start, and nothing styled it,
+ * so the row that means "this Mac may open with no password right now" was
+ * drawn in the same colour as "已就位".
+ */
+export function healthClass(health: string): string {
+  return health === 'ok' ? 'good' : health === 'broken' ? 'bad' : health === 'degraded' ? 'warn' : ''
+}
