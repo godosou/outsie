@@ -68,10 +68,32 @@ class BleSpikeService : Service() {
     }
 
     /**
-     * Re-mints the tag when the window rolls. Android's legacy advertiser has no way to
-     * swap the payload in place, so this stops and restarts the set; the Mac's ±1 window
-     * tolerance covers the sub-second gap. The restart also draws a fresh RPA, which no
-     * longer matters -- identity is the key, not the address.
+     * Re-mints the tag when the window rolls, by stopping and restarting advertising.
+     * The Mac's ±1 window tolerance covers the 1-3s gap that costs. The restart also
+     * draws a fresh private address, which no longer matters for identity -- that is
+     * the key -- and is mildly good for privacy, since rotating every 30s is harder to
+     * follow than the system's own ~15 minute schedule.
+     *
+     * TRIED AND REVERTED: startAdvertisingSet + setAdvertisingData, swapping the ten
+     * payload bytes in place so the instance and its address survive. The theory was
+     * that churning the advertising instance caused the multi-second holes the Mac
+     * sees. Measured over 150s each, phone motionless 1m away:
+     *
+     *   stop/start, MEDIUM   p50 0.27  p90 2.98  p99 6.29  max 9.29   n=146   6 addrs
+     *   in-place,   MEDIUM   p50 1.23  p90 3.93  p99 7.49  max 8.29   n= 89   1 addr
+     *   in-place,   HIGH     p50 1.23  p90 4.23  p99 7.82  max 9.29   n= 89   1 addr
+     *
+     * The holes did not move. Raising tx power did not move them either (it only
+     * lifted median RSSI from -67 to -62). What did change was throughput: in-place
+     * cost 39% of the sightings, and pinning one address is slightly worse for
+     * privacy than forcing a rotation every window.
+     *
+     * So the holes are not this phone's doing. During the same capture the Mac saw
+     * 3177 advertisements from 230 other devices with a worst-case gap of 0.57s --
+     * its radio never went quiet. A single advertiser is limited by how often its
+     * packets land inside a scan window, and that tail is macOS's to set, not ours.
+     * No phone-side knob reaches it, which is why the presence decision must not be
+     * built on packet recency alone. See docs/validation/2026-09-10-scan-cadence.md.
      */
     private val rotate = object : Runnable {
         override fun run() {

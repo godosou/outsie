@@ -140,30 +140,52 @@ grep -qiE 'REQUIRE_AUTH|SKIP_AUTH|AUTH_OPTIONAL' "${BRIDGE}" \
     && bad "no opt-out for the auth gate" "found a bypass variable" \
     || ok "no opt-out for the auth gate"
 
-# 13. The staleness threshold has to sit between the radio's measured noise floor
-#     and the plugin's own freshness bound.
+# 13. The staleness threshold has to clear the radio's measured noise floor, and
+#     must not outlive the beacon's own validity.
 #
-#     Below the noise floor it fires on ordinary scan gaps -- a 5-minute capture
-#     on 2026-09-10 saw a 8.98s gap with the phone motionless 1m away, so at the
-#     old default of 8 the screen demanded a password roughly every 2.5 minutes
-#     for no reason. At or above the plugin's PERMIT_FRESHNESS_S it stops adding
-#     anything, because the permit has already aged out by itself.
+#     Under the noise floor it fires on ordinary scan gaps: a capture on
+#     2026-09-10 saw 9.3s between sightings with the phone motionless 1m away, so
+#     the original 8 asked for a password roughly every 2.5 minutes for no
+#     reason. That tail is macOS's and cannot be reduced from the phone
+#     (docs/validation/2026-09-10-scan-cadence.md).
 #
-#     The upper bound is read out of plugin.c rather than written here, so
-#     changing it there fails this test instead of silently disarming the check.
+#     The ceiling is 2*WINDOW. A verified beacon is accepted across the current
+#     window +/-1, so up to that point this value grants nothing a replayed
+#     beacon would not already grant. Past it, it does.
+#
+#     An earlier version capped this at the plugin's PERMIT_FRESHNESS_S instead,
+#     on the theory that the permit aged out first. It does not: while the bridge
+#     believes the phone is present it re-touches the permit every REFRESH_S. The
+#     wrong ceiling is what pinned the default underneath the noise floor.
+#
+#     Both bounds are read from the files that own them, so moving either one
+#     fails this test rather than silently disarming it.
 MEASURED_MAX_GAP_S=9
-PLUGIN_C="${HERE}/../../../native/macos/minimal-auth-plugin/plugin.c"
+VERIFIER="${HERE}/presence-verify.swift"
 default_stale="$(grep -o 'REPOSE_STALE_S:-[0-9]*' "${BRIDGE}" | head -1 | grep -o '[0-9]*$')"
+window="$(grep -o 'let windowSeconds: Int64 = [0-9]*' "${VERIFIER}" 2>/dev/null | grep -o '[0-9]*$')"
+if [ -z "${default_stale}" ] || [ -z "${window}" ]; then
+    bad "staleness clears the noise floor without outliving the beacon" \
+        "could not read stale=${default_stale:-?} window=${window:-?}"
+elif [ "${default_stale}" -gt "${MEASURED_MAX_GAP_S}" ] && [ "${default_stale}" -le "$((window * 2))" ]; then
+    ok "staleness (${default_stale}s) clears the measured ${MEASURED_MAX_GAP_S}s gap and stays within the beacon's $((window * 2))s validity"
+else
+    bad "staleness clears the noise floor without outliving the beacon" \
+        "stale=${default_stale} must be >${MEASURED_MAX_GAP_S} and <=$((window * 2))"
+fi
+
+# 14. Whatever STALE_S is, a bridge that dies must still stop granting entry.
+#     That guarantee comes from the plugin ageing the permit out, not from this
+#     script, so it must hold without the bridge running at all.
+PLUGIN_C="${HERE}/../../../native/macos/minimal-auth-plugin/plugin.c"
 freshness="$(grep -o '#define PERMIT_FRESHNESS_S[[:space:]]*[0-9]*' "${PLUGIN_C}" 2>/dev/null \
     | grep -o '[0-9]*$')"
-if [ -z "${default_stale}" ] || [ -z "${freshness}" ]; then
-    bad "staleness sits between the noise floor and the permit's freshness" \
-        "could not read stale=${default_stale:-?} freshness=${freshness:-?}"
-elif [ "${default_stale}" -gt "${MEASURED_MAX_GAP_S}" ] && [ "${default_stale}" -lt "${freshness}" ]; then
-    ok "staleness (${default_stale}s) is above the measured ${MEASURED_MAX_GAP_S}s gap and below the permit's ${freshness}s freshness"
+refresh="$(grep -o 'REPOSE_REFRESH_S:-[0-9]*' "${BRIDGE}" | head -1 | grep -o '[0-9]*$')"
+if [ -n "${freshness}" ] && [ -n "${refresh}" ] && [ "${refresh}" -lt "${freshness}" ]; then
+    ok "a dead bridge fails closed in ${freshness}s (refresh ${refresh}s < freshness)"
 else
-    bad "staleness sits between the noise floor and the permit's freshness" \
-        "stale=${default_stale} must be >${MEASURED_MAX_GAP_S} and <${freshness}"
+    bad "a dead bridge fails closed" \
+        "refresh=${refresh:-?} must be < plugin freshness=${freshness:-?}"
 fi
 
 echo

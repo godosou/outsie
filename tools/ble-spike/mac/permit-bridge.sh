@@ -51,27 +51,42 @@
 # synthetic RSSI, so all of the hysteresis/staleness logic is checked with no
 # radio and no VM.
 #
-# WHY 12, AND WHY 8 WAS WRONG
-# ---------------------------
-# STALE_S was 8. A 5-minute capture with the phone sitting still 1m away
-# (2026-09-10, 342 samples) measured the interval between advertisements as
-# p50 0.13s, p90 2.99s, p99 6.67s, max 8.98s -- and TWO gaps at or over 8s.
-# So at 8s the bridge would decide the phone had left roughly every 2.5
-# minutes while it lay motionless on the desk, and the screen would ask for a
-# password with the phone right there.
+# WHY 45
+# ------
+# The two errors this number can make are not symmetric.
 #
-# That silence is not the phone. CoreBluetooth delivers discoveries in bursts
-# and then goes quiet for seconds; p50 of 0.13s next to a max of 9s is a duty
-# cycle, not a fading signal. A threshold underneath that noise floor cannot
-# tell "gone" from "between bursts", so it produces only false alarms.
+# Too long: someone who has walked away stays "present" a while longer.
+# Too short: someone sitting at their desk, phone in their pocket, gets asked
+# for a password for no reason -- repeatedly, in the middle of working.
 #
-# Raising it costs nothing in security, because STALE_S is NOT the bound on how
-# long a departed phone stays "present". The plugin's PERMIT_FRESHNESS_S (15s)
-# is: the permit ages out on its own once this bridge stops refreshing it,
-# whether or not the bridge ever notices. STALE_S only makes the withdrawal
-# earlier than that. So the useful range is (observed max gap, freshness), and
-# permit-bridge-test.sh asserts the default stays inside it -- reading the 15
-# out of plugin.c, so changing that value there fails a test here.
+# It started at 8. A capture with the phone motionless 1m away measured the
+# interval between sightings as p99 ~7s and max ~9.3s, so 8 meant the bridge
+# declared the phone gone roughly every 2.5 minutes while it lay on the desk.
+# docs/validation/2026-09-10-scan-cadence.md establishes that this tail belongs
+# to macOS's scan cadence for a single advertiser and cannot be reduced from the
+# phone: address stability, tx power and in-place payload updates were each
+# tried and none of them moved it.
+#
+# So any packet-recency threshold under about 10s is guaranteed to fire on a
+# phone that never went anywhere. 45 leaves roughly 5x margin over a tail that
+# was only sampled for a few minutes and will be worse over a workday.
+#
+# WHAT 45 DOES NOT COST
+#
+# A verified beacon is already accepted across the current window +/-1, so a
+# captured one stays usable for up to 2*WINDOW = 60s no matter what this value
+# is. Anything up to 60s therefore grants no exposure the design has not already
+# accepted (see the design's replay section). Beyond 60s it would, which is the
+# real ceiling -- and permit-bridge-test.sh reads WINDOW out of the verifier and
+# asserts it.
+#
+# It also does not weaken the dead-bridge case. While the bridge believes the
+# phone is present it re-touches the permit every REFRESH_S, so the permit stays
+# fresh through these gaps. If the bridge dies, nothing refreshes and the permit
+# ages out at the plugin's PERMIT_FRESHNESS_S (15s) regardless of STALE_S. An
+# earlier version of this comment claimed STALE_S had to stay under that 15s;
+# that was wrong, and it had the effect of pinning the default underneath the
+# noise floor.
 #
 # CALIBRATION IS NOT DONE (that is B3). The thresholds below are conservative
 # placeholders tied to the spike's MEDIUM tx power (rssi at ~1 m measured -84..-77
@@ -81,9 +96,9 @@ set -uo pipefail
 
 NEAR_DBM="${REPOSE_NEAR_DBM:--72}"     # >= this: near enough to count as present
 FAR_DBM="${REPOSE_FAR_DBM:--85}"       # <= this: far enough to count as gone
-STALE_S="${REPOSE_STALE_S:-12}"        # no sample for this long -> treat as gone
-                                       # (see "WHY 12" below; it was 8, which was
-                                       # under the radio's own noise floor)
+STALE_S="${REPOSE_STALE_S:-45}"        # no sample for this long -> treat as gone
+                                       # (see "WHY 45" below; being wrong here
+                                       # interrupts someone who is working)
 REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while present
                                        # (must be < plugin's PERMIT_FRESHNESS_S=15)
 

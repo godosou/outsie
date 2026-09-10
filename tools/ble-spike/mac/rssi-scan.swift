@@ -36,6 +36,11 @@ let presenceUUID = CBUUID(string: "FFF0")
 let presenceVersion: UInt8 = 0x01
 let tagLen = 8
 
+/// Scan every advertiser instead of letting the kernel filter to ours. See
+/// beginScan() for why: it is the only way to tell a quiet radio from a departed
+/// phone.
+var scanAll = false
+
 func log(_ msg: String) {
     let ts = ISO8601DateFormatter().string(from: Date())
     FileHandle.standardError.write("[\(ts)] \(msg)\n".data(using: .utf8)!)
@@ -50,12 +55,19 @@ final class Scanner: NSObject, CBCentralManagerDelegate {
     func start() { central = CBCentralManager(delegate: self, queue: nil) }
 
     private func beginScan() {
-        // The UUID-list AD is what this filter matches; service data alone does not
-        // satisfy `withServices:`, which is why the beacon carries both.
+        // Filtered: the UUID-list AD is what `withServices:` matches; service data
+        // alone does not satisfy it, which is why the beacon carries both.
+        //
+        // Unfiltered: see everything, and mark which rows are ours. Costs more
+        // callbacks; buys the one thing a filtered scan can never tell you --
+        // whether the radio is delivering at all. Without it, "the phone left"
+        // and "CoreBluetooth went quiet" are the same observation, and the
+        // staleness timeout has to be tuned against the larger of the two.
         central.scanForPeripherals(
-            withServices: [presenceUUID],
+            withServices: scanAll ? nil : [presenceUUID],
             options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
-        log("SCANNING for service \(presenceUUID.uuidString)")
+        log(scanAll ? "SCANNING all advertisers (ours: \(presenceUUID.uuidString))"
+                    : "SCANNING for service \(presenceUUID.uuidString)")
     }
 
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
@@ -112,7 +124,8 @@ while let flag = args.first {
         duration = v
         args.removeFirst()
     } else {
-        log("usage: rssi-scan [--duration SECONDS]")
+        if flag == "--all" { scanAll = true; continue }
+        log("usage: rssi-scan [--duration SECONDS] [--all]")
         exit(64)
     }
 }
