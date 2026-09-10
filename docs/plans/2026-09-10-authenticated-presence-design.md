@@ -161,9 +161,20 @@ is still caught here unless P-256 ECDH itself is broken. Failure ⇒ abort, pers
   `localStorage` (R-P7).**
 - `K` — written to a **root-only `0600` file owned by the presence scanner/bridge** (e.g.
   `/var/db/repose-unlock/presence-key.<keyId>`), because the scanner runs as root and cannot
-  read the login user's Keychain. `K` is the **lower-value** secret — it proves proximity only;
-  a full unlock still requires the identity-key challenge/response — so a root-file placement
-  is acceptable while the identity private keys stay in hardware.
+  read the login user's Keychain.
+
+  **Correction (verified against this branch's source).** An earlier version of this paragraph
+  called `K` the "lower-value" secret because "a full unlock still requires the identity-key
+  challenge/response". **There is no such challenge/response on this branch, and §2 of this same
+  document rules it out** — discovery p95 5.4 s plus connect/read means it does not fit the
+  unlock budget, which is why the authenticator was moved into the advertisement in the first
+  place. Two claims in one document cannot both be true.
+
+  So `K` is not a lower-value secret. It **is** the unlock authorization: anyone who can mint a
+  currently-valid beacon can get in with an empty password. A root-only `0600` file is still the
+  practical choice — the scanner runs as root and cannot reach the login Keychain — but it must
+  be justified on its own terms (root compromise already ends the game on this machine), not by
+  a backstop that does not exist.
 
 `deviceId`, `MacId` = stable 16-byte opaque ids (codex `DeviceId`/`MacId`), **not** the
 rotating BT address.
@@ -427,8 +438,14 @@ truncated HMAC tag. It learns nothing about `K` (HMAC is a PRF; 8–16 bytes of 
 predictable counter does not reveal the 256-bit key), cannot mint a tag for a *future* window,
 and cannot forge one for the current window better than 2⁻⁶⁴ (8-byte tag). It **can** replay a
 captured tag for ≤ ~60 s (§4.1) — bounded by the short window, the RSSI gate, and per-attempt
-permit consume, and in any case buying only "presence," never an unlock (which needs the
-non-replayable identity challenge/response).
+permit consume.
+
+**Correction.** This previously ended "buying only 'presence,' never an unlock (which needs the
+non-replayable identity challenge/response)". That downgrade was wrong for the same reason as
+the one in §5: no identity challenge/response exists here. Replaying a captured tag inside its
+window does not buy "the Mac believes my phone is nearby" — it buys **an empty-password entry
+for that window**. The window length is therefore the whole of the replay defence, which is why
+§4.1 shortens it rather than leaning on a second factor.
 
 **An attacker cloning the UUID** — broadcasting `FFF0` (or the old public 128-bit UUID) with a
 made-up or absent tag — is now **rejected**: the Mac requires a tag that verifies against a `K`
