@@ -32,7 +32,25 @@ set -uo pipefail
 APP="${REPOSE_VM_APP:-tart}"
 SSH="${REPOSE_SSH:-}"
 
+# Optional password to type before pressing Return. With none, an empty field is
+# submitted, which is the product gesture. With one, this becomes a way to test
+# that the ordinary password path still works -- the claim that a broken plugin
+# never locks anybody out needs evidence, not assurance.
+PASSWORD="${1:-}"
+
 osa() { osascript -e "$1" >/dev/null 2>&1; }
+
+# Re-assert focus immediately before every batch of keys. Checking once at the
+# start is not enough: the gesture takes a couple of seconds, and whatever was
+# frontmost before can take it back in between, at which point the keys land
+# there instead. Observed happening thirty seconds after a successful run.
+focus() {
+  osa "tell application \"System Events\" to tell process \"${APP}\" to set frontmost to true"
+  sleep 0.4
+  local f
+  f="$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)"
+  [ "$f" = "$APP" ]
+}
 
 # Seconds since the guest last saw any HID input. Empty if unreadable.
 guest_idle() {
@@ -54,13 +72,9 @@ fi
 
 before="$(guest_idle)"
 
-osa "tell application \"System Events\" to tell process \"${APP}\" to set frontmost to true"
-sleep 0.6
-
-front="$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)"
-if [ -n "$front" ] && [ "$front" != "$APP" ]; then
-  echo "vm-wake-submit: could not bring ${APP} to the front (still '${front}')." >&2
-  echo "  Keystrokes would land in ${front}, and the acceptance test would read" >&2
+if ! focus; then
+  echo "vm-wake-submit: could not bring ${APP} to the front." >&2
+  echo "  Keystrokes would land elsewhere, and the acceptance test would read" >&2
   echo "  that as the Mac failing to unlock. Click the VM window once and rerun." >&2
   exit 1
 fi
@@ -71,13 +85,21 @@ sleep 1.5
 
 # Clear the field. A single leftover character silently turns "submit an empty
 # password" into "submit a one-character password", which is a different test.
+focus || { echo "vm-wake-submit: lost focus before clearing the field" >&2; exit 1; }
 for _ in $(seq 1 24); do
   osa 'tell application "System Events" to key code 51'
 done
 sleep 0.4
 
-# Return with nothing typed. The mechanism decides; the password path only sees
+if [ -n "$PASSWORD" ]; then
+  focus || { echo "vm-wake-submit: lost focus before typing the password" >&2; exit 1; }
+  osa "tell application \"System Events\" to keystroke \"${PASSWORD}\""
+  sleep 0.4
+fi
+
+# Return. With an empty field the mechanism decides; the password path only sees
 # this if the mechanism denies.
+focus || { echo "vm-wake-submit: lost focus before submitting" >&2; exit 1; }
 osa 'tell application "System Events" to key code 36'
 sleep 1
 
