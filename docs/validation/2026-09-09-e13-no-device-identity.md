@@ -37,6 +37,34 @@ permit 本身已经做得相当扎实：root 属主、15 秒新鲜度、root-onl
 
 把这两件事分清楚很重要，否则「permit 已加固」会被误读成「在场判定已安全」。
 
+## 更严重的一层：界面已经向用户承诺了这把钥匙
+
+手机端的 Phone Key 配对界面（`PairingScreen.kt`）当前显示：
+
+> 确认这是同一台设备
+> Mac 上现在应当显示下面这串。不一致就别继续。
+> 配对码 **UMX5EW**
+> Repose 不用蓝牙地址认设备——地址每几分钟自己变一次。**认的是配对时交换的那把钥匙。**
+> 〔一致，完成配对〕
+
+**这把钥匙不存在。** 源码自己说得很清楚，`PairingScreen.kt:15` 的注释：
+
+> confirming just flips the local "paired" flag and drops the user onto the guarding home.
+
+「完成配对」执行的全部动作是 `store.paired = true`（第 79 行）。配对码由
+`AppStore.pairingCode` 在本机用一个字母表随机生成并存进 SharedPreferences，
+**从未发送给 Mac、从未被比对、不参与任何判定** —— 所以「Mac 上现在应当显示下面这串」
+这句话不成立，Mac 根本不知道这串码。设备列表同样是 `seedMacs()` 造的种子数据。
+
+全仓库（`tools` / `native` / `src-tauri` / `src`）grep `P-256|ecdsa|KeyPairGenerator|SecKey|CryptoKit`
+**零命中**。Phone Key UI 那次提交的 1199 行全部是界面代码。
+
+这一层比「功能缺失」更需要认真对待：**界面向用户做出了实现并不支持的安全承诺**，
+而且承诺的正是本文档指出缺失的那件事。这与旧分支 validation 文档「声称没装过任何东西、
+实际装了」是同一类错误，区别在于这次是给用户看的。
+
+在密钥交换真正实现之前，这段文案必须改成如实描述，或者这个界面不应出现在任何人手里。
+
 ## 为什么之前没暴露
 
 到目前为止的每一次实测，手机都是**我们自己的**那台。实验设计从来没有引入过第二台设备，
