@@ -1,0 +1,16 @@
+{
+  "note": "Public, deterministic interoperability values for repose-presence-v1, test-only; NEVER a production key. The expected tags were computed by an independent HMAC-SHA256 reference (Python hmac), so a passing --self-test proves the Swift verifier matches the standard. Mirrors codex protocol/fixtures/v1 discipline.",
+  "protocol": "repose-presence-v1",
+  "beacon_label": "repose-presence-v1 beacon",
+  "window_seconds": 30,
+  "presence_key_test_only": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "key_id": 1,
+  "unix_time_seconds": 1700000000,
+  "counter": 56666666,
+  "counter_be_hex": "000000000360aa2a",
+  "beacon_message_hex": "7265706f73652d70726573656e63652d763120626561636f6e01000000000360aa2a",
+  "hmac_sha256_full_hex": "b358a3906712625b3c973b9a8859b2d88802b53ab4ef41c5144d41d4c6aa567a",
+  "tag_len_8_hex": "b358a3906712625b",
+  "tag_len_16_hex": "b358a3906712625b3c973b9a8859b2d8",
+  "service_data_16_payload_hex": "0101b358a3906712625b"
+}
