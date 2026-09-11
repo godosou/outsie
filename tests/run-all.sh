@@ -84,6 +84,14 @@ run "presence beacon verifier (known-answer vectors)" \
 run "presence verifier behaviour" tools/ble-spike/mac/presence-verify-test.sh
 run "permit bridge auth + proximity gates" tools/ble-spike/mac/permit-bridge-test.sh
 
+# Pairing arithmetic, both languages, each against vectors OpenSSL produced --
+# never against each other. Two implementations wrong the same way agree
+# perfectly; a third opinion is the only thing that catches it.
+run "pairing crypto, mac side (known-answer vectors)" \
+    tools/ble-spike/mac/pair-crypto --self-test
+run "pairing crypto, phone side (same vectors, JVM)" \
+    env -C tools/ble-spike/android ./gradlew --no-daemon -q testGenuineDebugUnitTest
+
 if [ "$ALL" = "1" ]; then
   run "mac BLE scanner compiles" \
       swiftc -O tools/ble-spike/mac/rssi-scan.swift -o /tmp/rssi-scan-check \
@@ -103,6 +111,8 @@ if [ ${#FAILED[@]} -eq 0 ]; then
   echo "  - does macOS load an ad-hoc signed Authorization Plugin   (needs the VM)"
   echo "  - does the phone keep advertising in Doze                 (needs the phone)"
   echo "  - has any real screen ever been unlocked by this          (needs both)"
+  echo "  - has the pairing exchange ever run over the radio         (needs the phone;"
+  echo "    the arithmetic agrees, the transport is not built yet)"
   echo "  - do the phone and the Mac agree on the beacon pre-image, and is an"
   echo "    unprovisioned device actually refused on the air        (needs the phone:"
   echo "      sudo -v && tests/e2e/impersonation_test.sh)"

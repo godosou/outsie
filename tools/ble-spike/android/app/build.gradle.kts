@@ -28,6 +28,11 @@ android {
 
     sourceSets {
         getByName("main").kotlin.srcDirs("src/main/kotlin")
+        getByName("test").kotlin.srcDirs("src/test/kotlin")
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     buildTypes {
@@ -58,4 +63,11 @@ android {
             resValue("string", "app_name", "BLE Imposter")
         }
     }
+}
+
+// The pairing arithmetic is pure JVM -- no Android APIs -- so it is tested off
+// the device, against vectors OpenSSL produced. That keeps the cross-language
+// agreement in the ordinary test run instead of behind a phone and a radio.
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }
