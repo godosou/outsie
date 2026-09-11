@@ -502,7 +502,7 @@ export type UnlockDesktopBridge = {
   confirmPairing: () => Promise<unknown>
   cancelPairing: () => Promise<void>
   calibrateSample: (value: { kind: 'near' | 'far' }) => Promise<unknown>
-  startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<void>
+  startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<unknown>
   openBluetoothSettings: () => Promise<void>
   onSnapshot: (cb: (snapshot: unknown) => void) => () => void
   onPresence: (cb: (presence: unknown) => void) => () => void

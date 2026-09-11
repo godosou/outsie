@@ -1657,15 +1657,69 @@ pub fn unlock_calibrate_sample(value: CalibrateArgs) -> Result<CalibrationReport
     Ok(CalibrationReport { separable: true, margin_db: 12.0, samples: 20 })
 }
 
+/// Can this Mac be locked, and by what?
+///
+/// `sysadminctl -screenLock status` needs neither root nor a password, and its
+/// answer decides whether locking is even meaningful: with a non-zero delay,
+/// putting the display to sleep leaves the session UNLOCKED for the grace
+/// period. The drill would then blank the screen, the user would press a key,
+/// and nothing would have been tested.
+///
+/// Pure so the parsing is checked without a Mac in each condition -- including
+/// the one that matters most, where the output is something we did not expect
+/// and the safe reading is "do not claim to have locked anything".
+pub fn lock_readiness(screen_lock_status: Option<&str>) -> Result<(), &'static str> {
+    let Some(text) = screen_lock_status else {
+        return Err("问不出这台 Mac 的锁屏设置，没有锁屏。");
+    };
+    if text.contains("immediate") {
+        return Ok(());
+    }
+    if text.contains("is off") || text.contains("screenLock is off") {
+        Err("这台 Mac 没有开启「需要密码」，锁屏不会要密码，演练没有意义。\
+             先在系统设置里把它打开。")
+    } else {
+        Err("这台 Mac 的锁屏密码有延迟，屏幕变黑之后还有一段时间不锁。\
+             把它设成「立即」，手机钥匙才谈得上。")
+    }
+}
+
+/// Lock the screen for the verification drill.
+///
+/// WHAT THIS USED TO DO, AND WHY IT DID NOTHING
+///
+/// It asked System Events to press control-command-Q. That needs Accessibility
+/// permission for this app, which nobody had granted, so the call failed --
+/// and the result was discarded with `let _`, so the button reported nothing at
+/// all. Pressing 「锁屏，试一次」 did exactly nothing, visibly and repeatedly.
+///
+/// `pmset displaysleepnow` needs no permission. It only LOCKS when the
+/// screen-lock delay is immediate, which is why lock_readiness runs first
+/// rather than after -- and why a Mac that cannot be locked is told so instead
+/// of being blanked.
+///
+/// It also has to run as the console user: this process is in that session
+/// already, but the same call from the presence pipeline's root half is not,
+/// which is why permit-bridge.sh wraps it in `launchctl asuser`.
+///
+/// NOT ScreenSaverEngine. tools/vm-spike/vm-env.sh recommends `open -a
+/// ScreenSaverEngine`, verified on 14.6.1 in a VM. This Mac is macOS 26, where
+/// that command returns success and does not lock -- which is how the phone's
+/// lock button appeared to work in the logs and never moved the screen.
 #[tauri::command]
-pub fn unlock_drill_start(value: DrillArgs) {
-    // Real drills need the daemon (Step 9, real Mac). Today just lock the screen
-    // via the existing gesture; the drill-result event is emitted tomorrow.
+pub fn unlock_drill_start(value: DrillArgs) -> Result<(), UnlockError> {
     let _ = value.kind;
-    let _ = run_status(
-        "/usr/bin/osascript",
-        &["-e", "tell application \"System Events\" to key code 12 using {control down, command down}"],
-    );
+    let status = run_capture("/usr/sbin/sysadminctl", &["-screenLock", "status"]);
+    lock_readiness(status.as_deref())
+        .map_err(|m| UnlockError::new(UnlockErrorCode::Unsupported, m))?;
+
+    match run_status("/usr/bin/pmset", &["displaysleepnow"]) {
+        Ok(true) => Ok(()),
+        _ => Err(UnlockError::new(
+            UnlockErrorCode::Unsupported,
+            "没有锁上屏幕。这一步不需要任何权限，失败通常意味着系统拒绝了请求。",
+        )),
+    }
 }
 
 #[tauri::command]
@@ -1898,6 +1952,29 @@ mod tests {
         let c = find(&a, ComponentId::Transport);
         assert!(!c.detail.contains("开发密钥"), "a paired key is not a dev key: {}", c.detail);
         assert!(c.detail.contains("配对"), "should say it is paired: {}", c.detail);
+    }
+
+    // ---- locking ------------------------------------------------------------
+
+    #[test]
+    fn a_mac_that_cannot_lock_is_told_so_rather_than_blanked() {
+        // The drill exists to prove macOS really consults the plugin. With a
+        // non-zero lock delay the session stays unlocked through the grace
+        // period, so the screen would go dark, the user would press a key, and
+        // nothing would have been tested -- while the panel said it had run.
+        assert!(lock_readiness(Some("screenLock delay is immediate")).is_ok());
+        assert!(lock_readiness(Some("screenLock delay is 300 seconds")).is_err());
+        assert!(lock_readiness(Some("screenLock is off")).is_err());
+    }
+
+    #[test]
+    fn an_unreadable_lock_setting_never_reads_as_ready() {
+        // The one that matters: output we did not anticipate. Guessing "ok"
+        // here would put the drill back to blanking the screen and calling it
+        // a test.
+        assert!(lock_readiness(None).is_err());
+        assert!(lock_readiness(Some("")).is_err());
+        assert!(lock_readiness(Some("some future wording")).is_err());
     }
 
     #[test]

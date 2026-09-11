@@ -153,7 +153,7 @@ export async function initializeDesktopBridge() {
     confirmPairing: () => invoke<unknown>('unlock_pair_confirm'),
     async cancelPairing() { await invoke('unlock_pair_cancel') },
     calibrateSample: value => invoke<unknown>('unlock_calibrate_sample', { value }),
-    async startDrill(value) { await invoke('unlock_drill_start', { value }) },
+    startDrill: value => invoke<unknown>('unlock_drill_start', { value }),
     async openBluetoothSettings() { await invoke('unlock_open_bluetooth_settings') },
     onSnapshot(callback) { unlockSnapshotCallbacks.add(callback); return () => unlockSnapshotCallbacks.delete(callback) },
     onPresence(callback) { unlockPresenceCallbacks.add(callback); return () => unlockPresenceCallbacks.delete(callback) },

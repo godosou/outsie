@@ -180,8 +180,17 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
         break
       case 'resume': void run(command, () => bridge.setEnabled({ enabled: true })); break
       case 'open-bluetooth-settings': void bridge.openBluetoothSettings(); break
-      case 'start-password-drill': void bridge.startDrill({ kind: 'password-drill' }); break
-      case 'start-phone-drill': void bridge.startDrill({ kind: 'phone-drill' }); break
+      // Through `run`, so a refusal reaches the user.
+      //
+      // These used to be fire-and-forget. The drill asked System Events for a
+      // key combination, which needs Accessibility permission nobody had
+      // granted, so it failed every time -- and the discarded result meant
+      // 「锁屏，试一次」 did visibly nothing, over and over, with no way to find
+      // out why.
+      case 'start-password-drill':
+        void run(command, () => bridge.startDrill({ kind: 'password-drill' })); break
+      case 'start-phone-drill':
+        void run(command, () => bridge.startDrill({ kind: 'phone-drill' })); break
       case 'begin-pairing': void startPairing(); break
       case 'calibrate': void run(command, () => bridge.calibrateSample({ kind: 'far' })); break
     }

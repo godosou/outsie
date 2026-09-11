@@ -104,7 +104,20 @@ REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while p
 
 # How presence is asserted / withdrawn on the target. Defaults assume the VM
 # harness has REPOSE_SSH exported (tools/vm-spike/vm-env.sh).
-LOCK_CMD="${REPOSE_LOCK_CMD:-launchctl asuser \$(stat -f %u /dev/console) /usr/bin/open -a /System/Library/CoreServices/ScreenSaverEngine.app}"
+# How the screen is locked when the phone asks.
+#
+# NOT ScreenSaverEngine. tools/vm-spike/vm-env.sh recommends
+# `open -a ScreenSaverEngine`, and that was verified -- on macOS 14.6.1, in a
+# VM. On macOS 26 the command returns success and does not lock, so this bridge
+# logged "command lock -> starting the screensaver" three times while the screen
+# stayed exactly where it was. A lock command that reports success without
+# locking is worse than one that fails.
+#
+# `pmset displaysleepnow` locks ONLY when the screen-lock delay is immediate --
+# which is the same precondition the whole feature rests on, and which
+# presence-pipeline.sh checks. With a delay, this blanks the screen and leaves
+# the session open, so the guard is not optional.
+LOCK_CMD="${REPOSE_LOCK_CMD:-launchctl asuser \$(stat -f %u /dev/console) /usr/bin/pmset displaysleepnow}"
 PERMIT_ON_CMD="${REPOSE_PERMIT_ON_CMD:-${REPOSE_SSH:-} 'sudo mkdir -p /var/run/repose-spike && sudo chmod 755 /var/run/repose-spike && sudo touch /var/run/repose-spike/permit'}"
 PERMIT_OFF_CMD="${REPOSE_PERMIT_OFF_CMD:-${REPOSE_SSH:-} 'sudo rm -f /var/run/repose-spike/permit'}"
 
@@ -161,7 +174,13 @@ run_command() {
             # Overridable so a test can prove the command reaches this branch
             # without actually locking the tester's screen -- the same seam
             # tools/vm-spike/vm-env.sh and tests/e2e/unlock_acceptance.sh use.
-            log "command lock -> starting the screensaver"
+            # Refuse rather than blank. See LOCK_CMD.
+            if ! sysadminctl -screenLock status 2>&1 | grep -q immediate; then
+                log "command lock REFUSED: this Mac's screen-lock delay is not immediate, \
+so sleeping the display would leave the session unlocked"
+                return
+            fi
+            log "command lock -> sleeping the display (screen lock is immediate)"
             eval "${LOCK_CMD}" >/dev/null 2>&1 || log "warn: lock command failed"
             ;;
     esac
