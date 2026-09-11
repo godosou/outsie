@@ -33,6 +33,11 @@ export function ShortcutsPanel({ bridge, onToast }: {
   // actionId null means "a new one"; the sheet then asks for its name too.
   const [recording, setRecording] = useState<{ appId: string; actionId: string | null; name: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  // Which app's keys are on screen. Everything used to be laid out flat, and
+  // with 87 actions across three apps the page was taller than four screens --
+  // a list you scroll past rather than read. Stored as an id, not an index, so
+  // removing an app cannot silently select a different one.
+  const [openApp, setOpenApp] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!bridge) { setLoaded(true); return }
@@ -91,6 +96,9 @@ export function ShortcutsPanel({ bridge, onToast }: {
         ...status.apps,
         { id, name: picked.name, bundleId: picked.bundleId, appPath: picked.path, actions: [] },
       ] } })
+      // Open it. An app added to a tab row you are not looking at is an app
+      // that looks like it was not added.
+      setOpenApp(id)
       await refresh()
     } catch (e) {
       onToast?.(typeof e === 'string' ? e : '没能加上')
@@ -112,6 +120,12 @@ export function ShortcutsPanel({ bridge, onToast }: {
       setRunning(null)
     }
   }, [bridge, onToast])
+
+  // The app whose keys are on screen. Falls back to the first, so the page is
+  // never a tab row with nothing beneath it — and a selection that has just
+  // stopped existing (its app was removed) resolves the same way instead of
+  // leaving the panel blank.
+  const open = status.apps.find(a => a.id === openApp) ?? status.apps[0] ?? null
 
   if (!bridge) {
     return (
@@ -177,27 +191,45 @@ export function ShortcutsPanel({ bridge, onToast }: {
           <div className="pk-device-empty">
             <p>
               一个操作就是「在某个 App 里按某几个键」，比如在终端里按 ⌃b 再按 % 来左右分屏。
-              编辑器还没做——现在读的是
-              <code> work-console-v1.json</code>，那是另一个分支写下的同一份文件。
+              先加一个 App，再往里面加操作。
             </p>
           </div>
         ) : (
           <div className="ks-apps">
-            {status.apps.map(app => (
-              <div className="ks-app" key={app.id}>
+            {/* One app at a time. Three apps and 87 actions laid out flat ran
+                past four screens, and a list that long is scrolled, not read. */}
+            <div className="ks-tabs" role="tablist" aria-label="选一个 App">
+              {status.apps.map(app => (
+                <button
+                  key={app.id}
+                  role="tab"
+                  aria-selected={app.id === open?.id}
+                  className={`ks-tab${app.id === open?.id ? ' is-open' : ''}`}
+                  onClick={() => setOpenApp(app.id)}
+                >
+                  {app.name}<span className="ks-tab-count">{app.actions.length}</span>
+                </button>
+              ))}
+              <button className="ks-tab ks-tab-add" disabled={busy} onClick={() => void addApp()}>
+                <Plus size={13} />App
+              </button>
+            </div>
+
+            {open && (
+              <div className="ks-app" key={open.id}>
                 <div className="ks-app-head">
-                  <p className="ks-app-name">{app.name}</p>
-                  <p className="ks-app-bundle">{app.bundleId}</p>
+                  <p className="ks-app-bundle">{open.bundleId}</p>
                   <button
                     className="text-button ks-app-remove"
                     disabled={busy}
-                    onClick={() => void mutate(apps => apps.filter(a => a.id !== app.id))}
+                    onClick={() => void mutate(apps => apps.filter(a => a.id !== open.id))}
                   >
                     <Trash2 size={13} />移掉这个 App
                   </button>
                 </div>
                 <div className="ks-actions">
-                  {app.actions.map(action => {
+                  {open.actions.map(action => {
+                    const app = open
                     const health = actionHealth(action)
                     return (
                       <div className={`ks-action${health === 'ok' ? '' : ' is-broken'}`} key={action.id}>
@@ -245,31 +277,33 @@ export function ShortcutsPanel({ bridge, onToast }: {
                       </div>
                     )
                   })}
-                  {app.actions.length === 0 && <p className="ks-none">这个 App 下面还没有操作。</p>}
+                  {open.actions.length === 0 && <p className="ks-none">这个 App 下面还没有操作。</p>}
                   <button
                     className="text-button ks-add-action"
                     disabled={busy}
                     // Not window.prompt: WKWebView leaves it to the host, and
                     // Tauri does not implement it -- the button would have done
                     // nothing at all, silently. The sheet asks for the name.
-                    onClick={() => setRecording({ appId: app.id, actionId: null, name: '' })}
+                    onClick={() => setRecording({ appId: open.id, actionId: null, name: '' })}
                   >
                     <Plus size={13} />加一个操作
                   </button>
                 </div>
               </div>
-            ))}
+            )}
           </div>
         )}
 
-        <button className="button outline full-width" disabled={busy} onClick={() => void addApp()} style={{ marginTop: 16 }}>
-          <Plus size={15} />加一个 App
-        </button>
+        {status.apps.length === 0 && (
+          <button className="button outline full-width" disabled={busy} onClick={() => void addApp()} style={{ marginTop: 16 }}>
+            <Plus size={15} />加一个 App
+          </button>
+        )}
 
         {/* Said here rather than in a footnote: someone looking at these buttons
-            is about to assume their phone can already press them. */}
+            is about to assume they take effect on every phone. */}
         <p className="security-limit" style={{ marginTop: 18 }}>
-          从手机上按，还没做。现在只能在这台 Mac 上试。
+          手机上要先同步一次才看得到这些按钮；哪部手机可以按，在「手机控制」里一部一部开。
         </p>
       </section>
 

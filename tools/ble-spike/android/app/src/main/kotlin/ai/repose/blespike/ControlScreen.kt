@@ -6,6 +6,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -31,22 +32,28 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
     lateinit var status: TextView
     var catalogue = console.received ?: ConsoleCatalogue.load(context)
 
-    val root = screenScaffold(context, pal, title = "", showTitle = false) { column ->
-        column.addView(
-            heroCard(
-                context, pal,
-                chip = "从这里按",
-                glyph = "🎛",
-                headline = "这台 Mac 能按的键",
-                body = "按钮是 Mac 上配的，改也要去 Mac 上改。",
-            ),
-            Ui.lp(top = context.dp(6)),
-        )
+    // NO HERO ON THIS SCREEN
+    //
+    // A hero is an answer to 「这是什么」, and it earns its height on a screen
+    // you open once. This one you open to press a button, and a 900px glyph
+    // above a sync card meant the first button started below the fold — on the
+    // one screen in the app where the buttons ARE the screen.
+    val root = screenScaffold(
+        context, pal,
+        title = "能按的键",
+        lead = "按钮是 Mac 上配的，改也要去 Mac 上改。",
+    ) { column ->
 
-        val statusCard = sectionCard(context, pal, "🔄", "和 Mac 同步")
+        // One line and one button, side by side. Syncing is something you do
+        // when the Mac's list changed; it does not deserve a card of its own
+        // above the thing you came here for.
+        val syncRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         status = Ui.secondary(context, pal, "")
-        statusCard.addView(status, Ui.lp(top = context.dp(12)))
-        statusCard.addView(
+        syncRow.addView(status, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+        syncRow.addView(
             // 「向 Mac 要一份」 described the mechanism. What the reader wants
             // is the outcome: these buttons come from the Mac, and this makes
             // them match what is on the Mac now (ui-conventions 3.4).
@@ -57,9 +64,9 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
                     status.text = console.lastError ?: "没能开始"
                 }
             },
-            Ui.lp(top = context.dp(12)),
+            Ui.lp(width = WRAP_CONTENT, left = context.dp(12)),
         )
-        column.addView(statusCard, Ui.lp(top = context.dp(14)))
+        column.addView(syncRow, Ui.lp(top = context.dp(10)))
 
         val cat = catalogue
         if (cat == null || cat.apps.isEmpty()) {
@@ -74,16 +81,51 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
                 Ui.lp(top = context.dp(14)),
             )
         } else {
-            for (app in cat.apps) {
-                val card = sectionCard(context, pal, "💻", app.name)
-                for (action in app.actions) {
+            // ONE APP AT A TIME
+            //
+            // Stacked flat, the three apps on this desk came to 87 buttons --
+            // longer than the phone's own app drawer, and every one of them a
+            // key that gets pressed on a computer. You pick the app first
+            // because that is how you already think about it: 「在终端里」,
+            // then which shortcut.
+            val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            val holder = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            val chipViews = ArrayList<TextView>(cat.apps.size)
+
+            fun show(index: Int) {
+                holder.removeAllViews()
+                chipViews.forEachIndexed { i, chip -> styleChip(context, pal, chip, i == index) }
+                // No heading on the card: the selected chip already says which
+                // app this is, and repeating it costs a row on every switch.
+                val card = Ui.card(context, pal)
+                cat.apps[index].actions.forEachIndexed { i, action ->
                     card.addView(
                         actionRow(context, pal, action),
-                        Ui.lp(top = context.dp(10)),
+                        Ui.lp(top = if (i == 0) 0 else context.dp(10)),
                     )
                 }
-                column.addView(card, Ui.lp(top = context.dp(14)))
+                holder.addView(card)
             }
+
+            cat.apps.forEachIndexed { i, app ->
+                val chip = TextView(context).apply {
+                    text = "${app.name}  ${app.actions.size}"
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setPadding(context.dp(14), context.dp(8), context.dp(14), context.dp(8))
+                    setOnClickListener { show(i) }
+                }
+                chipViews += chip
+                chips.addView(chip, Ui.lp(width = WRAP_CONTENT, left = if (i == 0) 0 else context.dp(8)))
+            }
+            column.addView(
+                HorizontalScrollView(context).apply {
+                    isHorizontalScrollBarEnabled = false
+                    addView(chips)
+                },
+                Ui.lp(top = context.dp(16)),
+            )
+            column.addView(holder, Ui.lp(top = context.dp(12)))
+            show(0)
         }
 
         column.addView(
@@ -119,6 +161,16 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
     refresh()
 
     return ScreenView(root, onState = { refresh() })
+}
+
+/** Selected or not, in one place, so the two states cannot drift apart. */
+private fun styleChip(context: Context, pal: Palette, chip: TextView, selected: Boolean) {
+    chip.background = Ui.rounded(if (selected) pal.accentSoft else pal.surfaceMuted, context.dpF(999f))
+    chip.setTextColor(if (selected) pal.textPrimary else pal.textSecondary)
+    chip.typeface = Typeface.create(
+        if (selected) "sans-serif-medium" else "sans-serif",
+        Typeface.NORMAL,
+    )
 }
 
 /** One button: what it does, which keys it is, and a press that only claims to send. */

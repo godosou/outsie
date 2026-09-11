@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3, Smartphone, Command } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3, Smartphone } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
 import { ShortcutsPanel } from './components/ShortcutsPanel'
@@ -12,7 +12,7 @@ import { getEyeCareTip } from './lib/eyeCareTips'
 import { deriveGlobalBanner, normalizeUnlockSnapshot, type UnlockSnapshot } from './lib/unlock'
 import './phone-key.css'
 
-type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phone' | 'shortcuts' | 'settings'
+type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phone' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
@@ -28,9 +28,9 @@ const exercises: Exercise[] = [
  * The sidebar, in groups.
  *
  * Grouping is by what the section is FOR, not by what it is built on. 手机控制
- * holds two tabs that answer two different questions -- who may do what, and
- * what can be done -- and keeping them apart is what stops the same phone from
- * appearing twice with two switches, which is where the flat version ended up.
+ * answers who may do what; what CAN be done is written down once, in 偏好设置.
+ * Keeping the two apart is what stops the same phone from appearing twice with
+ * two switches, which is where the flat version ended up.
  *
  * 手机钥匙 used to live inside 偏好设置, several panels down. A feature that
  * modifies the lock screen is not a preference.
@@ -46,13 +46,13 @@ const navGroups: { label: string; items: { id: Page; label: string; icon: typeof
     ],
   },
   {
-    label: '手机控制',
+    // One item, and no second one coming: 快捷控制 is configuration — you open
+    // it to write down which keys exist, then never again — so it lives in
+    // 偏好设置 with the other things you set once. A sidebar entry is for
+    // places you go back to.
+    label: '手机',
     items: [
       { id: 'phone', label: '手机控制', icon: Smartphone },
-      // Shown, and labelled as not built. A placeholder should not pretend to
-      // work; it should not pretend not to exist either, or the person who
-      // wondered where it went has nowhere to look.
-      { id: 'shortcuts', label: '快捷控制', icon: Command },
     ],
   },
 ]
@@ -63,8 +63,7 @@ const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }>
   ideas: { title: '小小休息，大有不同。', subtitle: '离开屏幕的这一刻，可以用来做很多美好的小事。', eyebrow: 'SMALL MOMENTS, BIG DIFFERENCE' },
   activity: { title: '每一次停顿，都算数。', subtitle: '慢慢积累的好习惯，正在成为生活的一部分。', eyebrow: 'A KINDER WAY TO KEEP GOING' },
   phone: { title: '手机就是钥匙。', subtitle: '哪几部手机能碰这台 Mac，各自允许做什么。', eyebrow: 'YOUR PHONE, YOUR KEY' },
-  shortcuts: { title: '一点，就到。', subtitle: '能按哪些键在这里定；哪几部手机可以按，在「手机控制」里。', eyebrow: 'ONE TAP, ONE SHORTCUT' },
-  settings: { title: '让 Outsie 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
+  settings: { title: '让 Outsie 更懂你。', subtitle: '把提醒、外观，还有手机能按的那几个键，调成你喜欢的样子。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
 }
 
 function time(value: number) {
@@ -457,10 +456,6 @@ export default function App() {
         />
       </div>}
 
-      {page === 'shortcuts' && <div className="page-enter preferences-page">
-        <ShortcutsPanel bridge={window.repose?.console} onToast={showToast} />
-      </div>}
-
       {page === 'settings' && <div className="page-enter preferences-page">
         <section className="panel preferences-panel security-panel">
           <div className="section-heading"><div><h2>强制休息</h2><p>休息时专心休息。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
@@ -473,6 +468,12 @@ export default function App() {
           <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '首次使用安全锁屏，请在系统设置中允许 Outsie 使用辅助功能；如果系统询问自动化权限，也请允许。锁屏只检测空闲时长，不读取或记录按键内容。' : '网页仅预览界面。全局活动检测、跨屏遮罩和 macOS 安全锁屏均在 Mac App 中运行。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
           <p className="security-limit">强制休息限制日常操作；系统级结束进程或关机仍由 macOS 管理。</p>
         </section>
+        {/* 快捷控制 used to be its own sidebar entry. It is configuration —
+            you write down which keys exist and then never open it again — so
+            it sits here, next to the other things you set once, instead of
+            taking a place in the sidebar that is meant for places you return
+            to. Which phones may press them is still 手机控制's question. */}
+        <ShortcutsPanel bridge={window.repose?.console} onToast={showToast} />
 <section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Outsie · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
 
       <footer className="page-footer"><span><Leaf size={13} strokeWidth={1.5} />更好的状态，来自恰到好处的停顿。</span><span>MADE FOR A SLOWER, BETTER DAY<span className="footer-flower">✳</span></span></footer>
