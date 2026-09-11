@@ -248,18 +248,23 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
               没有在等手机 — which is not how Chinese apps read and is not how
               anyone says it out loud. A heading names the thing; whether it is
               on belongs underneath. */}
-          <h3>回车解锁</h3>
+          <h3>回来就不用再输密码</h3>
           {!degraded && loaded && (
             <p className={`pk-row-state${enabled ? ' is-on' : ''}`}>
               {enabled ? '已开启 · 正在留意你的手机' : '已关闭 · 现在只能用密码登录'}
             </p>
           )}
+          {/* Says what you get, then reassures. It used to describe the
+              mechanism twice -- 「回车解锁」 as a heading and 「锁屏时留空回车」
+              under it -- and the reassurance read like a disclaimer rather than
+              like someone telling you it is fine. 「留空」 is jargon: nobody
+              thinks "leave the field empty", they think "don't type anything". */}
           <p>
-            锁屏时，配对的手机在身边，密码框留空、直接按一下回车就能进。
-            <b>走近不会自己打开</b>——密码框照样出现，只是不用输字符。
+            手机在身边的时候，锁屏上直接按一下回车就进来了。
+            <b>它不会自己打开</b>——那一下回车还是要你按。
             {degraded
-              ? '手机钥匙要改 macOS 的锁屏设置，只能在 Outsie Mac App 里用；网页版只能看界面。'
-              : '开启时要改一处 macOS 的系统设置。'}
+              ? '这个功能要改一处 macOS 的锁屏设置，只能在 Outsie 桌面版里用；网页上只能看看界面。'
+              : '第一次开启时要改一处 macOS 的系统设置。'}
           </p>
         </div>
         <button

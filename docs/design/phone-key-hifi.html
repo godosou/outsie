@@ -17,13 +17,50 @@
   --sans:"Manrope", -apple-system, "PingFang SC", sans-serif;
   --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
 
-  /* PRODUCT TOKENS — copied from src/styles.css, not re-picked.
-     A visual spec that invents its own values is a spec for a
-     different product. */
-  --bg:#fbfcf9; --sidebar:#f3f5ee; --panel:#fff; --text:#303b32;
-  --muted:#8b9288; --subtle:#677160; --line:#e9ece4; --green:#526a43;
-  --dark-green:#3e5738; --active:#e5ebdc; --sage:#eff3e9; --peach:#f7f0e9;
+  /* ── PRODUCT TOKENS ────────────────────────────────────────
+     The 14 in src/styles.css, plus names for the values that are
+     currently hard-coded there. Measured 2026-09-11: that
+     stylesheet declares 14 tokens and then uses 234 further hex
+     values directly -- 94% of its colour is outside its own
+     palette. 248 distinct colours in one stylesheet is not a
+     palette, it is an accumulation.
+
+     Everything below this line is a token. Nothing in this
+     document uses a raw hex outside this block; if a value is
+     missing, it gets a name rather than an exception. */
+
+  /* surfaces */
+  --bg:#fbfcf9; --sidebar:#f3f5ee; --panel:#fff; --sage:#eff3e9;
+  --active:#e5ebdc; --peach:#f7f0e9;
+  /* ink */
+  --text:#303b32; --subtle:#677160; --muted:#8b9288;
+  --ink-nav:#727d6b;        /* 侧栏未选中 */
+  --ink-nav-on:#4e6440;     /* 侧栏选中 */
+  --ink-label:#9aa190;      /* 分组小标题、次要计量 */
+  --ink-tagline:#7a8472;
+  --ink-crumb:#7c8576;
+  --ink-icon:#8c9b7d;       /* 行首图标 */
+  --ink-badge:#839574;      /* 胶囊文字 */
+  --ink-link:#879775;       /* 文字按钮 */
+  --ink-onsage:#78876d;     /* sage 底上的说明 */
+  --ink-sageStrong:#6c8354; /* sage 底上的强调 */
+  --ink-outline:#6b7a60;    /* 描边按钮文字 */
+  --ink-amber:#8a6f42;
+  /* lines & structure */
+  --line:#e9ece4; --line-amber:#ecdfc8; --line-chip:#d8dfd0;
+  --line-frame:rgba(35,53,36,.16);
+  /* brand */
+  --green:#526a43; --dark-green:#3e5738; --green-mark:#6c8354; --green-dot:#90a577;
+  /* controls */
+  --track:#dce1d7; --knob:#fff; --chev:#b6bdb1;
+  --chip-off-bg:#eef0ea;
+  --bezel:#12160f;          /* 手机中框：实物，不是界面表面 */
+  /* elevation */
   --shadow:0 12px 35px #23352406;
+  --shadow-win:0 22px 60px rgba(35,53,36,.13);
+  --shadow-sheet:0 24px 90px rgba(23,40,16,.2);
+  --shadow-knob:0 1px 2px rgba(0,0,0,.13);
+  --shadow-btn:0 3px 4px rgba(64,85,46,.04);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -73,6 +110,28 @@ code { font-family:var(--mono); font-size:.86em; }
 .spec dd { margin:0; font-family:var(--mono); font-size:11px; color:var(--page-ink); }
 .spec p { margin:0 0 10px; color:var(--page-sub); font-size:12.5px; line-height:1.7; }
 .spec p:last-child { margin-bottom:0; }
+
+/* Information architecture map */
+.ia { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:8px; }
+@media (max-width:900px) { .ia { grid-template-columns:1fr; } }
+.iacol { background:var(--page-panel); border:1px solid var(--page-line);
+         border-radius:16px; padding:20px 22px; }
+.iacol > h3 { font-size:15px; margin:0 0 2px; }
+.iacol > .sub { font-size:12.5px; color:var(--page-muted); margin:0 0 16px; }
+.grp { margin-bottom:18px; }
+.grp > .gl { font-family:var(--mono); font-size:10px; letter-spacing:.11em; text-transform:uppercase;
+             color:var(--page-muted); margin:0 0 7px; }
+.item { display:flex; align-items:baseline; gap:9px; padding:5px 0 5px 10px;
+        border-left:2px solid var(--page-line); font-size:13.5px; }
+.item.cur { border-left-color:var(--accent); font-weight:700; }
+.item .k { font-size:11.5px; color:var(--page-muted); margin-left:auto; text-align:right;
+           font-weight:400; white-space:nowrap; }
+.sub-item { padding-left:26px; font-size:12.5px; color:var(--page-sub);
+            border-left:2px solid var(--page-line); padding-top:3px; padding-bottom:3px; }
+.tag-soon { font-family:var(--mono); font-size:9.5px; letter-spacing:.05em; border-radius:20px;
+            padding:1px 7px; background:var(--page-bg); border:1px solid var(--page-line);
+            color:var(--page-muted); }
+.tag-new { background:var(--sage); border-color:var(--sage); color:var(--accent); }
 .swatch { display:inline-block; width:11px; height:11px; border-radius:3px;
           vertical-align:-1px; margin-right:5px; border:1px solid #0001; }
 
@@ -81,12 +140,12 @@ code { font-family:var(--mono); font-size:.86em; }
    ───────────────────────────────────────────────────────────── */
 .mac {
   width:1180px; background:var(--bg); border-radius:12px; overflow:hidden;
-  border:1px solid rgba(35,53,36,.16); box-shadow:0 22px 60px rgba(35,53,36,.13);
+  border:1px solid var(--line-frame); box-shadow:var(--shadow-win);
   font-family:var(--sans); color:var(--text); line-height:1.75;
 }
 .titlebar { height:38px; display:flex; align-items:center; gap:8px; padding:0 14px;
             background:var(--sidebar); border-bottom:1px solid var(--line); }
-.titlebar i { width:11px; height:11px; border-radius:50%; background:#d6dbd2; display:block; }
+.titlebar i { width:11px; height:11px; border-radius:50%; background:var(--line-chip); display:block; }
 .titlebar span { font-size:11px; color:var(--muted); margin-left:12px; }
 .macbody { display:grid; grid-template-columns:218px minmax(0,1fr); min-height:620px; }
 
@@ -94,34 +153,34 @@ code { font-family:var(--mono); font-size:.86em; }
 .side { background:var(--sidebar); border-right:1px solid var(--line); padding:43px 20px 0; }
 .brandrow { display:flex; gap:12px; align-items:center; padding:0 10px; }
 .mark { width:33px; height:37px; position:relative; flex:none; }
-.mark i { position:absolute; top:4px; left:12px; width:10px; height:22px; background:#6c8354;
+.mark i { position:absolute; top:4px; left:12px; width:10px; height:22px; background:var(--green-mark);
           border-radius:85% 85% 70% 70%; transform-origin:5px 15px; transform:rotate(-45deg); }
 .mark i:nth-child(2){transform:rotate(45deg)} .mark i:nth-child(3){transform:rotate(135deg)}
 .mark i:nth-child(4){transform:rotate(225deg)}
 .mark b { position:absolute; width:7px; height:7px; top:15px; left:13px; border-radius:50%;
           background:var(--sidebar); }
 .word { font-size:33px; letter-spacing:-1.8px; font-weight:680; line-height:1; }
-.word em { font-style:normal; color:#90a577; }
-.tagline { font-size:10px; letter-spacing:1.5px; color:#7a8472; margin:13px 0 40px 12px; }
-.navlabel { font-size:10px; letter-spacing:1.1px; color:#9aa190; margin:0 14px 12px; }
+.word em { font-style:normal; color:var(--green-dot); }
+.tagline { font-size:10px; letter-spacing:1.5px; color:var(--ink-tagline); margin:13px 0 40px 12px; }
+.navlabel { font-size:10px; letter-spacing:1.1px; color:var(--ink-label); margin:0 14px 12px; }
 .navgroup { display:flex; flex-direction:column; gap:7px; margin-bottom:26px; }
 .nav { height:45px; display:flex; align-items:center; gap:13px; border-radius:8px;
-       color:#727d6b; padding:0 15px; font-size:12px; font-weight:500; letter-spacing:.5px; }
-.nav.on { background:var(--active); color:#4e6440; font-weight:600; }
+       color:var(--ink-nav); padding:0 15px; font-size:12px; font-weight:500; letter-spacing:.5px; }
+.nav.on { background:var(--active); color:var(--ink-nav-on); font-weight:600; }
 .nav svg { width:19px; height:19px; flex:none; stroke-width:1.65; }
-.nav .badge { margin-left:auto; font-size:9px; letter-spacing:.6px; color:#9aa190;
-              border:1px solid #d8dfd0; border-radius:20px; padding:1px 6px; }
+.nav .badge { margin-left:auto; font-size:9px; letter-spacing:.6px; color:var(--ink-label);
+              border:1px solid var(--line-chip); border-radius:20px; padding:1px 6px; }
 
 /* content: padding 0 42, topbar 76 */
 .content { padding:0 42px 42px; }
 .topbar { height:76px; display:flex; align-items:center; justify-content:space-between;
-          border-bottom:1px solid var(--line); font-size:10px; color:#7c8576; letter-spacing:.5px; }
+          border-bottom:1px solid var(--line); font-size:10px; color:var(--ink-crumb); letter-spacing:.5px; }
 .crumbs { display:flex; align-items:center; gap:7px; }
 .pagehead { padding:33px 0 30px; }
 .pagehead h1 { font-size:30px; line-height:1.6; letter-spacing:1px; font-weight:550;
                margin:7px 0 4px; font-family:var(--sans); }
 .pagehead p { font-size:11px; color:var(--muted); margin:0; letter-spacing:.2px; }
-.kicker { font-size:9px; letter-spacing:1.5px; color:#9aa190; text-transform:uppercase; }
+.kicker { font-size:9px; letter-spacing:1.5px; color:var(--ink-label); text-transform:uppercase; }
 
 .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px;
          padding:25px; box-shadow:var(--shadow); }
@@ -130,12 +189,12 @@ code { font-family:var(--mono); font-size:.86em; }
 .sechead h2 { font-size:14px; letter-spacing:.5px; line-height:1.5; font-weight:600;
               margin:0; font-family:var(--sans); }
 .sechead p { font-size:10px; color:var(--muted); margin:5px 0 0; letter-spacing:.2px; }
-.badge2 { display:inline-flex; align-items:center; gap:6px; background:var(--sage); color:#839574;
-          border:1px solid #e1e8d733; font-size:10px; padding:7px 10px; border-radius:20px; white-space:nowrap; }
+.badge2 { display:inline-flex; align-items:center; gap:6px; background:var(--sage); color:var(--ink-badge);
+          border:1px solid var(--line); font-size:10px; padding:7px 10px; border-radius:20px; white-space:nowrap; }
 
 .prow { display:flex; align-items:center; gap:17px; padding:23px 0; border-bottom:1px solid var(--line); }
 .prow:last-of-type { border-bottom:0; }
-.prow .ico { color:#8c9b7d; flex:none; }
+.prow .ico { color:var(--ink-icon); flex:none; }
 .prow .g { flex:1; min-width:0; }
 .prow h3 { font-size:12px; font-weight:600; margin:0 0 5px; letter-spacing:.3px; }
 .prow p { font-size:10px; color:var(--muted); margin:0; line-height:1.85; max-width:430px; }
@@ -144,55 +203,55 @@ code { font-family:var(--mono); font-size:.86em; }
 .state.off { color:var(--muted); }
 .dot { width:6px; height:6px; border-radius:50%; background:var(--green);
        display:inline-block; margin-right:7px; vertical-align:1px; }
-.dot.grey { background:#b6bdb1; }
+.dot.grey { background:var(--chev); }
 
-.toggle { width:35px; height:20px; background:#dce1d7; border-radius:25px; padding:3px;
+.toggle { width:35px; height:20px; background:var(--track); border-radius:25px; padding:3px;
           position:relative; flex:none; }
-.toggle span { display:block; width:14px; height:14px; border-radius:50%; background:#fff;
-               box-shadow:0 1px 2px #0002; }
+.toggle span { display:block; width:14px; height:14px; border-radius:50%; background:var(--knob);
+               box-shadow:var(--shadow-knob); }
 .toggle.on { background:var(--green); }
 .toggle.on span { margin-left:15px; }
 
 .btn { display:inline-flex; align-items:center; justify-content:center; gap:9px; min-height:36px;
        padding:0 17px; border-radius:7px; font-size:11px; letter-spacing:.3px; font-weight:600; }
-.btn.primary { background:var(--green); color:#fff; box-shadow:0 3px 4px #40552e0b; }
-.btn.outline { border:1px solid var(--line); color:#6b7a60; }
+.btn.primary { background:var(--green); color:var(--knob); box-shadow:var(--shadow-btn); }
+.btn.outline { border:1px solid var(--line); color:var(--ink-outline); }
 .btn.full { display:flex; width:100%; }
-.tbtn { font-size:10px; color:#879775; letter-spacing:.2px; display:inline-flex; gap:6px; align-items:center; }
+.tbtn { font-size:10px; color:var(--ink-link); letter-spacing:.2px; display:inline-flex; gap:6px; align-items:center; }
 
 .devlist { border:1px solid var(--line); border-radius:11px; overflow:hidden; margin-top:6px; }
 .dev { display:flex; align-items:center; gap:14px; padding:15px 17px; background:var(--panel); }
 .dev + .dev { border-top:1px solid var(--line); }
 .dev .av { width:36px; height:36px; border-radius:10px; background:var(--sage); flex:none;
-           display:grid; place-items:center; color:#7d8f6e; }
+           display:grid; place-items:center; color:var(--ink-onsage); }
 .dev .g { flex:1; min-width:0; }
 .dev b { display:block; font-size:12px; font-weight:600; letter-spacing:.3px; }
 .dev span { font-size:10px; color:var(--muted); letter-spacing:.2px; }
 .dev.off .av, .dev.off b { opacity:.5; }
 .chip { font-size:9px; letter-spacing:.6px; border-radius:20px; padding:3px 9px; white-space:nowrap; }
-.chip.ok { background:var(--sage); color:#6c8354; }
-.chip.no { background:#eef0ea; color:#9aa190; }
-.chev { color:#b6bdb1; font-size:15px; }
+.chip.ok { background:var(--sage); color:var(--ink-sageStrong); }
+.chip.no { background:var(--chip-off-bg); color:var(--ink-label); }
+.chev { color:var(--chev); font-size:15px; }
 
 .fold { margin-top:20px; padding-top:15px; border-top:1px solid var(--line);
         font-size:10px; color:var(--muted); letter-spacing:.3px; }
 .foot { font-size:10px; color:var(--muted); margin-top:16px; line-height:1.9; letter-spacing:.2px; }
-.amber { background:var(--peach); border:1px solid #ecdfc8; border-radius:9px;
-         padding:14px 16px; color:#8a6f42; font-size:10.5px; line-height:1.85; margin-top:18px; }
+.amber { background:var(--peach); border:1px solid var(--line-amber); border-radius:9px;
+         padding:14px 16px; color:var(--ink-amber); font-size:10.5px; line-height:1.85; margin-top:18px; }
 .amber b { font-weight:650; }
 .steps { display:flex; align-items:center; gap:10px; margin-bottom:22px; }
-.steps .s { display:flex; align-items:center; gap:8px; font-size:10px; color:#9aa190; letter-spacing:.4px; }
-.steps .n { width:20px; height:20px; border-radius:50%; background:var(--sage); color:#7d8f6e;
+.steps .s { display:flex; align-items:center; gap:8px; font-size:10px; color:var(--ink-label); letter-spacing:.4px; }
+.steps .n { width:20px; height:20px; border-radius:50%; background:var(--sage); color:var(--ink-onsage);
             font-size:9px; display:grid; place-items:center; font-weight:600; }
 .steps .s.now { color:var(--text); font-weight:600; }
-.steps .s.now .n { background:var(--green); color:#fff; }
+.steps .s.now .n { background:var(--green); color:var(--knob); }
 .steps .bar { flex:1; height:1px; background:var(--line); max-width:70px; }
 .hero { background:var(--sage); border-radius:11px; padding:20px 22px; }
 .hero h3 { font-size:14px; font-weight:600; letter-spacing:.4px; margin:0 0 6px; }
-.hero p { font-size:10.5px; color:#78876d; margin:0; line-height:1.85; }
+.hero p { font-size:10.5px; color:var(--ink-onsage); margin:0; line-height:1.85; }
 
 /* ── Phone, 1:1 at realme GT5 Pro's CSS size (1264 / 3.5 ≈ 361) ── */
-.phone { width:361px; background:#12160f; border-radius:42px; padding:11px;
+.phone { width:361px; background:var(--bezel); border-radius:42px; padding:11px;
          box-shadow:0 22px 60px rgba(35,53,36,.2); }
 .pscreen { background:var(--bg); border-radius:32px; overflow:hidden; font-family:var(--sans);
            color:var(--text); }
@@ -202,34 +261,76 @@ code { font-family:var(--mono); font-size:.86em; }
 .phead { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
 .phead .m { width:26px; height:29px; position:relative; flex:none; transform:scale(.8); transform-origin:left center; }
 .pword { font-size:19px; font-weight:700; letter-spacing:-.9px; line-height:1; }
-.pword em { font-style:normal; color:#90a577; }
-.ptag { font-size:9.5px; letter-spacing:1px; color:#8b9288; margin-top:2px; }
+.pword em { font-style:normal; color:var(--green-dot); }
+.ptag { font-size:9.5px; letter-spacing:1px; color:var(--muted); margin-top:2px; }
 .phero { background:var(--sage); border-radius:20px; padding:18px 18px 20px; text-align:center; }
-.phero .disc { width:58px; height:58px; border-radius:50%; background:#fff; margin:0 auto 12px;
+.phero .disc { width:58px; height:58px; border-radius:50%; background:var(--panel); margin:0 auto 12px;
                display:grid; place-items:center; font-size:25px; }
 .phero h3 { font-size:17px; font-weight:700; margin:0 0 5px; letter-spacing:-.2px; }
-.phero p { font-size:12px; color:#78876d; margin:0; line-height:1.7; }
+.phero p { font-size:12px; color:var(--ink-onsage); margin:0; line-height:1.7; }
 .plabel { font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
-          color:#8b9288; margin:20px 0 8px; }
-.pcard { background:#fff; border:1px solid var(--line); border-radius:16px; padding:14px 15px; }
+          color:var(--muted); margin:20px 0 8px; }
+.pcard { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px 15px; }
 .pcard + .pcard { margin-top:10px; }
 .pcard .top { display:flex; align-items:flex-start; gap:11px; }
 .pcard .ic { width:34px; height:34px; border-radius:11px; background:var(--sage); flex:none;
              display:grid; place-items:center; font-size:16px; }
 .pcard b { display:block; font-size:14px; font-weight:700; letter-spacing:-.1px; }
-.pcard .sub { font-size:11.5px; color:#78876d; margin-top:2px; line-height:1.6; }
-.pcard .sub.dim { color:#8b9288; }
+.pcard .sub { font-size:11.5px; color:var(--ink-onsage); margin-top:2px; line-height:1.6; }
+.pcard .sub.dim { color:var(--muted); }
 .pbtn { display:block; text-align:center; border-radius:12px; font-size:13px; font-weight:600;
         padding:11px; margin-top:12px; }
-.pbtn.primary { background:var(--green); color:#fff; }
+.pbtn.primary { background:var(--green); color:var(--knob); }
 .pbtn.ghost { border:1px solid var(--line); color:var(--green); }
 .prow2 { display:flex; align-items:center; gap:13px; margin-top:16px; }
 .prow2 .g { flex:1; }
 .prow2 b { display:block; font-size:13px; font-weight:700; }
-.prow2 span { font-size:11.5px; color:#8b9288; }
+.prow2 span { font-size:11.5px; color:var(--muted); }
 .ptoggle { width:44px; height:26px; border-radius:20px; background:var(--green); padding:3px; flex:none; }
-.ptoggle i { display:block; width:20px; height:20px; border-radius:50%; background:#fff; margin-left:18px; }
-.ptiny { font-size:11px; color:#8b9288; line-height:1.7; margin-top:16px; text-align:center; }
+.ptoggle i { display:block; width:20px; height:20px; border-radius:50%; background:var(--panel); margin-left:18px; }
+.ptiny { font-size:11px; color:var(--muted); line-height:1.7; margin-top:16px; text-align:center; }
+
+/* modal over the panel, phone/Mac pairs, calibration */
+.sheet { width:430px; background:var(--panel); border:1px solid var(--line); border-radius:16px;
+         box-shadow:var(--shadow-sheet); padding:30px 32px 32px; font-family:var(--sans);
+         color:var(--text); }
+.sheet h2 { font-size:19px; font-weight:600; letter-spacing:.4px; margin:0 0 10px; font-family:var(--sans); }
+.sheet .intro { font-size:11px; color:var(--muted); line-height:1.9; margin:0 0 4px; }
+.digits { font-family:var(--mono); font-weight:500; font-size:46px; letter-spacing:.22em;
+          text-indent:.22em; text-align:center; color:var(--green); margin:18px 0 6px;
+          font-variant-numeric:tabular-nums; }
+.dots3 { text-align:center; color:var(--green); letter-spacing:.5em; font-size:20px; margin:20px 0 10px; }
+.sheet .acts { display:flex; gap:10px; margin-top:20px; }
+.sheet .acts .btn { flex:1; }
+.pair { display:flex; gap:26px; align-items:flex-start; flex-wrap:wrap; }
+.pairlbl { font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+           color:var(--page-muted); margin:0 0 8px; }
+.meter { display:flex; gap:4px; margin:14px 0 8px; }
+.meter i { flex:1; height:6px; border-radius:3px; background:var(--line); }
+.meter i.f { background:var(--green); }
+.readout { display:grid; grid-template-columns:auto 1fr auto; gap:6px 14px; font-size:11px;
+           align-items:center; margin-top:6px; }
+.readout b { font-family:var(--mono); font-weight:500; font-size:12px; }
+.bar2 { height:8px; border-radius:4px; background:var(--sage); position:relative; }
+.bar2 u { position:absolute; top:0; bottom:0; background:var(--green); border-radius:4px; text-decoration:none; }
+.grid4 { display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-top:12px; }
+.gbtn { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 8px;
+        text-align:center; }
+.gbtn .gi { font-size:19px; display:block; margin-bottom:5px; color:var(--green); }
+.gbtn .gn { font-size:11px; font-weight:600; }
+.gbtn .gs { font-size:9.5px; color:var(--muted); margin-top:2px; }
+.applist { display:flex; gap:7px; overflow:hidden; margin-top:4px; }
+.app { border:1px solid var(--line); border-radius:20px; padding:6px 12px; font-size:11.5px;
+       font-weight:600; color:var(--ink-onsage); white-space:nowrap; }
+.app.on { background:var(--green); border-color:var(--green); color:var(--knob); }
+.actrow { display:flex; align-items:center; gap:13px; padding:12px 0; border-bottom:1px solid var(--line); }
+.actrow:last-child { border-bottom:0; }
+.actrow .ai { width:30px; height:30px; border-radius:9px; background:var(--sage); flex:none;
+              display:grid; place-items:center; color:var(--ink-sageStrong); font-size:14px; }
+.actrow b { font-size:11.5px; font-weight:600; letter-spacing:.2px; }
+.keys { font-family:var(--mono); font-size:10px; color:var(--muted); }
+.kbd { display:inline-block; border:1px solid var(--line); border-radius:4px; padding:1px 5px;
+       background:var(--sage); color:var(--ink-sageStrong); margin-right:3px; }
 
 /* redline callouts */
 .rl { position:relative; }
@@ -255,6 +356,93 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
     右侧是标注。框里的每一个像素用产品自己的 Manrope，框外的说明用衬线体，两者不会被认错。
   </p>
 </header>
+
+
+<!-- ══════════════════════════════════════════════ -->
+<section>
+  <div class="col">
+    <h2>整体信息架构</h2>
+    <p class="section-lede">
+      两端各自的结构，以及它们在哪里对上。<em style="font-family:var(--serif);font-style:italic">分组的依据是风险，不是"都是手机发来的"</em>——
+      解锁和快捷控制放在同一个「手机控制」下，但各自一个 tab、各自一套开关。
+    </p>
+  </div>
+
+  <div class="ia">
+    <div class="iacol">
+      <h3>Mac</h3>
+      <p class="sub">侧栏三组。手机相关的两项是并列的 tab，不是一个页面里的两段。</p>
+
+      <div class="grp">
+        <p class="gl">休息</p>
+        <div class="item">今日概览<span class="k">计时是这一屏的全部</span></div>
+        <div class="item">休息计划<span class="k">节奏、时长</span></div>
+        <div class="item">休息偏好<span class="k">强制、声音</span></div>
+        <div class="item">我的记录<span class="k">历史</span></div>
+      </div>
+
+      <div class="grp">
+        <p class="gl">手机控制</p>
+        <div class="item cur">手机钥匙<span class="k">本文档</span></div>
+        <div class="sub-item">总开关 · 已授权的手机列表 · 添加</div>
+        <div class="sub-item">单部手机 → 解锁权限 · 控制权限 · 删除</div>
+        <div class="sub-item">配对流程（弹窗）→ 找手机 · 核对数字 · 等手机 · 校准</div>
+        <div class="sub-item">手机丢了 · 技术细节 · 移除并还原</div>
+        <div class="item">快捷控制 <span class="tag-soon">以后</span><span class="k">另一分支已有原型</span></div>
+        <div class="sub-item">总开关 · 辅助功能权限</div>
+        <div class="sub-item"><b>App 与操作（全局配置）</b>→ 每个 App 一组按键映射</div>
+        <div class="sub-item">哪些手机可以用（每部一个开关）</div>
+      </div>
+
+      <div class="grp">
+        <p class="gl">其它</p>
+        <div class="item">偏好设置<span class="k">主题、通知</span></div>
+      </div>
+    </div>
+
+    <div class="iacol">
+      <h3>手机</h3>
+      <p class="sub">两个 tab。日常只会看第一个，而且多半只看一眼。</p>
+
+      <div class="grp">
+        <p class="gl">主屏</p>
+        <div class="item cur">我的电脑<span class="k">一台一张卡</span></div>
+        <div class="sub-item">卡片：名字 · 状态 · <b>锁定</b> · <b>控制</b></div>
+        <div class="sub-item">卡片详情 → 重新配对 · 从列表移走 · 技术细节</div>
+        <div class="sub-item">＋ 添加电脑 → 配对流程</div>
+        <div class="item">控制面板<span class="k">从卡片的「控制」进入</span></div>
+        <div class="sub-item">选 App → 按钮网格 → 点一下执行</div>
+        <div class="item">当你的钥匙 <span class="tag-soon">开关</span><span class="k">总开关</span></div>
+      </div>
+
+      <div class="grp">
+        <p class="gl">这把钥匙</p>
+        <div class="item">钥匙本身<span class="k">配过哪些电脑</span></div>
+        <div class="sub-item">取消配对（所有电脑一起失效）</div>
+        <div class="sub-item">技术细节 · 密钥指纹</div>
+        <div class="item">保持后台<span class="k">厂商省电设置</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col" style="margin-top:26px">
+    <h3 style="margin-bottom:8px">三条分层规则</h3>
+    <p class="section-lede" style="margin-top:0">
+      <b>1 · 配置在 Mac，使用在手机。</b>按键映射是全局的、每台 Mac 一份，
+      在 Mac 上编辑；手机只是把它显示成按钮。手机上不出现任何编辑器——
+      <em>在手机上配电脑快捷键，是把最难的输入放在最小的屏幕上</em>。
+    </p>
+    <p class="section-lede">
+      <b>2 · 每部手机只有一个开关。</b>「这部手机能不能用快捷控制」是一个是非题，
+      放在 Mac 的手机列表里。默认开。
+    </p>
+    <p class="section-lede">
+      <b>3 · 手机上的按钮总是在，不够权限时说清去哪儿开。</b>
+      卡片上的「控制」不会因为 Mac 那边关着就消失——消失的按钮没法解释自己。
+      点下去连不上时，它说「这台 Mac 上还没开启快捷控制」，而不是静默失败。
+    </p>
+  </div>
+</section>
 
 <!-- ══════════════════════════════════════════════ -->
 <section>
@@ -299,7 +487,7 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 
             <main class="content">
               <div class="topbar">
-                <div class="crumbs"><span>我的空间</span><span>›</span><span style="color:#5f6b58">手机钥匙</span></div>
+                <div class="crumbs"><span>我的空间</span><span>›</span><span style="color:var(--subtle)">手机钥匙</span></div>
                 <div class="crumbs"><span>9月11日 星期五</span></div>
               </div>
 
@@ -315,13 +503,12 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
                     <h2>回车解锁</h2>
                     <p class="state on" style="margin-top:7px"><span class="dot"></span>已开启 · 正在留意你的手机</p>
                   </div>
-                  <span class="badge2">Mac 桌面版</span>
                 </div>
                 <div class="prow" style="padding-top:20px">
                   <span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.8-8.8"/><path d="m17 6 3 3"/></svg></span>
                   <div class="g">
-                    <h3>锁屏时留空回车</h3>
-                    <p>配对的手机在身边，密码框留空、直接按一下回车就能进。<b>走近不会自己打开</b>——密码框照样出现，只是不用输字符。</p>
+                    <h3>回来就不用再输密码</h3>
+                    <p>手机在身边的时候，锁屏上直接按一下回车就进来了。<b>它不会自己打开</b>——那一下回车还是要你按。</p>
                   </div>
                   <span class="toggle on"><span></span></span>
                 </div>
@@ -537,8 +724,18 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
       </dl>
       <h4>这一屏的判断</h4>
       <p><b>一台电脑一张卡</b>：名字、当前状态、一个锁定按钮，点进去是详情。列表下面是「添加电脑」。</p>
-      <p><b>状态是三个</b>：锁着 / 开着 / 不知道。「不知道」是正经答案，不是占位符——
-        不在附近、睡着了、关机了、没开 App 都是它。</p>
+      <p><b>卡片状态有四个</b>：</p>
+      <p style="margin-left:2px">
+        <b>锁着</b> — 听得到，锁着 → 走过去按回车<br>
+        <b>开着</b> — 听得到，没锁<br>
+        <b>不在附近</b> — 听不到。副标题补一句：也可能是它睡着了、关机了，或者没开 Outsie<br>
+        <b>钥匙对不上</b> — <em>听得到，但验不过</em>。这台 Mac 重新配过了，
+        这部手机拿的是旧钥匙 → 去重新配对
+      </p>
+      <p>「不在附近」是主标题，因为那是压倒性常见的原因；
+        分不清的那几种放在副标题里。<b>不用「未知」——它读起来像故障，而这是常态。</b></p>
+      <p>「钥匙对不上」今天会表现为静默失效：两边都显示已配对，而解锁就是不工作。
+        <b>能听到信标却验不过，是一个可以直接说出来的事实。</b></p>
       <p><b>「走过去按回车就能进」只有在 Mac 用配对密钥签名说自己锁着时才显示。</b>
         不验签的话，任何带无线电的人都能广播"开着"把你钉在座位上。</p>
       <p style="color:var(--redline)"><b>需要协议改动：</b>当前状态信标不带 Mac 身份，
@@ -548,17 +745,393 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 </section>
 
 <!-- ══════════════════════════════════════════════ -->
+
+<!-- ══════════════════════════════════════════════ -->
+<section>
+  <div class="col">
+    <h2>配对流程</h2>
+    <p class="section-lede">四步，跨两块屏。<em style="font-family:var(--serif);font-style:italic">顺序不重要，先点哪边都行</em>——
+      重要的是两边都点，以及 Mac 最后等的是一个信号而不是一句话。</p>
+  </div>
+
+  <p class="frame-note">① 找手机 · Mac 弹窗 430 宽 + 手机 361pt</p>
+  <div class="pair" style="margin-bottom:34px">
+    <div><p class="pairlbl">Mac</p>
+      <div class="sheet">
+        <h2>正在找你的手机</h2>
+        <p class="intro">在手机上打开 Outsie，点「开始配对」，然后把手机放在这台 Mac 旁边。</p>
+        <div class="dots3">• • •</div>
+        <p class="intro" style="text-align:center">找到之后，两边会各显示一串六位数字。</p>
+        <div class="acts"><span class="btn outline full">取消</span></div>
+      </div>
+    </div>
+    <div><p class="pairlbl">手机</p>
+      <div class="phone" style="width:300px"><div class="pscreen"><div class="pstatus"><span>21:46</span><span>􀙇 􀛨</span></div>
+        <div class="pbody">
+          <div class="phead"><span class="mark m"><i></i><i></i><i></i><i></i><b style="background:var(--bg)"></b></span>
+            <span><span class="pword">outsie<em>.</em></span><div class="ptag">手机钥匙</div></span></div>
+          <div class="phero"><div class="disc">📡</div><h3>手机准备好了</h3><p>等 Mac 那边开始。</p></div>
+          <p class="ptiny" style="text-align:left">三分钟内没有任何进展才会停下，重新开始即可。</p>
+          <span class="pbtn ghost">取消</span>
+        </div></div></div>
+    </div>
+  </div>
+
+  <p class="frame-note">② 核对六位数字 —— 整个流程唯一需要人做判断的一步</p>
+  <div class="pair" style="margin-bottom:34px">
+    <div><p class="pairlbl">Mac</p>
+      <div class="sheet">
+        <h2>核对这六位数字</h2>
+        <p class="intro">手机上现在也应该显示这串数字。两边都要点一下，先点哪边都行。</p>
+        <p class="digits">165723</p>
+        <p class="intro" style="text-align:center">两边一样，就说明中间没有人冒充。</p>
+        <div class="acts">
+          <span class="btn primary" style="flex:1.3">和手机上一样</span>
+          <span class="btn outline">不一样，停下</span>
+        </div>
+        <p class="fold">＋ 技术细节</p>
+      </div>
+    </div>
+    <div><p class="pairlbl">手机</p>
+      <div class="phone" style="width:300px"><div class="pscreen"><div class="pstatus"><span>21:47</span><span>􀙇 􀛨</span></div>
+        <div class="pbody">
+          <div class="phero" style="padding-bottom:14px"><div class="disc">👀</div><h3>核对这六位数字</h3>
+            <p>Mac 上也应该是这串</p></div>
+          <p class="digits" style="font-size:40px;margin:14px 0 2px">165723</p>
+          <div style="background:var(--peach);border:1px solid var(--line-amber);border-radius:14px;padding:12px 14px;font-size:11.5px;color:var(--ink-amber);line-height:1.75;margin-top:12px">
+            两边不一样，就说明中间有人在冒充。按「不一样」，换个地方从头重配。</div>
+          <span class="pbtn primary">一样，完成配对</span>
+          <span class="pbtn ghost">不一样，停下</span>
+        </div></div></div>
+    </div>
+  </div>
+
+  <div class="plate">
+    <div>
+      <p class="frame-note">③ 还差手机上那一下</p>
+      <div class="sheet">
+        <h2>还差手机上那一下</h2>
+        <p class="intro">这台 Mac 已经记住「真我GT5 Pro」。</p>
+        <div class="dots3">• • •</div>
+        <p class="intro">在手机上点「一样，完成配对」。这里会在<b>听到手机用上新钥匙</b>时自己变成完成。</p>
+      </div>
+    </div>
+    <div class="spec">
+      <h4>为什么有这一屏</h4>
+      <p>点完确认，Mac 只知道<b>它自己</b>那一半。它收不到「手机也确认了」——收到了也不能信，
+        中间人同样能那么说。</p>
+      <p>但手机拿到钥匙后会用它签名信标，<b>Mac 验得过，就是两边持有同一把钥匙的证明</b>。
+        所以这一屏等的是那个信标。</p>
+      <p>屏幕上直说了这个理由：一个没有解释的等待界面，读起来像在耗一个形式。</p>
+      <p style="color:var(--redline)"><b>它曾经点完就宣布「配对完成」</b>——于是会出现 Mac 配好了、
+        手机没有，而两块屏幕都不说。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════ -->
+<section>
+  <div class="col">
+    <h2>④ 校准</h2>
+    <p class="section-lede">
+      「在」和「不在」现在是两个写死的 dBm 阈值，脚本里自己标着<code>不要发布这两个数字</code>。
+      校准让这台 Mac、这部手机、<em style="font-family:var(--serif);font-style:italic">你这个座位</em>自己说了算。
+    </p>
+  </div>
+
+  <div class="plate">
+    <div>
+      <p class="frame-note">Mac · 第一段：坐着别动</p>
+      <div class="sheet" style="width:470px">
+        <h2>告诉它「在」是什么样</h2>
+        <p class="intro">手机放在你平常放的位置——口袋、桌上、包里都行，就按你平常那样。
+          接下来 20 秒别动它。</p>
+        <div class="meter" style="margin-top:18px">
+          <i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i>
+          <i class="f"></i><i class="f"></i><i></i><i></i><i></i>
+        </div>
+        <p class="intro" style="margin:0">采样中 · 14 / 20</p>
+        <div class="acts"><span class="btn outline full">停下</span></div>
+      </div>
+
+      <p class="frame-note" style="margin-top:26px">手机 · 第二段：走开时看这一屏</p>
+      <div class="phone" style="width:300px"><div class="pscreen"><div class="pstatus"><span>21:49</span><span>􀙇 􀛨</span></div>
+        <div class="pbody">
+          <div class="phero"><div class="disc">🚶</div><h3>现在拿着手机走开</h3>
+            <p>走到你希望 Mac 自动锁上的地方，站住别动。</p></div>
+          <div class="meter" style="margin-top:16px">
+            <i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i>
+            <i></i><i></i><i></i><i></i><i></i></div>
+          <p class="ptiny" style="text-align:left;margin-top:8px">采样中 · 8 / 20。采完这一屏会告诉你，可以回去了。</p>
+          <span class="pbtn ghost">取消校准</span>
+        </div></div></div>
+    </div>
+
+    <div class="spec">
+      <h4>为什么第二段在手机上</h4>
+      <p><b>你走开的时候看不见 Mac 的屏幕。</b>所以走开那一段的指令、进度、
+        以及"可以回来了"这句话，必须在手上那块屏幕上。</p>
+      <p>测量始终在 Mac 侧（它才有扫描器），手机只是显示——这是两块屏幕说同一件事的两半，
+        不是各自为政。</p>
+      <h4>参数</h4>
+      <dl>
+        <dt>每段采样</dt><dd>20 秒</dd>
+        <dt>采样节拍</dt><dd>1 / 秒</dd>
+        <dt>可分判据</dt><dd>两组均值差 ≥ 12 dB<br>且区间不重叠</dd>
+        <dt>阈值写法</dt><dd>NEAR = 近组均值 − 1σ<br>FAR = 远组均值 + 1σ</dd>
+      </dl>
+      <p style="color:var(--redline)"><b>它必须能失败。</b>手机在包里、走得不够远、
+        中间隔着身体，两组会重叠——那时候要说重叠了、可能是什么原因、然后重来，
+        <b>而不是硬塞一个数字进去</b>。</p>
+    </div>
+  </div>
+
+  <div class="plate" style="margin-top:34px">
+    <div>
+      <p class="frame-note">Mac · 结果：成功 / 失败</p>
+      <div class="sheet" style="width:470px">
+        <h2>分得很清楚</h2>
+        <p class="intro">这台 Mac 现在知道你在座位上是什么样、走开是什么样了。</p>
+        <div class="readout" style="margin-top:16px">
+          <span>在座位上</span>
+          <span class="bar2"><u style="left:8%;width:26%"></u></span>
+          <b>−58 dBm</b>
+          <span>走开之后</span>
+          <span class="bar2"><u style="left:62%;width:30%;background:var(--chev)"></u></span>
+          <b>−89 dBm</b>
+        </div>
+        <p class="intro" style="margin-top:14px">两组之间差 31 dB，没有重叠。</p>
+        <div class="acts"><span class="btn primary full">完成</span></div>
+      </div>
+
+      <div class="sheet" style="width:470px;margin-top:22px">
+        <h2>两组太接近了</h2>
+        <p class="intro">分不出你是在座位上还是走开了，所以这次校准没法用。</p>
+        <div class="readout" style="margin-top:16px">
+          <span>在座位上</span>
+          <span class="bar2"><u style="left:26%;width:30%"></u></span>
+          <b>−71 dBm</b>
+          <span>走开之后</span>
+          <span class="bar2"><u style="left:40%;width:32%;background:var(--chev)"></u></span>
+          <b>−77 dBm</b>
+        </div>
+        <div style="background:var(--peach);border:1px solid var(--line-amber);border-radius:9px;padding:13px 15px;color:var(--ink-amber);font-size:10.5px;line-height:1.85;margin-top:16px">
+          常见原因：走的距离还不够远、手机在包里或口袋深处、中间隔着你的身体。
+          <b>换一个更远的位置再试一次</b>，多半就好了。
+        </div>
+        <div class="acts">
+          <span class="btn primary" style="flex:1.4">重新校准</span>
+          <span class="btn outline">先用默认值</span>
+        </div>
+        <p class="foot">先用默认值也能工作，只是可能在你还坐着的时候就要你输密码，
+          或者走开之后过一会儿才锁上。</p>
+      </div>
+    </div>
+
+    <div class="spec">
+      <h4>结果的读法</h4>
+      <p>两条横条画的是<b>实测区间</b>，不是示意。一眼能看出它们分不分得开——
+        这比给一个「校准成功」的对勾诚实得多。</p>
+      <p>失败时给两个出口：<b>重新校准</b>（主）和<b>先用默认值</b>（次）。
+        后者要说清代价，因为它是一个会让人以后疑惑的选择。</p>
+      <h4>写回哪里</h4>
+      <dl>
+        <dt>NEAR_DBM</dt><dd>permit-bridge.sh</dd>
+        <dt>FAR_DBM</dt><dd>同上</dd>
+        <dt>现值</dt><dd>−72 / −85 占位</dd>
+      </dl>
+      <p style="color:var(--redline)"><b>未实现。</b>今天阈值是硬编码的占位值。</p>
+    </div>
+  </div>
+</section>
+
+
+<!-- ══════════════════════════════════════════════ -->
+<section>
+  <div class="col">
+    <h2>快捷控制</h2>
+    <p class="section-lede">
+      手机控制下的第二个 tab。
+      <em style="font-family:var(--serif);font-style:italic">配置在 Mac，使用在手机</em>——
+      按键映射是每台 Mac 一份的全局配置，手机只是把它显示成按钮。
+    </p>
+  </div>
+
+  <div class="plate">
+    <div>
+      <p class="frame-note">Mac · 快捷控制 tab · 内容区 1:1</p>
+      <div class="scroller"><div class="mac" style="width:900px">
+        <div class="titlebar"><i></i><i></i><i></i><span>Outsie · 歇一会</span></div>
+        <div style="padding:30px 42px 42px;background:var(--bg);font-family:var(--sans)">
+          <div class="pagehead" style="padding-top:0">
+            <p class="kicker">Shortcuts</p><h1>快捷控制</h1>
+            <p>在手机上点一下，这台 Mac 就按下那组键。</p>
+          </div>
+
+          <div class="panel">
+            <div class="sechead">
+              <div><h2>快捷控制</h2>
+                <p class="state on" style="margin-top:7px"><span class="dot"></span>已开启 · 手机可以按这些按钮</p></div>
+              <span class="toggle on"><span></span></span>
+            </div>
+            <div class="prow" style="padding-top:20px">
+              <span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <div class="g"><h3>辅助功能权限 · 已授予</h3>
+                <p>按下按键需要这个权限。没有它，手机点了不会有任何反应。</p></div>
+              <span class="tbtn">在系统设置里查看 ›</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="sechead">
+              <div><h2>App 与操作</h2><p>这份配置属于这台 Mac，所有手机看到的是同一套。</p></div>
+              <span class="tbtn">添加 App ›</span>
+            </div>
+            <div class="devlist" style="margin-top:16px">
+              <div class="dev"><span class="av">􀩼</span>
+                <span class="g"><b>终端 · tmux</b><span>6 个操作 · com.apple.Terminal</span></span>
+                <span class="chip ok">已启用</span><span class="chev">›</span></div>
+              <div class="dev"><span class="av">􀈊</span>
+                <span class="g"><b>Figma</b><span>4 个操作 · com.figma.Desktop</span></span>
+                <span class="chip ok">已启用</span><span class="chev">›</span></div>
+              <div class="dev off"><span class="av">􀤑</span>
+                <span class="g"><b>VS Code</b><span>9 个操作 · com.microsoft.VSCode</span></span>
+                <span class="chip no">停用</span><span class="chev">›</span></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="sechead"><div><h2>哪些手机可以用</h2>
+              <p>在「手机钥匙」里配过的手机会出现在这里。新配的手机默认可用。</p></div></div>
+            <div style="margin-top:6px">
+              <div class="prow"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+                <div class="g"><h3>真我GT5 Pro</h3><p>刚刚认出</p></div>
+                <span class="toggle on"><span></span></span></div>
+              <div class="prow"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+                <div class="g"><h3>备用机 Pixel 6a</h3><p>已停用 · 在手机钥匙里也停着</p></div>
+                <span class="toggle"><span></span></span></div>
+            </div>
+            <p class="fold">＋ 技术细节</p>
+            <p class="foot">Mac 锁屏或正在休息时，快捷控制会暂停。</p>
+          </div>
+        </div>
+      </div></div>
+    </div>
+
+    <div class="spec">
+      <h4>这一屏的判断</h4>
+      <p><b>三个面板，一个问题各一个。</b>能不能用（权限）· 能按什么（全局映射）· 谁能按（每部手机一个开关）。</p>
+      <p><b>权限那一行在最上面。</b>没有辅助功能权限，下面所有配置都只是摆设——
+        <em>一个必定失败的功能，不该把它的前提放在最下面</em>。</p>
+      <p><b>映射是全局的，所以它不出现在任何一部手机的详情里。</b>
+        手机详情里只有一个开关：这部能不能用。</p>
+      <p><b>bundleId 写在第二行</b>，因为两个 App 可以同名而 bundleId 不会——
+        但它是次要信息，不占标题。</p>
+      <h4>骨架</h4>
+      <dl><dt>App 行</dt><dd>与手机列表同构<br>15 17 · 图标 36 r10</dd>
+          <dt>手机行</dt><dd>用 prow，不用列表<br>因为它带开关不带层级</dd></dl>
+    </div>
+  </div>
+
+  <div class="plate" style="margin-top:36px">
+    <div>
+      <p class="frame-note">手机 · 卡片上的「控制」，以及控制面板</p>
+      <div class="pair">
+        <div><p class="pairlbl">卡片</p>
+          <div class="phone" style="width:300px"><div class="pscreen"><div class="pstatus"><span>21:52</span><span>􀙇 􀛨</span></div>
+            <div class="pbody">
+              <p class="plabel" style="margin-top:4px">我的电脑</p>
+              <div class="pcard">
+                <div class="top"><span class="ic">🔒</span>
+                  <span style="flex:1;min-width:0"><b>Jingmin 的 MacBook</b>
+                    <span class="sub">锁着 · 走过去按回车就能进</span></span></div>
+                <div style="display:flex;gap:8px">
+                  <span class="pbtn ghost" style="flex:1">锁定</span>
+                  <span class="pbtn primary" style="flex:1">控制</span></div>
+              </div>
+              <div class="pcard">
+                <div class="top"><span class="ic">💻</span>
+                  <span style="flex:1;min-width:0"><b>工位上的 iMac</b>
+                    <span class="sub dim">不在附近</span></span></div>
+                <div style="display:flex;gap:8px">
+                  <span class="pbtn ghost" style="flex:1;opacity:.45">锁定</span>
+                  <span class="pbtn ghost" style="flex:1;opacity:.45">控制</span></div>
+              </div>
+            </div></div></div>
+        </div>
+
+        <div><p class="pairlbl">控制面板</p>
+          <div class="phone" style="width:300px"><div class="pscreen"><div class="pstatus"><span>21:53</span><span>􀙇 􀛨</span></div>
+            <div class="pbody">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+                <span style="font-size:15px;color:var(--green)">‹</span>
+                <span><b style="font-size:15px">Jingmin 的 MacBook</b>
+                  <div class="ptag" style="letter-spacing:0;text-transform:none">已连接 · 当前是 终端</div></span>
+              </div>
+              <div class="applist" style="margin-top:14px">
+                <span class="app on">终端</span><span class="app">Figma</span><span class="app">VS Code</span>
+              </div>
+              <div class="grid4">
+                <span class="gbtn"><span class="gi">▥</span><span class="gn">左右分屏</span><span class="gs">2 步</span></span>
+                <span class="gbtn"><span class="gi">▤</span><span class="gn">上下分屏</span><span class="gs">2 步</span></span>
+                <span class="gbtn"><span class="gi">✕</span><span class="gn">关闭面板</span><span class="gs">2 步</span></span>
+                <span class="gbtn"><span class="gi">↹</span><span class="gn">下一个</span><span class="gs">热键</span></span>
+                <span class="gbtn"><span class="gi">⤢</span><span class="gn">放大</span><span class="gs">2 步</span></span>
+                <span class="gbtn"><span class="gi">⌕</span><span class="gn">搜索</span><span class="gs">热键</span></span>
+              </div>
+              <p class="ptiny" style="text-align:left;margin-top:14px">
+                按键发给 Mac 上<b>当前在前台的 App</b>。长按可以拖动排序，拖动时不会执行。</p>
+            </div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="spec">
+      <h4>「控制」按钮的四种情形</h4>
+      <p><b>① Mac 在附近、快捷控制开着</b> → 主色按钮，点进控制面板。</p>
+      <p><b>② Mac 不在附近</b> → 两个按钮都变淡，卡片副标题已经说了「不在附近」，
+        按钮不必再重复一遍。</p>
+      <p><b>③ Mac 上关着快捷控制</b> → 按钮仍在，点下去说
+        「这台 Mac 上还没开启快捷控制，去 Mac 上打开」。
+        <em>消失的按钮没法解释自己</em>——而这个障碍一步就能清掉。</p>
+      <p><b>④ Mac 缺辅助功能权限</b> → 同上，但说的是权限，并给出那一步在哪儿。</p>
+      <h4>为什么手机上没有编辑器</h4>
+      <p>按键序列要输组合键、调延迟、挑图标。
+        <b>在手机上配电脑快捷键，是把最难的输入放在最小的屏幕上。</b>
+        手机能做的只有排序——那是手指擅长的事。</p>
+      <p style="color:var(--redline)"><b>未实现。</b>另一分支有可用原型（蓝牙连接、
+        App 切换、按钮网格、拖动排序都在）。这里画的是它并入当前 IA 之后的样子。</p>
+    </div>
+  </div>
+</section>
+
 <section class="col">
-  <h2>没有画的东西</h2>
-  <p class="section-lede">一份只画顺利路径的视觉稿，是这个项目已经犯过的错误的漂亮版本。</p>
+  <h2>还没画的</h2>
+  <p class="section-lede">一份只画顺利路径的视觉稿，是这个项目已经犯过的错误的漂亮版本。剩下这些在可交互原型里能点，交互与文案已定，补成同保真度是下一步。</p>
   <ul style="color:var(--page-sub);font-size:15px;line-height:1.9">
-    <li><b>空状态</b>（一部手机都没有）——先说这是什么、会对 Mac 做什么，再给按钮。</li>
-    <li><b>手机被系统后台杀掉</b>——realme/Oppo 上的头号故障，今天完全没有设计。</li>
-    <li><b>核对六位数字</b>与<b>还差手机上那一下</b>——两块屏幕的对称设计。</li>
-    <li><b>移除之后的读数</b>——三行从系统里重新读出来的事实。</li>
+    <li><b>空状态</b>——一部手机都没有时，先说这是什么、会对 Mac 做什么，再给按钮。</li>
+    <li><b>手机被系统后台杀掉</b>——realme/Oppo 上的头号故障，今天产品里完全没有这个状态。</li>
+    <li><b>移除之后的读数</b>——三行从系统里重新读出来的事实，不是"已完成"。</li>
+    <li><b>单部手机详情</b>与<b>单个 App 的操作编辑</b>——层级已定，界面未画。</li>
+    <li><b>深色</b>——token 已经齐了，但没有逐屏核对过对比度。</li>
   </ul>
-  <p style="color:var(--page-sub)">这几屏在可交互原型里都能点，交互和文案已经定了；
-    补成同等保真度的静态稿是下一步。</p>
+</section>
+
+<section class="col">
+  <h2>关于 token</h2>
+  <p class="section-lede">这份文档里<b>没有一个裸色值</b>。缺的值会得到一个名字，而不是一个例外。</p>
+  <p style="color:var(--page-sub);font-size:15px;line-height:1.85">
+    实测 <code>src/styles.css</code>：声明了 <b>14 个 token</b>，然后直接用掉
+    <b>234 个别的十六进制值</b>——<b>94% 的颜色在自己的调色板之外</b>。
+    一个样式表里 248 种颜色，那不是调色板，是堆积。
+  </p>
+  <p style="color:var(--page-sub);font-size:15px;line-height:1.85">
+    上面这份稿子补齐了缺的名字：<code>--ink-nav</code>、<code>--ink-label</code>、
+    <code>--ink-onsage</code>、<code>--line-amber</code>、<code>--track</code>、
+    <code>--chev</code>、<code>--shadow-win</code> 等。
+    <b>产品代码还没有跟着改</b>——那是一次独立的扫除，而且 §7 那三个对比度不足的值
+    应该在同一次里一起定。
+  </p>
 </section>
 
 <footer class="col">
