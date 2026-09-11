@@ -75,6 +75,16 @@ export REPOSE_STATUS_FILE="${REPOSE_STATUS_FILE}"
 # not a safe thing to depend on.
 export REPOSE_RUNFLAG="${REPOSE_RUNFLAG}"
 
+# The calibrated band, when there is one.
+#
+# These are OPTIONAL and deliberately not in the required-vars check above: a
+# Mac that has never been calibrated must still run, on permit-bridge.sh's own
+# conservative defaults. What must not happen is the state this replaced, where
+# the app could compute thresholds and the pipeline had no way to carry them --
+# so every Mac silently used numbers measured once, on one desk, from one phone.
+[ -n "${REPOSE_NEAR_DBM:-}" ] && export REPOSE_NEAR_DBM="${REPOSE_NEAR_DBM}"
+[ -n "${REPOSE_FAR_DBM:-}" ] && export REPOSE_FAR_DBM="${REPOSE_FAR_DBM}"
+
 # The stages are DIRECT children of this script, not wrapped in an inner
 # `sh -c`. pkill -P reaches children, not grandchildren, so a wrapper meant the
 # kill landed on the wrapper alone and left tail, the verifier and the bridge

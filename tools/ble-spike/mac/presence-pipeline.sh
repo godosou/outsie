@@ -243,7 +243,8 @@ PRIV="${HERE}/presence-privileged.sh"
 PRIV_ENV="REPOSE_MODE='${MODE}' REPOSE_BIN='${BIN}' REPOSE_KEY_DIR='${KEY_DIR}' \
 REPOSE_RAW='${RAW}' REPOSE_VERIFIED='${VERIFIED}' REPOSE_RUNFLAG='${RUNFLAG}' \
 REPOSE_PERMIT_DIR='${PERMIT_DIR}' REPOSE_STATUS_FILE='${STATUS_FILE_ARG}' \
-REPOSE_LOG_DIR='${WORK}' REPOSE_ALLOW_HOME_BIN='${REPOSE_ALLOW_HOME_BIN:-}'"
+REPOSE_LOG_DIR='${WORK}' REPOSE_ALLOW_HOME_BIN='${REPOSE_ALLOW_HOME_BIN:-}' \
+REPOSE_NEAR_DBM='${REPOSE_NEAR_DBM:-}' REPOSE_FAR_DBM='${REPOSE_FAR_DBM:-}'"
 
 # Started in the FOREGROUND of a subshell we background ourselves, not detached
 # with nohup inside the osascript. `do shell script` reclaims its process group

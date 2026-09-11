@@ -406,13 +406,6 @@ pub fn pairing_stage(digits: Option<&str>, exit_code: Option<Option<i32>>) -> Pa
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CalibrationReport {
-    pub separable: bool,
-    pub margin_db: f64,
-    pub samples: u32,
-}
 
 // ---- command argument shapes ---------------------------------------------
 
@@ -434,10 +427,6 @@ pub struct EnabledArgs {
 #[serde(rename_all = "camelCase")]
 pub struct DeviceArgs {
     pub device_id: String,
-}
-#[derive(Deserialize)]
-pub struct CalibrateArgs {
-    pub kind: String,
 }
 #[derive(Deserialize)]
 pub struct DrillArgs {
@@ -1145,6 +1134,366 @@ impl UnlockBackend for HostMacBackend {
     }
 }
 
+// ---- signal calibration ---------------------------------------------------
+//
+// permit-bridge.sh ships -72 / -85 with a comment saying "do not ship these
+// numbers"; they came from one phone on one desk. Worse, presence-pipeline.sh
+// never passed REPOSE_NEAR_DBM/REPOSE_FAR_DBM at all, so no value anyone chose
+// could ever have reached the bridge.
+//
+// The measurement is two walks: stand where you work, then walk away and stay
+// away. What comes back is two clouds of dBm, and the only question worth
+// asking of them is whether they are far enough apart to tell apart.
+
+/// How many samples each leg needs before its numbers mean anything. The
+/// scanner publishes roughly one a second, so this is about twenty seconds of
+/// standing still -- short enough to do twice, long enough that one reflection
+/// off a filing cabinet cannot decide where your desk ends.
+pub const CALIBRATION_MIN_SAMPLES: usize = 20;
+
+/// The two clouds must be at least this far apart, in dB, before the midpoint
+/// between them means anything. Below it the radio is telling us that near and
+/// far look the same from here, which is a real answer and not a failure to
+/// measure.
+pub const CALIBRATION_MIN_GAP_DB: f64 = 12.0;
+
+/// And at least this long, in milliseconds, between the first reading and the
+/// last.
+///
+/// The count alone is not a proxy for time. The scanner emits near-duplicate
+/// rows a millisecond apart, so twenty samples arrived in under three seconds
+/// on the first live run -- twenty readings of one instant, which says nothing
+/// about how the signal moves while you sit there. A standard deviation
+/// computed from that is a number with no evidence behind it.
+pub const CALIBRATION_MIN_SPAN_MS: i64 = 15_000;
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalibrationLeg {
+    pub n: usize,
+    pub mean: f64,
+    pub sd: f64,
+    pub min: i32,
+    pub max: i32,
+    /// First reading to last. See [CALIBRATION_MIN_SPAN_MS].
+    pub span_ms: i64,
+}
+
+impl CalibrationLeg {
+    fn of(readings: &[(i32, i64)]) -> Self {
+        if readings.is_empty() {
+            return Self { n: 0, mean: 0.0, sd: 0.0, min: 0, max: 0, span_ms: 0 };
+        }
+        let samples: Vec<i32> = readings.iter().map(|&(v, _)| v).collect();
+        let span_ms = readings.iter().map(|&(_, t)| t).max().unwrap_or(0)
+            - readings.iter().map(|&(_, t)| t).min().unwrap_or(0);
+        let n = samples.len();
+        let mean = samples.iter().map(|&v| v as f64).sum::<f64>() / n as f64;
+        // Population sd: these are all the samples there were, not a sample of
+        // a larger set we could have taken.
+        let var = samples.iter().map(|&v| (v as f64 - mean).powi(2)).sum::<f64>() / n as f64;
+        Self {
+            n,
+            mean,
+            sd: var.sqrt(),
+            min: *samples.iter().min().unwrap(),
+            max: *samples.iter().max().unwrap(),
+            span_ms,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum CalibrationOutcome {
+    /// Usable thresholds, with a gap between them so a phone hovering at the
+    /// boundary does not flap the lock.
+    Ok { near_dbm: i32, far_dbm: i32 },
+    /// One or both legs are too short to say anything.
+    NotEnoughSamples { near: usize, far: usize, needed: usize },
+    /// Enough readings, but they all arrived at once. Standing still for three
+    /// seconds is not a measurement of standing still.
+    TooBrief { near_ms: i64, far_ms: i64, needed_ms: i64 },
+    /// Measured fine, and the answer is that this spot cannot tell the two
+    /// apart. Offering thresholds anyway would be inventing a boundary the
+    /// radio never found.
+    TooSimilar { gap_db: f64, needed_db: f64 },
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CalibrationResult {
+    pub near: CalibrationLeg,
+    pub far: CalibrationLeg,
+    pub outcome: CalibrationOutcome,
+}
+
+/// Turn two walks into two thresholds, or into a reason there are none.
+///
+/// NEAR sits one standard deviation below the near cloud's mean and FAR one
+/// above the far cloud's, so ordinary jitter inside each leg does not cross a
+/// line. The band between them is the hysteresis: a phone sitting exactly at
+/// the edge holds whatever state it already had instead of locking and
+/// unlocking the Mac every few seconds.
+pub fn calibration_verdict(near: &[(i32, i64)], far: &[(i32, i64)]) -> CalibrationResult {
+    let n = CalibrationLeg::of(near);
+    let f = CalibrationLeg::of(far);
+
+    let outcome = if n.n < CALIBRATION_MIN_SAMPLES || f.n < CALIBRATION_MIN_SAMPLES {
+        CalibrationOutcome::NotEnoughSamples {
+            near: n.n,
+            far: f.n,
+            needed: CALIBRATION_MIN_SAMPLES,
+        }
+    } else if n.span_ms < CALIBRATION_MIN_SPAN_MS || f.span_ms < CALIBRATION_MIN_SPAN_MS {
+        CalibrationOutcome::TooBrief {
+            near_ms: n.span_ms,
+            far_ms: f.span_ms,
+            needed_ms: CALIBRATION_MIN_SPAN_MS,
+        }
+    } else {
+        // Near is the stronger signal, so its mean is the larger (less
+        // negative) number. A far leg that measured stronger than the near one
+        // is not a separate case: it just produces a negative gap, which fails
+        // the same test, and says the same thing to the person who walked.
+        let gap = n.mean - f.mean;
+        if gap < CALIBRATION_MIN_GAP_DB {
+            CalibrationOutcome::TooSimilar { gap_db: gap, needed_db: CALIBRATION_MIN_GAP_DB }
+        } else {
+            let near_dbm = (n.mean - n.sd).round() as i32;
+            let far_dbm = (f.mean + f.sd).round() as i32;
+            // One standard deviation each way can still swallow the whole gap
+            // when both clouds are noisy. Then the "band" is inverted -- FAR
+            // above NEAR -- and the bridge would read present and absent at
+            // once. That is the same answer as TooSimilar arriving by a
+            // different route, and it gets the same reply.
+            if near_dbm <= far_dbm {
+                CalibrationOutcome::TooSimilar { gap_db: gap, needed_db: CALIBRATION_MIN_GAP_DB }
+            } else {
+                CalibrationOutcome::Ok { near_dbm, far_dbm }
+            }
+        }
+    };
+
+    CalibrationResult { near: n, far: f, outcome }
+}
+
+/// Pull the rssi out of the verifier's output for one key.
+///
+/// The file carries two kinds of line: samples, and `macstate,...` rows the
+/// pipeline writes for the advertiser. Reading by position without checking
+/// what a row is would turn a macstate line's second field -- a key id -- into
+/// a -1 dBm reading, which is a phone pressed against the antenna.
+pub fn calibration_samples(csv: &str, since_ms: i64, key_id: u8) -> Vec<(i32, i64)> {
+    csv.lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split(',').collect();
+            if f.len() < 9 || !f.iter().any(|c| *c == "auth=VALID") {
+                return None;
+            }
+            let at: i64 = f[0].trim().parse().ok()?;
+            if at < since_ms {
+                return None;
+            }
+            if f[4].trim().parse::<u8>().ok()? != key_id {
+                return None;
+            }
+            Some((f[1].trim().parse::<i32>().ok()?, at))
+        })
+        .collect()
+}
+
+
+/// Where a finished calibration lives. Next to the pairing state, not next to
+/// the key: it describes this room, not this phone, and it is not a secret.
+pub const CALIBRATION_FILE: &str = "calibration.json";
+
+/// One leg of the walk, as a window into what the verifier was writing at the
+/// time. Storing the window rather than the samples means finish() re-reads the
+/// file and cannot disagree with it.
+#[derive(Clone, Copy, Debug)]
+struct CalLeg {
+    from_ms: i64,
+    to_ms: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct CalState {
+    near: Option<CalLeg>,
+    far: Option<CalLeg>,
+    /// Which leg is being walked right now, if any.
+    active_near: Option<bool>,
+}
+
+// In memory on purpose. A calibration interrupted by quitting the app is not a
+// calibration to resume -- the person and the phone have both moved since. It
+// starts over, and starting over is cheap.
+static CALIBRATION: std::sync::Mutex<CalState> = std::sync::Mutex::new(CalState {
+    near: None,
+    far: None,
+    active_near: None,
+});
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn verified_csv(app: &AppHandle) -> String {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("presence-run").join("verified.csv"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_default()
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalibrationProgress {
+    pub near_leg: bool,
+    pub samples: usize,
+    pub needed: usize,
+    /// Wall-clock since this leg started, and how long it has to run. The
+    /// sample count fills in seconds because the scanner bursts duplicates, so
+    /// the count alone would let someone finish a leg without standing still
+    /// for any length of time.
+    pub elapsed_ms: i64,
+    pub needed_ms: i64,
+    /// Most recent reading in this leg, for something on screen that moves when
+    /// the phone moves. None until the first sample arrives.
+    pub latest_dbm: Option<i32>,
+    /// Whether the monitor is publishing at all. Without this, a leg that
+    /// collects nothing because the pipeline is down looks identical to one
+    /// where the phone is simply out of range.
+    pub monitor_running: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CalibrateArgs {
+    /// "near" or "far".
+    pub kind: String,
+}
+
+#[tauri::command]
+pub fn unlock_calibrate_start(app: AppHandle, value: CalibrateArgs) -> Result<CalibrationProgress, UnlockError> {
+    let near = match value.kind.as_str() {
+        "near" => true,
+        "far" => false,
+        other => {
+            return Err(UnlockError::new(
+                UnlockErrorCode::Unsupported,
+                format!("不认识的校准段「{other}」"),
+            ))
+        }
+    };
+    {
+        let mut st = CALIBRATION.lock().map_err(|_| lock_poisoned())?;
+        // Re-walking a leg replaces it. Appending would mix the walk you just
+        // decided was wrong into the one you are doing to correct it.
+        let leg = CalLeg { from_ms: now_ms(), to_ms: None };
+        if near { st.near = Some(leg) } else { st.far = Some(leg) }
+        st.active_near = Some(near);
+    }
+    unlock_calibrate_sample(app)
+}
+
+#[tauri::command]
+pub fn unlock_calibrate_sample(app: AppHandle) -> Result<CalibrationProgress, UnlockError> {
+    let st = *CALIBRATION.lock().map_err(|_| lock_poisoned())?;
+    let near_leg = st.active_near.unwrap_or(true);
+    let leg = if near_leg { st.near } else { st.far };
+    let samples = match leg {
+        Some(l) => calibration_samples(&verified_csv(&app), l.from_ms, 1),
+        None => Vec::new(),
+    };
+    Ok(CalibrationProgress {
+        near_leg,
+        samples: samples.len(),
+        needed: CALIBRATION_MIN_SAMPLES,
+        elapsed_ms: leg.map(|l| (now_ms() - l.from_ms).max(0)).unwrap_or(0),
+        needed_ms: CALIBRATION_MIN_SPAN_MS,
+        latest_dbm: samples.last().map(|&(v, _)| v),
+        monitor_running: presence_running(&HostMacBackend::presence_report(&app)),
+    })
+}
+
+#[tauri::command]
+pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, UnlockError> {
+    let st = {
+        let mut st = CALIBRATION.lock().map_err(|_| lock_poisoned())?;
+        if let Some(near) = st.active_near {
+            let stamp = now_ms();
+            if near {
+                if let Some(l) = st.near.as_mut() { l.to_ms = Some(stamp) }
+            } else if let Some(l) = st.far.as_mut() {
+                l.to_ms = Some(stamp)
+            }
+        }
+        st.active_near = None;
+        *st
+    };
+
+    let csv = verified_csv(&app);
+    // Readings carry their own timestamps now, so the leg is a plain window
+    // filter rather than a zip against a second pass over the same file --
+    // which is what made it possible to lose the times in the first place.
+    let take = |leg: Option<CalLeg>| -> Vec<(i32, i64)> {
+        let Some(l) = leg else { return Vec::new() };
+        let until = l.to_ms.unwrap_or(i64::MAX);
+        calibration_samples(&csv, l.from_ms, 1)
+            .into_iter()
+            .filter(|&(_, at)| at <= until)
+            .collect()
+    };
+
+    let result = calibration_verdict(&take(st.near), &take(st.far));
+
+    // Only a usable answer is written. A failed calibration must leave the last
+    // good one in place rather than replacing it with nothing -- otherwise one
+    // bad walk silently reverts the Mac to the placeholder numbers.
+    if let CalibrationOutcome::Ok { near_dbm, far_dbm } = result.outcome {
+        if let Ok(dir) = app.path().app_data_dir() {
+            let _ = std::fs::create_dir_all(&dir);
+            let body = serde_json::json!({
+                "nearDbm": near_dbm,
+                "farDbm": far_dbm,
+                "measuredAt": HostMacBackend::now_iso(),
+                "near": { "n": result.near.n, "mean": result.near.mean, "sd": result.near.sd },
+                "far": { "n": result.far.n, "mean": result.far.mean, "sd": result.far.sd },
+            });
+            let _ = std::fs::write(dir.join(CALIBRATION_FILE), body.to_string());
+        }
+        // The bridge reads its thresholds once, at startup. Without this the
+        // numbers sit in a file and the Mac goes on using the placeholders --
+        // which is exactly the state presence-pipeline.sh was already in.
+        let restart = app.clone();
+        std::thread::spawn(move || {
+            let _ = set_presence_running(&restart, false);
+            let _ = set_presence_running(&restart, true);
+        });
+    }
+    Ok(result)
+}
+
+/// The thresholds a calibration left behind, if one did.
+pub fn calibrated_thresholds(app: &AppHandle) -> Option<(i32, i32)> {
+    let dir = app.path().app_data_dir().ok()?;
+    let raw = std::fs::read_to_string(dir.join(CALIBRATION_FILE)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let near = v.get("nearDbm")?.as_i64()? as i32;
+    let far = v.get("farDbm")?.as_i64()? as i32;
+    // A file edited by hand into nonsense must not become the live band.
+    (near > far).then_some((near, far))
+}
+
+fn lock_poisoned() -> UnlockError {
+    UnlockError::new(UnlockErrorCode::Unsupported, "校准状态读不到了，请重新开始")
+}
+
+
 // ---- process helpers -----------------------------------------------------
 
 /// Capture stdout AND stderr.
@@ -1493,11 +1842,20 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
     let runflag = work.join(format!("running.{}.{seq}", std::process::id()));
     let _ = std::fs::remove_file(&runflag);
 
+    let (near_dbm, far_dbm) = match calibrated_thresholds(app) {
+        Some((n, f)) => (n.to_string(), f.to_string()),
+        None => (String::new(), String::new()),
+    };
+
     let child = Command::new("/bin/bash")
         .arg(dir.join("presence-pipeline.sh"))
         .arg("0") // run until stopped
         .env("REPOSE_RUNFLAG", &runflag)
         .env("REPOSE_STATUS_FILE", &status)
+        // Empty when nothing has been calibrated, which leaves the bridge on
+        // its own conservative defaults rather than on zeroes.
+        .env("REPOSE_NEAR_DBM", &near_dbm)
+        .env("REPOSE_FAR_DBM", &far_dbm)
         .env("REPOSE_PIPELINE_DIR", &work)
         // We raise the authorization ourselves, below.
         .env("REPOSE_SKIP_PRIVILEGED", "1")
@@ -1535,9 +1893,17 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
     // That blocking is what holds the root chain alive -- exactly what keeping
     // osascript in the foreground used to do.
     let script = format!(
+        // NEAR/FAR belong HERE, not only on the pipeline child's environment.
+        // In local mode presence-pipeline.sh is told to skip the privileged
+        // half (REPOSE_SKIP_PRIVILEGED=1) and this string is what actually
+        // starts it -- so variables set only on the child never reach the
+        // bridge. Adding them there and testing that they were "set somewhere"
+        // is how the first attempt passed its own test while the bridge went on
+        // using the placeholders it had been using all along.
         "do shell script \"REPOSE_MODE=local REPOSE_BIN={bin} REPOSE_KEY_DIR={keys} \
          REPOSE_RAW={raw} REPOSE_VERIFIED={verified} REPOSE_RUNFLAG={flag} \
          REPOSE_PERMIT_DIR={permit} REPOSE_STATUS_FILE={status} REPOSE_LOG_DIR={work} \
+         REPOSE_NEAR_DBM={near} REPOSE_FAR_DBM={far} \
          {priv_sh}\" with administrator privileges",
         bin = applescript_quote(&dir.to_string_lossy()),
         keys = applescript_quote(PRESENCE_KEY_DIR),
@@ -1547,6 +1913,8 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         permit = applescript_quote("/var/run/repose-spike"),
         status = applescript_quote(&status.to_string_lossy()),
         work = applescript_quote(&work.to_string_lossy()),
+        near = applescript_quote(&near_dbm),
+        far = applescript_quote(&far_dbm),
         priv_sh = applescript_quote(&dir.join("presence-privileged.sh").to_string_lossy()),
     );
     std::thread::spawn(move || {
@@ -2023,13 +2391,6 @@ pub fn unlock_pair_cancel() {
         let _ = live.child.kill();
         let _ = live.child.wait();
     }
-}
-
-#[tauri::command]
-pub fn unlock_calibrate_sample(value: CalibrateArgs) -> Result<CalibrationReport, UnlockError> {
-    let _ = value.kind;
-    // Placeholder — real RSSI separability (B3, DEFERRED).
-    Ok(CalibrationReport { separable: true, margin_db: 12.0, samples: 20 })
 }
 
 /// Can this Mac be locked, and by what?
@@ -2558,6 +2919,201 @@ mod tests {
             rs.contains(".env(\"REPOSE_RUNFLAG\", &runflag)"),
             "the pipeline is spawned without being told which flag to use",
         );
+    }
+
+    /// Deterministic, symmetric around `mean`, so sd is a known quantity rather
+    /// than something a random generator decides per run. One reading a second,
+    /// which is roughly what the scanner produces when it is behaving.
+    fn leg(mean: i32, spread: i32, n: usize) -> Vec<(i32, i64)> {
+        (0..n)
+            .map(|i| (mean + if i % 2 == 0 { spread } else { -spread }, 1_000 + i as i64 * 1_000))
+            .collect()
+    }
+
+    /// Every reading at the same instant: what the scanner actually emits when
+    /// it bursts near-duplicate rows.
+    fn burst(mean: i32, spread: i32, n: usize) -> Vec<(i32, i64)> {
+        (0..n)
+            .map(|i| (mean + if i % 2 == 0 { spread } else { -spread }, 1_000 + i as i64))
+            .collect()
+    }
+
+    #[test]
+    fn the_calibrated_band_reaches_the_bridge() {
+        // Before this, permit-bridge.sh read REPOSE_NEAR_DBM/REPOSE_FAR_DBM and
+        // presence-pipeline.sh never set them, so the placeholders the bridge
+        // itself calls "do not ship these numbers" were the only values any Mac
+        // ever used. A calibration that computes thresholds nothing can read is
+        // a longer way of shipping the placeholder.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tools/ble-spike/mac");
+        let pipeline = std::fs::read_to_string(dir.join("presence-pipeline.sh")).unwrap();
+        let privileged = std::fs::read_to_string(dir.join("presence-privileged.sh")).unwrap();
+        let bridge = std::fs::read_to_string(dir.join("permit-bridge.sh")).unwrap();
+        let rust = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/unlock.rs"),
+        )
+        .unwrap();
+
+        // The FIRST version of this test asserted only that unlock.rs mentioned
+        // `.env("REPOSE_NEAR_DBM"...)` somewhere. It did -- on the unprivileged
+        // pipeline child -- and the bridge went on logging near>=-72 far<=-85
+        // with the test green, because in local mode the privileged half is
+        // started by the AppleScript below, not by that child.
+        //
+        // So the assertion is now about the string that actually starts it.
+        let admin = rust
+            .split("do shell script")
+            .find(|chunk| chunk.contains("presence-privileged.sh") || chunk.contains("{priv_sh}"))
+            .expect("the privileged half is started by an administrator script");
+        for var in ["REPOSE_NEAR_DBM", "REPOSE_FAR_DBM"] {
+            assert!(
+                admin.contains(var),
+                "the administrator script that starts the privileged half omits {var}, \
+                 so a calibrated band can never reach the bridge",
+            );
+            assert!(pipeline.contains(var), "presence-pipeline.sh drops {var} on the floor");
+            assert!(privileged.contains(var), "presence-privileged.sh drops {var} on the floor");
+            assert!(bridge.contains(var), "permit-bridge.sh does not read {var}");
+        }
+    }
+
+    #[test]
+    fn an_edited_calibration_file_cannot_invert_the_band() {
+        // calibrated_thresholds refuses near <= far. The file is plain JSON in
+        // the app's data directory; a typo there must not hand the bridge a
+        // band where present and absent are both true.
+        let ok = serde_json::json!({ "nearDbm": -55, "farDbm": -75 });
+        let bad = serde_json::json!({ "nearDbm": -75, "farDbm": -55 });
+        let read = |v: &serde_json::Value| -> Option<(i32, i32)> {
+            let n = v.get("nearDbm")?.as_i64()? as i32;
+            let f = v.get("farDbm")?.as_i64()? as i32;
+            (n > f).then_some((n, f))
+        };
+        assert_eq!(read(&ok), Some((-55, -75)));
+        assert_eq!(read(&bad), None);
+    }
+
+    #[test]
+    fn two_clear_clouds_give_a_band_with_a_gap_in_it() {
+        let r = calibration_verdict(&leg(-50, 3, 30), &leg(-80, 3, 30));
+        match r.outcome {
+            CalibrationOutcome::Ok { near_dbm, far_dbm } => {
+                assert_eq!(near_dbm, -53, "NEAR is one sd below the near mean");
+                assert_eq!(far_dbm, -77, "FAR is one sd above the far mean");
+                assert!(near_dbm > far_dbm, "the band must not be inverted");
+            }
+            other => panic!("two clouds 30 dB apart should be separable: {other:?}"),
+        }
+        assert_eq!(r.near.n, 30);
+        assert_eq!(r.far.mean, -80.0);
+        assert_eq!(r.near.span_ms, 29_000);
+    }
+
+    #[test]
+    fn twenty_readings_of_one_instant_are_not_twenty_seconds_of_evidence() {
+        // The first live run filled the progress bar in under three seconds:
+        // rssi-scan emits near-duplicate rows a millisecond apart, so the count
+        // raced ahead of any actual observation. A standard deviation from that
+        // describes the scanner's loop, not the room.
+        let r = calibration_verdict(&burst(-50, 3, 30), &burst(-80, 3, 30));
+        match r.outcome {
+            CalibrationOutcome::TooBrief { needed_ms, .. } => {
+                assert_eq!(needed_ms, CALIBRATION_MIN_SPAN_MS)
+            }
+            other => panic!("a 29 ms leg must not produce thresholds: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_short_walk_is_refused_rather_than_averaged() {
+        // The whole point of calibration is to stop guessing. Nineteen samples
+        // and a confident answer is a guess wearing a number.
+        let r = calibration_verdict(&leg(-50, 3, 19), &leg(-80, 3, 30));
+        assert_eq!(
+            r.outcome,
+            CalibrationOutcome::NotEnoughSamples { near: 19, far: 30, needed: CALIBRATION_MIN_SAMPLES }
+        );
+    }
+
+    #[test]
+    fn a_phone_in_a_bag_two_metres_away_fails_honestly() {
+        // ui-conventions 1.3: a calibration that cannot fail writes down a
+        // number it does not believe. Near and far only 6 dB apart is the
+        // radio saying it cannot tell this desk from that doorway.
+        let r = calibration_verdict(&leg(-70, 2, 30), &leg(-76, 2, 30));
+        match r.outcome {
+            CalibrationOutcome::TooSimilar { gap_db, needed_db } => {
+                assert!((gap_db - 6.0).abs() < 0.001);
+                assert_eq!(needed_db, CALIBRATION_MIN_GAP_DB);
+            }
+            other => panic!("6 dB apart must not produce thresholds: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn two_noisy_clouds_that_overlap_are_refused_even_when_their_means_are_far() {
+        // Means 14 dB apart passes the gap test, but +-8 dB of spread on each
+        // leg pushes FAR above NEAR. The band would be inverted, and the bridge
+        // would read present and absent from the same sample.
+        let r = calibration_verdict(&leg(-52, 8, 30), &leg(-66, 8, 30));
+        assert!(
+            matches!(r.outcome, CalibrationOutcome::TooSimilar { .. }),
+            "overlapping spreads must not produce an inverted band: {:?}",
+            r.outcome,
+        );
+    }
+
+    #[test]
+    fn walking_the_legs_backwards_fails_instead_of_inverting_the_band() {
+        // Someone who walks away first and then stands still, without telling
+        // the app. A negative gap must not be turned into thresholds by
+        // sign-blind arithmetic.
+        let r = calibration_verdict(&leg(-80, 3, 30), &leg(-50, 3, 30));
+        assert!(matches!(r.outcome, CalibrationOutcome::TooSimilar { gap_db, .. } if gap_db < 0.0));
+    }
+
+    #[test]
+    fn a_macstate_row_is_not_a_signal_reading() {
+        // verified.csv carries `macstate,<keyId>,<counter>,<tag>,<tag>` rows for
+        // the advertiser. Reading column 1 blindly would turn the key id into a
+        // -1 dBm sample -- a phone touching the antenna, at the exact moment
+        // we are deciding what "near" means.
+        let csv = "\
+1000,-53,ABC,2,1,tag,0,1,auth=VALID,cmd=0
+macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
+1001,-55,ABC,2,1,tag,0,2,auth=VALID,cmd=0
+";
+        assert_eq!(calibration_samples(csv, 0, 1), vec![(-53, 1000), (-55, 1001)]);
+    }
+
+    #[test]
+    fn samples_from_before_this_leg_started_do_not_count() {
+        let csv = "\
+1000,-90,ABC,2,1,tag,0,1,auth=VALID,cmd=0
+2000,-53,ABC,2,1,tag,0,2,auth=VALID,cmd=0
+";
+        assert_eq!(calibration_samples(csv, 1500, 1), vec![(-53, 2000)]);
+    }
+
+    #[test]
+    fn a_rejected_beacon_is_not_evidence_about_distance() {
+        // auth=BAD means something was transmitting on our service id that we
+        // could not authenticate. Letting it into the near cloud would let a
+        // stranger's radio move this Mac's idea of where its owner sits.
+        let csv = "\
+1000,-40,ABC,2,1,tag,0,1,auth=BAD,cmd=0
+1001,-53,ABC,2,1,tag,0,2,auth=VALID,cmd=0
+";
+        assert_eq!(calibration_samples(csv, 0, 1), vec![(-53, 1001)]);
+    }
+
+    #[test]
+    fn another_phones_key_slot_is_not_this_phones_signal() {
+        let csv = "\
+1000,-40,ABC,2,7,tag,0,1,auth=VALID,cmd=0
+1001,-53,ABC,2,1,tag,0,2,auth=VALID,cmd=0
+";
+        assert_eq!(calibration_samples(csv, 0, 1), vec![(-53, 1001)]);
     }
 
     #[test]

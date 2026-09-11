@@ -20,6 +20,11 @@ import {
   type PreflightReport, type PairingSession, type UninstallSummary,
   type UnlockDesktopBridge,
   type PairedDevice,
+  type CalibrationProgress,
+  type CalibrationResult,
+  normalizeCalibration,
+  normalizeCalibrationProgress,
+  calibrationLegReady,
 } from '../lib/unlock'
 
 /**
@@ -150,6 +155,45 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
     setPairing(IDLE_PAIRING)
   }, [bridge])
 
+  // ---- calibration -------------------------------------------------------
+  // Its own sheet rather than a stage of pairing: you re-walk it when you move
+  // desks, and a measurement you can only take once, during setup, is one the
+  // Mac goes on using long after the room stopped matching it.
+  const [calibrating, setCalibrating] = useState(false)
+  const [calLeg, setCalLeg] = useState<'intro' | 'near' | 'walk' | 'far' | 'done'>('intro')
+  const [calProgress, setCalProgress] = useState<CalibrationProgress | null>(null)
+  const [calResult, setCalResult] = useState<CalibrationResult | null>(null)
+
+  const startLeg = useCallback(async (kind: 'near' | 'far') => {
+    if (!bridge) return
+    setCalResult(null)
+    setCalProgress(normalizeCalibrationProgress(await bridge.calibrateStart({ kind }).catch(() => null)))
+    setCalLeg(kind)
+  }, [bridge])
+
+  // Poll only while a leg is being walked.
+  useEffect(() => {
+    if (!bridge || (calLeg !== 'near' && calLeg !== 'far')) return
+    let alive = true
+    const timer = window.setInterval(() => {
+      void bridge.calibrateSample().then(raw => {
+        if (alive) setCalProgress(normalizeCalibrationProgress(raw))
+      }).catch(() => undefined)
+    }, 1000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [bridge, calLeg])
+
+  const finishCalibration = useCallback(async () => {
+    if (!bridge) return
+    const r = normalizeCalibration(await bridge.calibrateFinish().catch(() => null))
+    setCalResult(r)
+    setCalLeg('done')
+    if (r.outcome.kind === 'ok') {
+      const snap = await bridge.getSnapshot().catch(() => null)
+      if (snap) setSnapshot(normalizeUnlockSnapshot(snap))
+    }
+  }, [bridge])
+
   const confirmPairing = useCallback(async () => {
     if (!bridge) return
     // Not a stage of its own: the administrator prompt appears on top of this
@@ -223,7 +267,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
       case 'start-phone-drill':
         void run(command, () => bridge.startDrill({ kind: 'phone-drill' })); break
       case 'begin-pairing': void startPairing(); break
-      case 'calibrate': void run(command, () => bridge.calibrateSample({ kind: 'far' })); break
+      case 'calibrate': setCalibrating(true); break
     }
   }, [bridge, run, onToast])
 
@@ -485,6 +529,19 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           onConfirm={() => void confirmPairing()}
           onRetry={() => void startPairing()}
           onTryLock={() => { closePairing(); dispatchCommand('start-phone-drill') }}
+          onCalibrate={() => { closePairing(); setCalibrating(true) }}
+        />
+      )}
+
+      {calibrating && (
+        <CalibrationSheet
+          leg={calLeg}
+          progress={calProgress}
+          result={calResult}
+          onClose={() => { setCalibrating(false); setCalLeg('intro'); setCalResult(null) }}
+          onStartLeg={kind => void startLeg(kind)}
+          onWalk={() => setCalLeg('walk')}
+          onFinish={() => void finishCalibration()}
         />
       )}
     </section>
@@ -503,6 +560,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           setArmedRevoke(null)
           void run('revoke-device', () => bridge!.revokeDevice({ deviceId: id }))
         }}
+        onCalibrate={() => setCalibrating(true)}
       />
     )}
     </>
@@ -523,6 +581,183 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
 // else one disclosure away. Nothing was deleted -- an accordion is a different
 // claim from a paragraph, but it is not a missing one, and a reader who wants
 
+
+// ---------------------------------------------------------------------------
+// Two walks, and a refusal when they look the same.
+//
+// The far leg is the awkward one: you are walking away from the screen that is
+// telling you what to do. So the instruction is given BEFORE you go, the leg
+// finishes itself once it has enough samples, and the result is waiting when
+// you come back. Nothing on this sheet requires you to read it from the far
+// side of the room.
+function CalibrationSheet({ leg, progress, result, onClose, onStartLeg, onWalk, onFinish }: {
+  leg: 'intro' | 'near' | 'walk' | 'far' | 'done'
+  progress: CalibrationProgress | null
+  result: CalibrationResult | null
+  onClose: () => void
+  onStartLeg: (kind: 'near' | 'far') => void
+  onWalk: () => void
+  onFinish: () => void
+}) {
+  const title = leg === 'done' ? (result?.outcome.kind === 'ok' ? '量好了' : '这次没量出来')
+    : leg === 'near' ? '站在你平时的位置'
+    : leg === 'walk' ? '接下来要走开'
+    : leg === 'far' ? '走开，别看这块屏幕'
+    : '量一下「多近算在身边」'
+
+  const enough = calibrationLegReady(progress)
+  // The bar tracks whichever requirement is further from being met, so it can
+  // never sit full while the button is still disabled.
+  const pct = progress
+    ? Math.min(100, Math.round(100 * Math.min(
+        progress.samples / Math.max(1, progress.needed),
+        progress.elapsedMs / Math.max(1, progress.neededMs),
+      )))
+    : 0
+  const left = progress ? Math.max(0, Math.ceil((progress.neededMs - progress.elapsedMs) / 1000)) : 0
+
+  return (
+    <ModalShell label={title} onClose={onClose} className="phone-key-modal pk-pair-modal">
+      <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
+      <h2>{title}</h2>
+
+      {leg === 'intro' && (
+        <>
+          <p className="modal-intro">
+            Mac 靠信号强弱猜你在不在。强弱跟房间有关，所以要在<b>你实际用它的地方</b>量一次。
+          </p>
+          <p className="pk-pair-hint">
+            两段，各十五秒以上：先站着不动，再走开待一会儿。手机要带在身上。
+          </p>
+          <div className="pk-modal-actions">
+            <button className="button light" onClick={onClose}>以后再说</button>
+            <button className="button primary" onClick={() => onStartLeg('near')}>开始</button>
+          </div>
+        </>
+      )}
+
+      {(leg === 'near' || leg === 'far') && (
+        <>
+          <p className="modal-intro">
+            {leg === 'near'
+              ? '就坐在或站在你平常的位置，手机放在平常放的地方，别动它。'
+              : '已经在记了。走开就行，够了会自己停，回来再看结果。'}
+          </p>
+          <CalMeter progress={progress} pct={pct} />
+          {progress && !progress.monitorRunning && (
+            <p className="pk-pair-hint">
+              {/* Otherwise an empty leg looks like "the phone is far away",
+                  which during the NEAR leg is the opposite of the truth. */}
+              没有在收信号——监测没在跑，这样量不到东西。先把上面那个开关打开。
+            </p>
+          )}
+          <div className="pk-modal-actions">
+            <button className="button light" onClick={onClose}>取消</button>
+            {leg === 'near'
+              ? <button className="button primary" disabled={!enough} onClick={onWalk}>
+                  {enough ? '这段够了，下一步' : `再站 ${left} 秒`}
+                </button>
+              : <button className="button primary" disabled={!enough} onClick={onFinish}>
+                  {enough ? '我回来了，看结果' : `还要 ${left} 秒`}
+                </button>}
+          </div>
+        </>
+      )}
+
+      {leg === 'walk' && (
+        <>
+          <p className="modal-intro">
+            现在请<b>带着手机走开</b>——走到你希望 Mac 自动锁屏的那个距离之外，比如出了这个房间。
+          </p>
+          <p className="pk-pair-hint">
+            点下面这个按钮再走。到了那边什么都不用做，待上二十来秒再回来——不够久它会直说。
+          </p>
+          <div className="pk-modal-actions">
+            <button className="button light" onClick={() => onStartLeg('near')}>重量这一段</button>
+            <button className="button primary" onClick={() => onStartLeg('far')}>我这就走</button>
+          </div>
+        </>
+      )}
+
+      {leg === 'done' && result && <CalibrationVerdict result={result} onRedo={() => onStartLeg('near')} onClose={onClose} />}
+    </ModalShell>
+  )
+}
+
+function CalMeter({ progress, pct }: { progress: CalibrationProgress | null; pct: number }) {
+  return (
+    <div className="pk-cal-meter" role="status" aria-live="polite">
+      <div className="pk-cal-bar"><span style={{ width: `${pct}%` }} /></div>
+      <p className="pk-cal-now">
+        {progress?.latestDbm != null
+          // The number is deliberately unlabelled and small: it is here so the
+          // bar is visibly tied to something real and moves when you move, not
+          // so anyone has to know what dBm means (ui-conventions 3.4).
+          ? <>正在记 · 现在 <b>{progress.latestDbm}</b> dBm</>
+          : '还没收到信号'}
+      </p>
+    </div>
+  )
+}
+
+function CalibrationVerdict({ result, onRedo, onClose }: {
+  result: CalibrationResult
+  onRedo: () => void
+  onClose: () => void
+}) {
+  const { outcome, near, far } = result
+  if (outcome.kind === 'ok') {
+    return (
+      <>
+        <p className="modal-intro">
+          这台 Mac 现在知道你那个位置该有多强的信号了。走开一会儿它会自己锁，回来按回车就进。
+        </p>
+        <dl className="pk-cal-stats">
+          <div><dt>在身边时</dt><dd>{near.mean.toFixed(0)} dBm（{near.max} 到 {near.min}，{near.n} 次）</dd></div>
+          <div><dt>走开之后</dt><dd>{far.mean.toFixed(0)} dBm（{far.max} 到 {far.min}，{far.n} 次）</dd></div>
+          <div><dt>判定的分界</dt><dd>强于 {outcome.nearDbm} 算在身边，弱于 {outcome.farDbm} 算走了</dd></div>
+        </dl>
+        <p className="pk-pair-hint">
+          中间那段留空是故意的：正好卡在边上时它保持原样，免得你一动就锁一下、开一下。
+        </p>
+        <div className="pk-modal-actions"><button className="button primary" onClick={onClose}>好</button></div>
+      </>
+    )
+  }
+
+  // Both failures answer the same first question (ui-conventions 5.3): nothing
+  // changed, the Mac is exactly as it was a minute ago.
+  const why =
+    outcome.kind === 'not-enough-samples'
+      ? `两段里至少有一段没收够信号（近处 ${outcome.near} 次、远处 ${outcome.far} 次，各要 ${outcome.needed} 次）。多半是监测中途停了，或者手机没带在身上。`
+      : outcome.kind === 'too-brief'
+        ? `收到的信号够多，但都挤在很短的时间里（近处 ${Math.round(outcome.nearMs / 1000)} 秒、远处 ${Math.round(outcome.farMs / 1000)} 秒，各要 ${Math.round(outcome.neededMs / 1000)} 秒）。每段都要真的待满那段时间，短时间里的十几次读数其实是同一个瞬间。`
+        : `两段测出来太像了，只差 ${Math.abs(outcome.gapDb).toFixed(0)} dB，要 ${outcome.neededDb.toFixed(0)} dB 才分得开。走得再远一点，或者换个位置再试——隔一堵墙通常就够了。`
+
+  return (
+    <>
+      <p className="modal-intro">
+        没有改动任何设置，这台 Mac 还是刚才那样。
+      </p>
+      <p className="pk-pair-hint">{why}</p>
+      <dl className="pk-cal-stats">
+        <div><dt>在身边时</dt><dd>{near.n ? `${near.mean.toFixed(0)} dBm（${near.n} 次）` : '没收到'}</dd></div>
+        <div><dt>走开之后</dt><dd>{far.n ? `${far.mean.toFixed(0)} dBm（${far.n} 次）` : '没收到'}</dd></div>
+      </dl>
+      <p className="security-limit" style={{ marginTop: 14 }}>
+        {/* 1.3: say what not calibrating actually costs, rather than offering
+            「先用默认值」 as if it were a neutral second option. */}
+        不量也能用，只是那个距离用的是别人机器上量出来的数——可能你还在座位上它就锁了，
+        也可能你走到门口它还当你在。
+      </p>
+      <div className="pk-modal-actions">
+        <button className="button light" onClick={onClose}>先这样</button>
+        <button className="button primary" onClick={onRedo}>再量一次</button>
+      </div>
+    </>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Who can touch this Mac.
 //
@@ -538,13 +773,14 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
 // Also deliberately not here: a 快捷控制 switch. Nothing reads such a flag yet,
 // and a switch that stores a preference no code enforces is the same lie as a
 // hardcoded `keys_removed: true`.
-function PhoneList({ device, onPair, busy, armed, onArm, onRevoke }: {
+function PhoneList({ device, onPair, busy, armed, onArm, onRevoke, onCalibrate }: {
   device: PairedDevice | null
   onPair: (() => void) | null
   busy: boolean
   armed: string | null
   onArm: (id: string | null) => void
   onRevoke: (id: string) => void
+  onCalibrate: () => void
 }) {
   return (
     <section className="panel preferences-panel">
@@ -569,6 +805,11 @@ function PhoneList({ device, onPair, busy, armed, onArm, onRevoke }: {
           {/* Two steps, because it cannot be undone without the phone in hand
               and a second pairing. The armed step says what is about to go. */}
           <div className="pk-device-action">
+            {armed !== device.id && (
+              <button className="button light pk-device-tune" disabled={busy} onClick={onCalibrate}>
+                量一下距离
+              </button>
+            )}
             {armed === device.id ? (
               <>
                 <p className="pk-device-warn">删掉钥匙之后，这部手机要重新配对一次才能再解锁。</p>
@@ -719,8 +960,9 @@ function PairSteps({ stage }: { stage: PairingSession['stage'] }) {
 }
 
 function PairingSheet(
-  { session, onClose, onConfirm, onRetry, onTryLock }:
-  { session: PairingSession; onClose: () => void; onConfirm: () => void; onRetry: () => void; onTryLock: () => void },
+  { session, onClose, onConfirm, onRetry, onTryLock, onCalibrate }:
+  { session: PairingSession; onClose: () => void; onConfirm: () => void; onRetry: () => void
+    onTryLock: () => void; onCalibrate: () => void },
 ) {
   const title = session.stage === 'done' ? '配好了，还差一次验证'
     : session.stage === 'failed' ? '配对没有完成'
@@ -822,7 +1064,7 @@ function PairingSheet(
             </details>
           )}
           <div className="pk-modal-actions">
-            <button className="button light" onClick={onClose}>待会儿再试</button>
+            <button className="button light" onClick={onCalibrate}>先量一下距离</button>
             <button className="button primary" onClick={onTryLock}>现在锁屏试一次</button>
           </div>
         </>

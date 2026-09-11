@@ -273,6 +273,103 @@ export type UnlockView = {
 }
 
 // Commands the panel can ask the container to run (mapped to bridge calls).
+
+// ---- signal calibration ---------------------------------------------------
+
+export type CalibrationLeg = { n: number; mean: number; sd: number; min: number; max: number; spanMs: number }
+
+export type CalibrationOutcome =
+  | { kind: 'ok'; nearDbm: number; farDbm: number }
+  | { kind: 'not-enough-samples'; near: number; far: number; needed: number }
+  | { kind: 'too-brief'; nearMs: number; farMs: number; neededMs: number }
+  | { kind: 'too-similar'; gapDb: number; neededDb: number }
+
+export type CalibrationResult = { near: CalibrationLeg; far: CalibrationLeg; outcome: CalibrationOutcome }
+
+export type CalibrationProgress = {
+  nearLeg: boolean
+  samples: number
+  needed: number
+  elapsedMs: number
+  neededMs: number
+  latestDbm: number | null
+  monitorRunning: boolean
+}
+
+/** A leg is done when it has enough readings AND has been running long enough.
+ *  The count alone fills in about three seconds, because the scanner emits
+ *  near-duplicate rows — so gating on it let a leg finish without the phone
+ *  ever having been observed over time. */
+export function calibrationLegReady(p: CalibrationProgress | null): boolean {
+  if (!p) return false
+  return p.samples >= p.needed && p.elapsedMs >= p.neededMs
+}
+
+const EMPTY_LEG: CalibrationLeg = { n: 0, mean: 0, sd: 0, min: 0, max: 0, spanMs: 0 }
+
+function leg(v: unknown): CalibrationLeg {
+  if (!v || typeof v !== 'object') return EMPTY_LEG
+  const o = v as Record<string, unknown>
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+  return { n: num(o.n), mean: num(o.mean), sd: num(o.sd), min: num(o.min), max: num(o.max), spanMs: num(o.spanMs) }
+}
+
+/** Anything we cannot read becomes a refusal, never a pass. A calibration that
+ *  reports success on a malformed reply is the placeholder problem again. */
+export function normalizeCalibration(raw: unknown): CalibrationResult {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const near = leg(o.near)
+  const far = leg(o.far)
+  const oc = (o.outcome && typeof o.outcome === 'object' ? o.outcome : {}) as Record<string, unknown>
+  const num = (x: unknown, d: number) => (typeof x === 'number' && Number.isFinite(x) ? x : d)
+  let outcome: CalibrationOutcome
+  switch (oc.kind) {
+    case 'ok': {
+      const nearDbm = num(oc.nearDbm, 0)
+      const farDbm = num(oc.farDbm, 0)
+      // An inverted band would mean present and absent at once. Refusing here
+      // as well as in Rust costs one line and closes the whole path.
+      outcome = nearDbm > farDbm
+        ? { kind: 'ok', nearDbm, farDbm }
+        : { kind: 'too-similar', gapDb: 0, neededDb: 12 }
+      break
+    }
+    case 'too-similar':
+      outcome = { kind: 'too-similar', gapDb: num(oc.gapDb, 0), neededDb: num(oc.neededDb, 12) }
+      break
+    case 'too-brief':
+      outcome = {
+        kind: 'too-brief',
+        nearMs: num(oc.nearMs, 0),
+        farMs: num(oc.farMs, 0),
+        neededMs: num(oc.neededMs, 15000),
+      }
+      break
+    default:
+      outcome = {
+        kind: 'not-enough-samples',
+        near: num(oc.near, near.n),
+        far: num(oc.far, far.n),
+        needed: num(oc.needed, 20),
+      }
+  }
+  return { near, far, outcome }
+}
+
+export function normalizeCalibrationProgress(raw: unknown): CalibrationProgress {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const num = (x: unknown, d: number) => (typeof x === 'number' && Number.isFinite(x) ? x : d)
+  return {
+    nearLeg: o.nearLeg !== false,
+    samples: num(o.samples, 0),
+    needed: num(o.needed, 20),
+    elapsedMs: num(o.elapsedMs, 0),
+    neededMs: num(o.neededMs, 15000),
+    latestDbm: typeof o.latestDbm === 'number' && Number.isFinite(o.latestDbm) ? o.latestDbm : null,
+    monitorRunning: o.monitorRunning === true,
+  }
+}
+
 export type PanelCommand =
   | 'install' | 'repair-rule' | 'reinstall-component' | 'uninstall'
   | 'start-password-drill' | 'start-phone-drill' | 'begin-pairing' | 'calibrate'
@@ -523,7 +620,9 @@ export type UnlockDesktopBridge = {
   /** Poll for the phone actually using the key this Mac wrote. */
   awaitPhonePairing: () => Promise<unknown>
   cancelPairing: () => Promise<void>
-  calibrateSample: (value: { kind: 'near' | 'far' }) => Promise<unknown>
+  calibrateStart: (value: { kind: 'near' | 'far' }) => Promise<unknown>
+  calibrateSample: () => Promise<unknown>
+  calibrateFinish: () => Promise<unknown>
   startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<unknown>
   openBluetoothSettings: () => Promise<void>
   openLockScreenSettings: () => Promise<void>

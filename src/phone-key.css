@@ -483,3 +483,54 @@
 .pk-steps li.is-done .pk-step-dot { background: var(--sage); border-color: var(--sage); color: var(--green); }
 .pk-steps li.is-now .pk-step-dot { background: var(--green); border-color: var(--green); color: #fff; }
 .pk-steps li.is-now .pk-step-label { color: var(--text); font-weight: 600; }
+
+/* ---- calibration ------------------------------------------------------ */
+.pk-cal-meter { margin: 20px 0 4px; }
+.pk-cal-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--active);
+  overflow: hidden;
+}
+.pk-cal-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width .35s ease;
+}
+.pk-cal-now {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  color: var(--subtle);
+  font-variant-numeric: tabular-nums;
+}
+.pk-cal-now b { color: var(--text); }
+
+.pk-cal-stats {
+  margin: 18px 0 0;
+  display: grid;
+  gap: 8px;
+}
+.pk-cal-stats > div {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.pk-cal-stats dt { flex: none; width: 6em; color: var(--subtle); }
+.pk-cal-stats dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The everyday action is a button; the irreversible one stays a quiet text
+   link below it. They used to be two identical text buttons six pixels apart,
+   which puts 「删掉这把钥匙」 one mis-click from 「量一下距离」. */
+.pk-device-tune {
+  padding: 6px 13px;
+  font-size: 12px;
+  border-radius: 9px;
+}
+.pk-device-action .text-button { font-size: 11.5px; }
