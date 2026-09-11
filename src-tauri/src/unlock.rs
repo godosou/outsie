@@ -1355,17 +1355,68 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
                 .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
             let _ = std::fs::create_dir_all(&work);
 
-            let child = Command::new("/bin/bash")
-                .arg(dir.join("presence-pipeline.sh"))
-                .arg("0") // run until stopped
-                .env("REPOSE_STATUS_FILE", &status)
-                .env("REPOSE_PIPELINE_DIR", &work)
-                // Local target: the plugin is on this machine, so the permit is a
-                // local root-owned file and the whole privileged half is one
-                // prompt. REPOSE_SSH being absent is what selects that.
-                .env_remove("REPOSE_SSH")
-                .spawn()
-                .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+    let child = Command::new("/bin/bash")
+        .arg(dir.join("presence-pipeline.sh"))
+        .arg("0") // run until stopped
+        .env("REPOSE_STATUS_FILE", &status)
+        .env("REPOSE_PIPELINE_DIR", &work)
+        // We raise the authorization ourselves, below.
+        .env("REPOSE_SKIP_PRIVILEGED", "1")
+        // Local target: the plugin is on this machine, so the permit is a
+        // local root-owned file and the whole privileged half is one
+        // prompt. REPOSE_SSH being absent is what selects that.
+        .env_remove("REPOSE_SSH")
+        .spawn()
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+
+    // Wait for the pipeline to lay out its files before root goes looking for
+    // them. The run flag is the last thing it creates before it would have
+    // asked for root itself.
+    let runflag = work.join("running");
+    for _ in 0..40 {
+        if runflag.exists() { break }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // Raise the administrator prompt HERE, so it says Outsie.
+    //
+    // macOS attributes the dialog to the executable that asks. Through
+    // /usr/bin/osascript the box is titled "osascript" -- a name nobody
+    // installed, shown at the one moment in this product where an
+    // administrator password is being typed. Asking in-process is the whole
+    // difference, and it is the same call the installer and the pairing key
+    // write already use.
+    //
+    // The command is BUILT here from paths this process owns, never read back
+    // from a file the pipeline wrote: handing our authorization to a string
+    // that arrived from a user-writable file is the exact shape of the
+    // escalation presence-privileged.sh exists to close.
+    //
+    // On its own thread, because `do shell script` does not return until the
+    // command does, and this one runs for as long as presence monitoring does.
+    // That blocking is what holds the root chain alive -- exactly what keeping
+    // osascript in the foreground used to do.
+    let script = format!(
+        "do shell script \"REPOSE_MODE=local REPOSE_BIN={bin} REPOSE_KEY_DIR={keys} \
+         REPOSE_RAW={raw} REPOSE_VERIFIED={verified} REPOSE_RUNFLAG={flag} \
+         REPOSE_PERMIT_DIR={permit} REPOSE_STATUS_FILE={status} REPOSE_LOG_DIR={work} \
+         {priv_sh}\" with administrator privileges",
+        bin = applescript_quote(&dir.to_string_lossy()),
+        keys = applescript_quote(PRESENCE_KEY_DIR),
+        raw = applescript_quote(&work.join("raw.csv").to_string_lossy()),
+        verified = applescript_quote(&work.join("verified.csv").to_string_lossy()),
+        flag = applescript_quote(&runflag.to_string_lossy()),
+        permit = applescript_quote("/var/run/repose-spike"),
+        status = applescript_quote(&status.to_string_lossy()),
+        work = applescript_quote(&work.to_string_lossy()),
+        priv_sh = applescript_quote(&dir.join("presence-privileged.sh").to_string_lossy()),
+    );
+    std::thread::spawn(move || {
+        // A failure here is not silent: the pipeline checks for verify.log and
+        // publishes `noauth` when the privileged half never started, which is
+        // what the panel reads.
+        let _ = run_privileged(&script);
+    });
 
     if let Some(p) = pid_path(app) {
         let _ = std::fs::write(p, child.id().to_string());
@@ -1397,6 +1448,17 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         UnlockErrorCode::Unsupported,
         "在场监测启动了，但一直没有报告状态。可能是管理员密码框被取消了，再试一次。",
     ))
+}
+
+/// Single-quote a path for a shell command that is itself inside an AppleScript
+/// string literal.
+///
+/// Two layers of quoting, which is how the old version of this ended up
+/// generating a script at run time instead. Paths here come from the app's own
+/// directories, but a home folder with an apostrophe in it is ordinary and
+/// would otherwise end the quoting early.
+fn applescript_quote(path: &str) -> String {
+    format!("'{}'", path.replace('\'', "'\\''"))
 }
 
 fn resolve_scripts_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -2590,5 +2652,27 @@ mod tests {
                 && script.contains("/Library/Security/SecurityAgentPlugins/"),
             "bundle path changed"
         );
+    }
+}
+
+#[cfg(test)]
+mod quoting_tests {
+    use super::applescript_quote;
+
+    /// The output of this goes into a command that runs as root. A path that
+    /// breaks out of its quotes does not fail, it executes.
+    #[test]
+    fn a_path_cannot_escape_its_quotes() {
+        assert_eq!(applescript_quote("/tmp/plain"), "'/tmp/plain'");
+        // Apostrophes in home folder names are ordinary.
+        assert_eq!(applescript_quote("/Users/o'brien/x"), "'/Users/o'\\''brien/x'");
+        // The shapes someone would try.
+        for nasty in ["/tmp/a'; rm -rf /; echo '", "/tmp/$(whoami)", "/tmp/`id`", "/tmp/a b"] {
+            let q = applescript_quote(nasty);
+            assert!(q.starts_with('\'') && q.ends_with('\''));
+            // Every inner apostrophe is closed and reopened, so no odd count
+            // can leave the string open.
+            assert_eq!(q.matches('\'').count() % 2, 0, "unbalanced quoting for {nasty}");
+        }
     }
 }

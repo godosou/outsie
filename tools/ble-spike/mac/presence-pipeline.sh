@@ -108,12 +108,31 @@ mkdir -p "${WORK}"
 # Copying is not a workaround for the product; it is what the product already
 # does. The shipped app runs these out of its own bundle, which is not in a
 # protected folder. This just makes the development path behave the same way.
-BIN="${WORK}/bin"
-mkdir -p "${BIN}"
-for f in presence-verify permit-bridge.sh; do
-  cp "${HERE}/${f}" "${BIN}/${f}" 2>/dev/null || { say "could not stage ${f}"; exit 2; }
-done
-chmod +x "${BIN}"/*
+# Staging happens ONLY when it has to.
+#
+# The comment above says the shipped app runs these out of its own bundle. It
+# did not: this staged unconditionally, so the packaged app was also executing
+# root binaries out of a directory the logged-in user can write to. Anyone
+# running as the user could replace them and get root the next time presence
+# was switched on, behind a dialog the user would approve as "Outsie".
+#
+# So: run from where they are, unless where they are is somewhere root cannot
+# read them.
+case "${HERE}" in
+  "${HOME}"/*)
+    BIN="${WORK}/bin"
+    mkdir -p "${BIN}"
+    for f in presence-verify permit-bridge.sh; do
+      cp "${HERE}/${f}" "${BIN}/${f}" 2>/dev/null || { say "could not stage ${f}"; exit 2; }
+    done
+    chmod +x "${BIN}"/*
+    say "development run: staging root binaries out of ${HERE} (under \$HOME)"
+    export REPOSE_ALLOW_HOME_BIN=1
+    ;;
+  *)
+    BIN="${HERE}"
+    ;;
+esac
 # A file, not a pid.
 #
 # The watcher first polled the scanner's pid with `kill -0`. That reports success
@@ -200,46 +219,19 @@ fi
 # verifier sees EOF and exits, the bridge sees EOF, publishes `stopped`, and
 # clears the permit on its way out. The whole chain unwinds from one signal we
 # are allowed to send.
-cat > "${WORK}/privileged.sh" <<LAUNCH
-#!/bin/sh
-# The three stages are started as DIRECT children of this script, not wrapped in
-# an inner \`sh -c\`. pkill -P reaches children, not grandchildren, so the wrapper
-# meant the kill landed on the wrapper alone and left tail, the verifier and the
-# bridge running -- after which the only thing that stopped them was the backstop
-# tearing down osascript, which is the abrupt path that skips the bridge's
-# handler and leaves a live permit behind.
-export REPOSE_PERMIT_ON_CMD="mkdir -p ${PERMIT_DIR} && chmod 755 ${PERMIT_DIR} && touch ${PERMIT_DIR}/permit"
-export REPOSE_PERMIT_OFF_CMD="rm -f ${PERMIT_DIR}/permit"
-export REPOSE_STATUS_FILE="${STATUS_FILE_ARG}"
+# The privileged half is a FILE IN THE BUNDLE, not something written here.
+#
+# It used to be generated into ${WORK} on every run and executed as root, out of
+# a directory the user can write to. See presence-privileged.sh for what that
+# allowed. Its parameters now travel as environment variables on the command
+# line, so nothing executable is created at run time.
+PRIV="${HERE}/presence-privileged.sh"
+[ -r "${PRIV}" ] || { say "missing presence-privileged.sh next to this script"; exit 2; }
 
-if [ "${MODE}" = remote ]; then
-  tail -n +1 -f "${RAW}" | "${BIN}/presence-verify" --key-dir "${KEY_DIR}" \
-    >> "${VERIFIED}" 2>> "${WORK}/verify.log" &
-else
-  # tee, so the verified stream reaches TWO readers.
-  #
-  # The bridge is inside this root chain and gets it on a pipe. The Mac's own
-  # state beacon cannot be: advertising needs the Bluetooth grant, which belongs
-  # to the app, and the same binary under root reports STATE unauthorized -- the
-  # exact reason rssi-scan is unprivileged. So the second reader is outside, and
-  # the handover is this file: created 644 by us, appended to by root, tailed by
-  # the advertiser. Same shape as the remote branch already uses.
-  #
-  # A file rather than a second FIFO on purpose. An earlier version of this
-  # pipeline deadlocked on FIFO open ordering, and a file has no ordering.
-  tail -n +1 -f "${RAW}" \
-    | "${BIN}/presence-verify" --key-dir "${KEY_DIR}" 2>> "${WORK}/verify.log" \
-    | tee -a "${VERIFIED}" \
-    | bash "${BIN}/permit-bridge.sh" 2>> "${WORK}/bridge.log" &
-fi
-
-while [ -e "${RUNFLAG}" ]; do sleep 1; done
-# TERM, not KILL: the bridge has a handler that clears the permit and says it
-# stopped. Killing it outright would leave the door open for the freshness window.
-pkill -P \$\$ 2>/dev/null
-sleep 1
-LAUNCH
-chmod +x "${WORK}/privileged.sh"
+PRIV_ENV="REPOSE_MODE='${MODE}' REPOSE_BIN='${BIN}' REPOSE_KEY_DIR='${KEY_DIR}' \
+REPOSE_RAW='${RAW}' REPOSE_VERIFIED='${VERIFIED}' REPOSE_RUNFLAG='${RUNFLAG}' \
+REPOSE_PERMIT_DIR='${PERMIT_DIR}' REPOSE_STATUS_FILE='${STATUS_FILE_ARG}' \
+REPOSE_LOG_DIR='${WORK}' REPOSE_ALLOW_HOME_BIN='${REPOSE_ALLOW_HOME_BIN:-}'"
 
 # Started in the FOREGROUND of a subshell we background ourselves, not detached
 # with nohup inside the osascript. `do shell script` reclaims its process group
@@ -248,8 +240,29 @@ chmod +x "${WORK}/privileged.sh"
 # nothing. Keeping osascript in the foreground is what holds the root process
 # alive, and killing that subshell is what takes it down.
 say "starting the privileged half as root (one authorization prompt, ${MODE} target)"
-run_root "'${WORK}/privileged.sh'" &
-ROOT_PID=$!
+# WHO RAISES THE AUTHORIZATION DIALOG
+#
+# macOS attributes it to the executable that asks. Asking from here means asking
+# through /usr/bin/osascript, so the box says "osascript" -- a name nobody
+# installed, at the one moment in this product where somebody is typing an
+# administrator password. "Do not give your password to software you do not
+# recognise" is a good habit and we were training people out of it.
+#
+# So when the app starts this pipeline it asks in-process instead (NSAppleScript
+# from inside Outsie, where the box says Outsie) and sets REPOSE_SKIP_PRIVILEGED.
+# It builds the same command from the same paths -- it has all of them -- rather
+# than reading one back out of a file this process could write, which would hand
+# the app's authorization to whatever the file said.
+#
+# Run from a terminal, nothing sets that, and this asks the old way: "osascript"
+# is then the honest answer to who is asking.
+if [ -n "${REPOSE_SKIP_PRIVILEGED:-}" ]; then
+  say "the app is raising the authorization itself"
+  ROOT_PID=""
+else
+  run_root "${PRIV_ENV} '${PRIV}'" &
+  ROOT_PID=$!
+fi
 sleep 5
 
 # Did the privileged half actually come up?
