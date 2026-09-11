@@ -10,6 +10,7 @@
 // the browser (!bridge) the panel renders the read-only intro.
 
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { KeyRound, Smartphone, ShieldCheck, X, Monitor } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
@@ -350,10 +351,26 @@ function ModalShell({ children, onClose, className = '', label }: { children: Re
     document.addEventListener('keydown', handler)
     return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', handler); previous?.focus() }
   }, [])
-  return (
+  // Portalled to <body>, and that is load-bearing rather than tidy.
+  //
+  // The settings page is `.page-enter`, whose animation ends on
+  // `transform: translateY(0)` with fill-mode `both` -- so the final keyframe
+  // stays applied forever, and a transform that is not `none` makes the element
+  // a containing block for every `position: fixed` descendant. The backdrop then
+  // positions against the page instead of the viewport, `max-height: 100dvh`
+  // stops meaning the visible area, and the dialog runs off the bottom of the
+  // window with no way to scroll to its buttons.
+  //
+  // Found by opening the install sheet on a real Mac: the disclosure showed its
+  // title and one list item, and both "我了解了，继续" and the third-party plugin
+  // warning were below the window edge. A consent dialog you cannot read to the
+  // end, on the screen where someone agrees to change their lock screen, is the
+  // worst place in this app for that bug to live.
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={label} ref={ref}>{children}</div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
