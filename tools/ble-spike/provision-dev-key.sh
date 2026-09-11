@@ -77,7 +77,7 @@ case "${1:-}" in
     exit 0
     ;;
   --revoke)
-    run_root "rm -f '${KEY_FILE}'" && say "removed ${KEY_FILE}"
+    run_root "rm -f '${KEY_FILE}' '${KEY_FILE}.provenance'" && say "removed ${KEY_FILE}"
     if [ -n "${SERIAL}" ]; then
       # Clearing app data is the only way to reach a Keystore entry from here. It
       # takes the fingerprint record with it, which is what we want: a phone that
@@ -109,11 +109,16 @@ say "provisioning presence key ${KEY_ID}, fingerprint ${FP}"
 # One privileged command, not five: each run_root may cost an authorization
 # dialog, and a script that asks five times trains people to click through.
 say "  (macOS will ask for your password once, to write a root-only key file)"
+# The provenance marker is removed, not just left alone. The app reads it to
+# decide whether to tell the user their key was verified by comparing digits.
+# A marker left behind by an earlier real pairing would make this key -- which
+# defends against nobody in the middle -- get described as one that does.
 run_root "mkdir -p '${KEY_DIR}' \
   && chown root:wheel '${KEY_DIR}' && chmod 755 '${KEY_DIR}' \
   && install -m 600 -o root -g wheel /dev/null '${KEY_FILE}' \
   && printf '%s\\n' '${K_HEX}' > '${KEY_FILE}' \
-  && chmod 600 '${KEY_FILE}'" || die "could not write ${KEY_FILE} (was the prompt cancelled?)"
+  && chmod 600 '${KEY_FILE}' \
+  && rm -f '${KEY_FILE}.provenance'" || die "could not write ${KEY_FILE} (was the prompt cancelled?)"
 stat -f '  mac:   %N (%Su:%Sg %Lp)' "${KEY_FILE}" 2>/dev/null \
   || die "${KEY_FILE} was not created"
 

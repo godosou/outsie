@@ -35,53 +35,61 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val root = screenScaffold(
         context = context,
         pal = pal,
-        title = "这把钥匙",
-        lead = if (provisioned) {
-            "任何配了同一把密钥的 Mac 都认这台手机。"
-        } else {
-            "还没有密钥，所以还不是任何 Mac 的钥匙。"
-        },
+        title = "",
+        showTitle = false,
     ) { column ->
 
         if (provisioned) {
-            val card = Ui.card(context, pal)
-            card.addView(Ui.secondary(context, pal, "密钥指纹"))
+            column.addView(
+                heroCard(
+                    context, pal,
+                    chip = "这把钥匙",
+                    glyph = "🔑",
+                    headline = "已经配对好了",
+                    body = "配对过的 Mac 认得这台手机。",
+                ),
+                Ui.lp(top = context.dp(6)),
+            )
+
+            val card = sectionCard(context, pal, "🔖", "配对编号")
             card.addView(
                 TextView(context).apply {
                     text = fingerprint ?: "????????"
                     setTextColor(pal.accent)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 32f)
                     typeface = Typeface.create("monospace", Typeface.BOLD)
                     letterSpacing = 0.2f
                     maxLines = 1
                 },
-                Ui.lp(top = context.dp(8)),
+                Ui.lp(top = context.dp(12)),
             )
             card.addView(
-                Ui.secondary(context, pal, "配对完成时 Mac 上会打印同一串；也可以用 pair.sh 重新配一次核对。"),
-                Ui.lp(top = context.dp(10)),
+                Ui.secondary(context, pal, "Mac 上显示的应该是同一串。"),
+                Ui.lp(top = context.dp(8)),
             )
-            column.addView(card, Ui.lp(top = context.dp(20)))
+            column.addView(card, Ui.lp(top = context.dp(14)))
 
-            column.addView(
-                Ui.infoNote(
+            val reach = sectionCard(context, pal, "💻", "哪些 Mac 认得它")
+            reach.addView(
+                Ui.secondary(
                     context,
                     pal,
-                    "这台手机不知道有几台 Mac 配了这把密钥——信标是单向广播，没有 Mac 会回话。" +
-                        "要看某一台 Mac 的状态，去那台 Mac 上的 Repose。",
+                    "这台手机不知道有几台 Mac 配过它 —— 它只往外发信号，收不到回音。" +
+                        "要看某一台 Mac 的情况，去那台 Mac 上的 Repose。",
                 ),
-                Ui.lp(top = context.dp(18)),
+                Ui.lp(top = context.dp(12)),
             )
+            column.addView(reach, Ui.lp(top = context.dp(14)))
 
             column.addView(
                 Ui.amberNote(
                     context,
                     pal,
-                    "手机丢了怎么办：删掉下面这把密钥，这台手机立刻算不出有效标签，所有 Mac 都会拒绝它。" +
-                        "但这需要你能拿到这台手机——远程停用还没有做。人不在手机旁边时，" +
-                        "该做的是去 Mac 上关掉手机钥匙。",
+                    "手机丢了怎么办：取消配对，所有 Mac 立刻就不认它了。" +
+                        "但这要你手上有这台手机 —— 远程停用还没做。人不在手机旁边时，" +
+                        "去 Mac 上把手机钥匙关掉。",
                 ),
-                Ui.lp(top = context.dp(18)),
+                Ui.lp(top = context.dp(14)),
             )
 
             // The only way back to the pairing screen once a key exists.
@@ -91,40 +99,60 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
             // and hoping.
             column.addView(
                 Ui.primaryButton(context, pal, "重新配对") { nav.go(Screen.PAIRING) },
-                Ui.lp(top = context.dp(22)),
+                Ui.lp(top = context.dp(20)),
             )
             column.addView(
-                Ui.ghostButton(context, pal, "删除密钥（立即失效）") {
+                Ui.ghostButton(context, pal, "取消配对（立即生效）") {
                     AlertDialog.Builder(context, Ui.dialogTheme(context))
-                        .setTitle("删除这把密钥？")
+                        .setTitle("取消配对？")
                         .setMessage(
-                            "删除后这台手机会继续广播，但标签不再有效，任何 Mac 都会拒绝它。" +
-                                "要重新可用，需要在 Mac 上再下发一把。",
+                            "取消后，所有 Mac 立刻就认不出这台手机了。" +
+                                "想再用，重新配对一次就行。",
                         )
-                        .setPositiveButton("删除") { _, _ ->
+                        .setPositiveButton("取消配对") { _, _ ->
                             PresenceKey.delete(context, SpikeContract.PRESENCE_KEY_ID)
                             store.paired = false
-                            Toast.makeText(context, "已删除。下一个广播窗口起就会被拒绝。", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "已取消配对。", Toast.LENGTH_LONG).show()
                             nav.go(Screen.MACS)
                         }
                         .setNegativeButton("取消", null)
                         .show()
                 },
-                Ui.lp(top = context.dp(22)),
+                Ui.lp(top = context.dp(10)),
             )
         } else {
             column.addView(
+                heroCard(
+                    context, pal,
+                    chip = "这把钥匙",
+                    glyph = "🔗",
+                    headline = "还没有配对",
+                    body = "所以现在还不是任何 Mac 的钥匙。",
+                    muted = true,
+                ),
+                Ui.lp(top = context.dp(6)),
+            )
+            val card = sectionCard(context, pal, "🔢", "去配对")
+            card.addView(
                 Ui.body(
                     context,
                     pal,
-                    "信标照常在广播，但标签是用一把随机数临时凑出来的，任何 Mac 都会拒绝。" +
-                        "去配对：两端各显示一串六位数字，核对一致就成。",
+                    "Mac 会看见这台手机，但认不出它是你的。",
                 ),
-                Ui.lp(top = context.dp(20)),
+                Ui.lp(top = context.dp(12)),
             )
+            card.addView(
+                Ui.secondary(
+                    context,
+                    pal,
+                    "配一次：两边各显示一串六位数字，看一眼一样就好。",
+                ),
+                Ui.lp(top = context.dp(8)),
+            )
+            column.addView(card, Ui.lp(top = context.dp(14)))
             column.addView(
-                Ui.primaryButton(context, pal, "去看密钥状态") { nav.go(Screen.PAIRING) },
-                Ui.lp(top = context.dp(22)),
+                Ui.primaryButton(context, pal, "去配对") { nav.go(Screen.PAIRING) },
+                Ui.lp(top = context.dp(20)),
             )
         }
     }

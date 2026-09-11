@@ -33,6 +33,10 @@ let COMMIT_LABEL = "repose-pair-v2 commit"
 let SAS_LABEL = "repose-pair-v2 sas"
 let KDF_LABEL = "repose-pair-v2 presence-key"
 
+/// Where to drop the six digits for a GUI caller. nil when a person is reading
+/// stderr instead. See the write site for why this is not stderr scraping.
+var digitsFile: String? = nil
+
 func say(_ s: String) { FileHandle.standardError.write("\(s)\n".data(using: .utf8)!) }
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 func ascii(_ s: String) -> Data { Data(s.utf8) }
@@ -226,6 +230,25 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
             let transcript = sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np)
             let digits = sasDigits(transcript)
 
+            // Hand the digits to a GUI caller, if there is one.
+            //
+            // The app cannot scrape them out of the prose below: that text is
+            // written for a person and gets reworded, and a pairing UI that
+            // silently shows the wrong six digits is the exact failure this
+            // protocol exists to prevent. So the machine-readable copy is its
+            // own file, written before the prompt, and the app waits for it.
+            if let path = digitsFile {
+                let tmp = path + ".partial"
+                try? Data(digits.utf8).write(to: URL(fileURLWithPath: tmp))
+                // Rename, so a reader never sees a half-written file and takes
+                // three digits for six.
+                _ = try? FileManager.default.replaceItemAt(
+                    URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))
+                if FileManager.default.fileExists(atPath: tmp) {
+                    try? FileManager.default.moveItem(atPath: tmp, toPath: path)
+                }
+            }
+
             say("")
             say("  手机上应当显示同样的六位数字：")
             say("")
@@ -339,8 +362,11 @@ while let flag = argv.first {
         exit(selfTest())
     } else if flag == "--timeout", let v = argv.first.flatMap(Double.init) {
         timeout = v; argv.removeFirst()
+    } else if flag == "--digits-file", let v = argv.first {
+        digitsFile = v; argv.removeFirst()
     } else {
-        say("usage: pair-with-phone [--timeout SECONDS] | --self-test"); exit(64)
+        say("usage: pair-with-phone [--timeout SECONDS] [--digits-file PATH] | --self-test")
+        exit(64)
     }
 }
 

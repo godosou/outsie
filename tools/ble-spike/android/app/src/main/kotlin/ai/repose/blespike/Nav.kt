@@ -36,6 +36,8 @@ fun screenScaffold(
     title: CharSequence,
     lead: CharSequence? = null,
     onBack: (() -> Unit)? = null,
+    /** Set false where the screen supplies its own hero instead of a title. */
+    showTitle: Boolean = true,
     build: (LinearLayout) -> Unit,
 ): View {
     val outer = LinearLayout(context).apply {
@@ -43,6 +45,9 @@ fun screenScaffold(
         setBackgroundColor(pal.background)
         layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
     }
+
+    // Outside the ScrollView: the name of the app does not scroll away.
+    outer.addView(brandHeader(context, pal))
 
     if (onBack != null) {
         outer.addView(
@@ -66,14 +71,17 @@ fun screenScaffold(
     val column = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         val h = context.dp(20)
-        setPadding(h, if (onBack != null) context.dp(6) else context.dp(20), h, context.dp(28))
+        setPadding(h, context.dp(4), h, context.dp(28))
     }
 
-    column.addView(Ui.title(context, pal, title))
-    if (lead != null) {
-        column.addView(Ui.body(context, pal, lead), Ui.lp(top = context.dp(10)))
+    if (showTitle) {
+        column.addView(Ui.title(context, pal, title))
+        if (lead != null) {
+            column.addView(Ui.body(context, pal, lead), Ui.lp(top = context.dp(10)))
+        }
     }
     build(column)
+    column.addView(passwordFallbackNote(context, pal), Ui.lp(top = context.dp(26)))
 
     scroll.addView(column)
     outer.addView(scroll)

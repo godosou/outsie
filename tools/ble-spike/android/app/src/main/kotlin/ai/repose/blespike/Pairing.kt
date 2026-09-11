@@ -20,9 +20,22 @@ object Pairing {
 
     fun start(context: Context, onChange: () -> Unit): Boolean {
         stop()
+        // Application context for the server (it outlives a screen), but the
+        // permission request needs the Activity.
+        (context as? android.app.Activity)?.let { act ->
+            val missing = listOf(
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_ADVERTISE,
+            ).filter {
+                act.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                act.requestPermissions(missing.toTypedArray(), 8)
+            }
+        }
         val s = PairingServer(context.applicationContext, onChange)
         server = s
-        if (!s.start()) {
+        if (!runCatching { s.start() }.getOrDefault(false)) {
             // Keep the instance so the screen can read lastError; a null server
             // would render as "never tried" and lose the reason.
             return false

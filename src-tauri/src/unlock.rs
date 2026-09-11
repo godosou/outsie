@@ -229,12 +229,101 @@ pub struct UninstallReport {
     pub residual: Vec<String>,
 }
 
+/// Where a live `repose-pair-v2` exchange has got to.
+///
+/// This replaced a struct holding `code: "4F2K9A"` and
+/// `qr_payload: "repose-pair://placeholder"` -- a fixed string the panel
+/// displayed as though it were a pairing code, next to a QR payload that
+/// pointed nowhere. Meanwhile the only working pairing lived in a shell script
+/// the user had to find themselves, and the phone's own screen told them to
+/// press a button in this app that did not exist.
+///
+/// The six digits here are the real SAS. They are read from the pairing tool,
+/// never invented, and `Compare` is the one stage where a human decision is
+/// load-bearing: it is the whole of the man-in-the-middle defence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PairingStage {
+    /// Nothing running.
+    Idle,
+    /// The tool is up and looking for a phone in pairing mode.
+    Scanning,
+    /// Digits are on screen; waiting for the human to say whether they match.
+    Compare,
+    /// Key derived and written to this Mac.
+    Done,
+    /// Over, without a key. `detail` says why in plain language.
+    Failed,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairingSession {
-    pub code: String,
-    pub qr_payload: String,
-    pub expires_at: String,
+    pub stage: PairingStage,
+    /// The six digits, only in `Compare`.
+    pub digits: Option<String>,
+    /// The paired key's short fingerprint, only in `Done`.
+    pub fingerprint: Option<String>,
+    /// Plain-language explanation, mainly for `Failed`.
+    pub detail: Option<String>,
+}
+
+impl PairingSession {
+    fn stage(stage: PairingStage) -> Self {
+        Self { stage, digits: None, fingerprint: None, detail: None }
+    }
+    fn failed(detail: impl Into<String>) -> Self {
+        Self {
+            stage: PairingStage::Failed,
+            digits: None,
+            fingerprint: None,
+            detail: Some(detail.into()),
+        }
+    }
+}
+
+/// Turn the pairing tool's exit code into something a person can act on.
+///
+/// Code 5 is the one that matters: the phone revealed a nonce that does not
+/// match the commitment it published earlier, which is what a man in the middle
+/// leaves behind. It must never be worded as a glitch worth retrying.
+pub fn pairing_failure(code: Option<i32>) -> String {
+    match code {
+        Some(2) => "这台 Mac 的蓝牙用不了。检查蓝牙是否打开、系统设置里是否允许 Repose 使用蓝牙，然后再试一次。".into(),
+        Some(3) => "没找到正在配对的手机。在手机上点「开始配对」，把手机放在 Mac 旁边，再试一次。".into(),
+        Some(4) => "配对过程中断了。重新配一次即可。".into(),
+        Some(5) => "已中止：手机后来公布的信息和它先前的承诺对不上。\
+                    这正是有人在中间冒充会留下的痕迹。换个地方、离开可疑的环境，再重新配对。"
+            .into(),
+        Some(6) => "已中止。没有写入任何密钥。".into(),
+        Some(7) => "等太久了，这次配对已经作废。重新开始即可。".into(),
+        _ => "配对没有完成，没有写入任何密钥。".into(),
+    }
+}
+
+/// What the panel should be showing, given what is on disk and whether the tool
+/// is still alive.
+///
+/// Pure so the stage machine can be tested without a radio or a phone: the one
+/// transition that must never happen by accident is reaching `Done` without a
+/// human having seen `Compare`.
+pub fn pairing_stage(digits: Option<&str>, exit_code: Option<Option<i32>>) -> PairingSession {
+    match (digits, exit_code) {
+        // Exited before the digits ever appeared: nothing was compared.
+        (None, Some(code)) => PairingSession::failed(pairing_failure(code)),
+        (None, None) => PairingSession::stage(PairingStage::Scanning),
+        // Digits were shown, but the tool is gone -- the window closed before
+        // the human answered. Keeping `Compare` on screen would leave a live
+        // pair of buttons in front of a process that cannot receive the answer,
+        // so the honest report is that this attempt is over.
+        (Some(_), Some(code)) => PairingSession::failed(pairing_failure(code)),
+        (Some(d), None) => PairingSession {
+            stage: PairingStage::Compare,
+            digits: Some(d.trim().to_string()),
+            fingerprint: None,
+            detail: None,
+        },
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -415,7 +504,16 @@ pub fn read_presence(line: Option<&str>, now_s: i64) -> PresenceReport {
 pub enum PresenceKeyState {
     /// No key file. Nothing can authenticate, so nothing can unlock.
     Missing,
-    Ok,
+    /// A key is installed. `paired` records HOW it got here: true when this app
+    /// ran `repose-pair-v2` and a human compared six digits, false when it was
+    /// pushed over USB by a development script.
+    ///
+    /// The difference is the entire man-in-the-middle defence, so the panel is
+    /// not allowed to describe them with one sentence. It used to: every
+    /// provisioned key was labelled "通过 USB 下发的开发密钥，不是带防中间人校验
+    /// 的配对", which became false the moment real pairing shipped -- the same
+    /// shape of stale claim, just pointing the other way.
+    Ok { paired: bool },
     /// Present but not root:wheel 0600 — a key someone else could rewrite is a
     /// key someone else could become the paired phone with.
     BadPermissions { detail: String },
@@ -551,47 +649,53 @@ pub fn assess(f: &HostFacts) -> Assessment {
         (PresenceKeyState::Missing, _) => component(
             ComponentId::Transport,
             Health::Degraded,
-            "没有配对密钥。任何设备都无法通过认证，所以不会自动解锁 —— \
-             密码照常可用。运行 tools/ble-spike/provision-dev-key.sh 下发一把。",
+            "还没有和手机配对。任何设备都无法通过认证，所以不会自动解锁 —— \
+             密码照常可用。点上面的「配对手机」，一分钟就能配好。",
             Some(Remediation::RePair),
         ),
         // A key exists; now, is anything actually watching? "Away" is the
         // ordinary state of a phone in another room and must not look like a
         // fault, but "nobody is watching" must not look like Away.
-        (PresenceKeyState::Ok, PresenceReport::NeverRan) => component(
+        (PresenceKeyState::Ok { .. }, PresenceReport::NeverRan) => component(
             ComponentId::Transport,
             Health::Degraded,
             "在场监测还没有运行过。手机钥匙不会生效，密码照常可用。",
             Some(Remediation::ReinstallComponent),
         ),
-        (PresenceKeyState::Ok, PresenceReport::NotRunning) => component(
+        (PresenceKeyState::Ok { .. }, PresenceReport::NotRunning) => component(
             ComponentId::Transport,
             Health::Degraded,
             "在场监测没有在运行 —— 这不是「手机不在」，是没人在看。密码照常可用。",
             Some(Remediation::ReinstallComponent),
         ),
-        (PresenceKeyState::Ok, PresenceReport::NoAuthorization) => component(
+        (PresenceKeyState::Ok { .. }, PresenceReport::NoAuthorization) => component(
             ComponentId::Transport,
             Health::Degraded,
             "在场监测没有拿到管理员授权，所以只有扫描在跑，没有任何东西在验证 —— \
              手机钥匙不会生效，密码照常可用。把开关关掉再打开，这次在密码框里完成授权。",
             Some(Remediation::ReinstallComponent),
         ),
-        (PresenceKeyState::Ok, PresenceReport::Unreadable) => component(
+        (PresenceKeyState::Ok { .. }, PresenceReport::Unreadable) => component(
             ComponentId::Transport,
             Health::Degraded,
             "在场监测的状态读不出来，当作没有在运行处理。密码照常可用。",
             Some(Remediation::ReinstallComponent),
         ),
-        (PresenceKeyState::Ok, PresenceReport::Fresh { state, .. }) => component(
+        (PresenceKeyState::Ok { paired }, PresenceReport::Fresh { state, .. }) => component(
             ComponentId::Transport,
             Health::Ok,
-            if state == "near" {
-                "已配置在场密钥，监测运行中，手机在附近。注意：密钥是通过 USB 下发的开发密钥，不是带防中间人校验的配对。"
-            } else {
-                "已配置在场密钥，监测运行中，现在没看到手机。注意：密钥是通过 USB 下发的开发密钥，不是带防中间人校验的配对。"
+            match (paired, state.as_str()) {
+                (true, "near") => "已和手机配对，监测运行中，手机在附近。",
+                (true, _) => "已和手机配对，监测运行中，现在没看到手机。",
+                // Not a nag: this key defends against nobody in the middle, and
+                // the row that says "一切正常" is the only place someone would
+                // find that out.
+                (false, "near") => "监测运行中，手机在附近。注意：这把密钥是通过 USB 下发的开发密钥，\
+                                    没有经过两端核对数字的配对，挡不住中间人。重新配对一次会换成真的。",
+                (false, _) => "监测运行中，现在没看到手机。注意：这把密钥是通过 USB 下发的开发密钥，\
+                               没有经过两端核对数字的配对，挡不住中间人。重新配对一次会换成真的。",
             },
-            None,
+            if *paired { None } else { Some(Remediation::RePair) },
         ),
     };
     components.push(transport);
@@ -610,8 +714,19 @@ pub fn assess(f: &HostFacts) -> Assessment {
         UnlockState::NeedsRepair
     } else if f.rule_references_us && f.bundle_present {
         // Installed and consistent. Not `Ready`: nothing here has watched the
-        // mechanism actually run, and the app does not yet drive the BLE bridge.
-        UnlockState::AwaitingVerification
+        // mechanism actually run.
+        //
+        // Without a key, pairing comes first. This used to go straight to
+        // AwaitingVerification, whose button is 「锁屏，试一次」 -- so a freshly
+        // installed Mac invited you to lock the screen and watch nothing
+        // happen, because no phone could possibly authenticate yet. Worse, the
+        // state that offers 配对手机 existed in the enum and was never once
+        // returned, which is why the only route to pairing was a shell script.
+        if matches!(f.presence_key, PresenceKeyState::Missing) {
+            UnlockState::AwaitingPairing
+        } else {
+            UnlockState::AwaitingVerification
+        }
     } else if f.rule_references_us || f.bundle_present {
         UnlockState::HalfInstalled
     } else {
@@ -704,7 +819,14 @@ impl HostMacBackend {
         };
         let mode = md.mode() & 0o777;
         if md.uid() == 0 && md.gid() == 0 && mode == 0o600 {
-            PresenceKeyState::Ok
+            // How the key got here, recorded next to it by the pairing path.
+            // Absent means it was pushed by a dev script -- and absent is the
+            // safe reading: claiming a key was verified when we cannot tell
+            // would be the one wrong direction to guess in.
+            let paired = std::fs::read_to_string(format!("{path}.provenance"))
+                .map(|s| s.trim() == "repose-pair-v2")
+                .unwrap_or(false);
+            PresenceKeyState::Ok { paired }
         } else {
             PresenceKeyState::BadPermissions {
                 detail: format!(
@@ -883,25 +1005,59 @@ fn run_capture_stdin(bin: &str, args: &[&str], stdin_data: &str) -> Option<Strin
 /// Cancelling really is different from failing, so the two are distinguished:
 /// osascript reports a cancelled authorization as AppleScript error -128.
 fn run_privileged(script: &str) -> Result<(), UnlockError> {
-    let out = Command::new("/usr/bin/osascript")
-        .args(["-e", script])
-        .output()
-        .map_err(|e| UnlockError::new(UnlockErrorCode::InstallFailed, e.to_string()))?;
-    if out.status.success() {
-        return Ok(());
+    // Run the AppleScript IN THIS PROCESS, not by shelling out to osascript.
+    //
+    // macOS attributes an authorization prompt to the executable that asks. Via
+    // `/usr/bin/osascript` the box is titled "osascript" -- a name the user has
+    // no reason to recognise, at the one moment in this product where they are
+    // asked for an administrator password. "Do not give your password to
+    // software you do not recognise" is a good habit, and we were training them
+    // out of it. NSAppleScript from inside Repose makes the prompt say Repose.
+    //
+    // Cancelling is still distinguished from failing: AppleScript reports a
+    // cancelled authorization as error -128, and a script that ran and failed
+    // comes back with its own message rather than a guess about it.
+    use objc2::rc::Retained;
+    use objc2::AllocAnyThread;
+    use objc2_foundation::{NSAppleScript, NSString};
+
+    let source = NSString::from_str(script);
+    // SAFETY: NSAppleScript must be used from the main thread, which every Tauri
+    // command runs on.
+    let result = unsafe {
+        let apple_script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source)
+            .ok_or_else(|| {
+                UnlockError::new(UnlockErrorCode::InstallFailed, "无法准备授权请求")
+            })?;
+        let mut error_dict: Option<Retained<objc2_foundation::NSDictionary<NSString>>> = None;
+        // executeAndReturnError returns a descriptor on success; on failure it
+        // fills the error dictionary. The dictionary being absent is what
+        // "worked" means here.
+        let _ = apple_script.executeAndReturnError(Some(&mut error_dict));
+        (error_dict.is_none(), error_dict)
+    };
+
+    match result {
+        (true, _) => Ok(()),
+        (false, err) => {
+            let detail = err
+                .map(|d| format!("{d:?}"))
+                .unwrap_or_else(|| String::new());
+            if detail.contains("-128") || detail.contains("User canceled") {
+                Err(UnlockError::new(
+                    UnlockErrorCode::AuthorizationDenied,
+                    "取消了管理员授权，系统里什么都没有改",
+                ))
+            } else if detail.is_empty() {
+                Err(UnlockError::new(
+                    UnlockErrorCode::InstallFailed,
+                    "安装脚本失败了，但没有留下说明",
+                ))
+            } else {
+                Err(UnlockError::new(UnlockErrorCode::InstallFailed, detail))
+            }
+        }
     }
-    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    if err.contains("-128") || err.contains("User canceled") || err.contains("用户取消") {
-        return Err(UnlockError::new(
-            UnlockErrorCode::AuthorizationDenied,
-            "取消了管理员授权，系统里什么都没有改",
-        ));
-    }
-    Err(UnlockError::new(
-        UnlockErrorCode::InstallFailed,
-        // The script's own last words, not a guess about them.
-        if err.is_empty() { "安装脚本失败了，但没有留下说明".to_string() } else { err },
-    ))
 }
 
 fn run_status(bin: &str, args: &[&str]) -> Result<bool, String> {
@@ -1184,20 +1340,210 @@ pub fn unlock_revoke_device(app: AppHandle, value: DeviceArgs) -> Result<UnlockS
     HostMacBackend::new(&app).revoke_device(&value.device_id)
 }
 
+// ---- Pairing: the live half -----------------------------------------------
+//
+// `pair-with-phone` is a long-lived child that spans three commands: begin
+// starts it, poll watches for the digits, confirm answers it. So the process
+// handle has to outlive a command, which is what this holds.
+//
+// It deliberately does NOT hold root. The tool talks to a stranger over a
+// radio; writing the key needs an administrator. Keeping those in separate
+// processes is the same split `pair.sh` makes, and the reason the key travels
+// as 64 hex characters on a pipe rather than being written by the thing parsing
+// Bluetooth packets.
+
+struct LivePairing {
+    child: std::process::Child,
+    digits_path: PathBuf,
+}
+
+static PAIRING: std::sync::Mutex<Option<LivePairing>> = std::sync::Mutex::new(None);
+
+/// Run directory for one pairing attempt, under the app's own data dir.
+///
+/// Not /tmp: the digits file is short-lived but the directory is also where a
+/// future attempt's leftovers would be, and app data is somewhere we can
+/// clear without guessing about other software's files.
+fn pairing_dir(app: &AppHandle) -> Result<PathBuf, UnlockError> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
+        .join("pairing");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+    Ok(dir)
+}
+
+/// Short fingerprint of a key, the same way `pair.sh` and the phone compute it.
+///
+/// The key goes in on stdin, never on a command line: an argument list is
+/// readable by every process on the machine, and this is the one moment the
+/// presence key exists outside a 0600 file.
+fn key_fingerprint(hex_key: &str) -> Option<String> {
+    run_capture_stdin(
+        "/bin/bash",
+        &[
+            "-c",
+            "{ printf 'repose-presence-v1 fingerprint'; xxd -r -p; } \
+             | shasum -a 256 | cut -c1-8 | tr 'a-f' 'A-F'",
+        ],
+        hex_key,
+    )
+    .map(|s| s.trim().to_string())
+    .filter(|s| s.len() == 8)
+}
+
 #[tauri::command]
-pub fn unlock_pair_begin() -> Result<PairingSession, UnlockError> {
-    // Placeholder pairing (no crypto — DEFERRED). A fixed-length code + a 3-min
-    // expiry so the UI's expiry path works.
-    let expires = run_capture("/bin/date", &["-u", "-v+3M", "+%Y-%m-%dT%H:%M:%SZ"]).unwrap_or_default();
+pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> {
+    let mut slot = PAIRING.lock().map_err(|_| {
+        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Repose")
+    })?;
+    // Starting over means the previous attempt is dead to us. Leaving it
+    // running would put two tools on the radio and let a stale answer land.
+    if let Some(mut old) = slot.take() {
+        let _ = old.child.kill();
+        let _ = old.child.wait();
+    }
+
+    let dir = resolve_ble_dir(&app).ok_or_else(|| {
+        UnlockError::new(UnlockErrorCode::Unsupported, "找不到配对程序")
+    })?;
+    let tool = dir.join("pair-with-phone");
+    if !tool.exists() {
+        return Err(UnlockError::new(
+            UnlockErrorCode::Unsupported,
+            "这个版本里没有带上配对程序",
+        ));
+    }
+
+    let run = pairing_dir(&app)?;
+    let digits_path = run.join("sas-digits");
+    let _ = std::fs::remove_file(&digits_path);
+    let log = std::fs::File::create(run.join("pair.log")).ok();
+
+    let child = Command::new(&tool)
+        .arg("--digits-file")
+        .arg(&digits_path)
+        // Three minutes, matching the phone's own self-closing window. A longer
+        // one would leave a connectable surface up after the person walked away.
+        .arg("--timeout")
+        .arg("180")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(log.map(std::process::Stdio::from).unwrap_or_else(std::process::Stdio::null))
+        .spawn()
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+
+    *slot = Some(LivePairing { child, digits_path });
+    Ok(PairingSession::stage(PairingStage::Scanning))
+}
+
+#[tauri::command]
+pub fn unlock_pair_poll() -> Result<PairingSession, UnlockError> {
+    let mut slot = PAIRING.lock().map_err(|_| {
+        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Repose")
+    })?;
+    let Some(live) = slot.as_mut() else {
+        return Ok(PairingSession::stage(PairingStage::Idle));
+    };
+    let digits = std::fs::read_to_string(&live.digits_path).ok();
+    let exit = live
+        .child
+        .try_wait()
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
+        .map(|s| s.code());
+    let status = pairing_stage(digits.as_deref(), exit);
+    if status.stage == PairingStage::Failed {
+        *slot = None;
+    }
+    Ok(status)
+}
+
+/// The human said the digits match. This is the only path that writes a key.
+#[tauri::command]
+pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError> {
+    use std::io::{Read, Write};
+
+    let mut live = {
+        let mut slot = PAIRING.lock().map_err(|_| {
+            UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Repose")
+        })?;
+        slot.take().ok_or_else(|| {
+            UnlockError::new(UnlockErrorCode::Unsupported, "这次配对已经结束了，请重新开始")
+        })?
+    };
+
+    // Answering means the digits must actually have been shown. Without this a
+    // UI bug that skipped the comparison would still derive a key, which is the
+    // one outcome the whole protocol exists to prevent.
+    if !live.digits_path.exists() {
+        let _ = live.child.kill();
+        let _ = live.child.wait();
+        return Err(UnlockError::new(
+            UnlockErrorCode::Unsupported,
+            "还没有出现要核对的数字，不能确认",
+        ));
+    }
+
+    if let Some(mut stdin) = live.child.stdin.take() {
+        let _ = stdin.write_all(b"y\n");
+        let _ = stdin.flush();
+    }
+
+    let mut key = String::new();
+    if let Some(mut out) = live.child.stdout.take() {
+        let _ = out.read_to_string(&mut key);
+    }
+    let code = live.child.wait().ok().and_then(|s| s.code());
+    let key = key.trim().to_string();
+
+    if code != Some(0) || key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(PairingSession::failed(pairing_failure(code)));
+    }
+
+    let fingerprint = key_fingerprint(&key);
+
+    // Install it. One administrator prompt, attributed to Repose.
+    //
+    // The key is interpolated into a shell command rather than piped, so it is
+    // briefly visible to `ps` on this machine. That is worth naming: the
+    // alternative under `with administrator privileges` is a temp file the
+    // unprivileged side writes, which is readable for longer. Both are short;
+    // neither is good. Tightening this is tracked, not pretended away.
+    let script = format!(
+        "do shell script \"mkdir -p /var/db/repose-unlock && chown root:wheel /var/db/repose-unlock \
+         && chmod 755 /var/db/repose-unlock \
+         && install -m 600 -o root -g wheel /dev/null /var/db/repose-unlock/presence-key.1 \
+         && printf '%%s\\\\n' {key} > /var/db/repose-unlock/presence-key.1 \
+         && printf 'repose-pair-v2\\\\n' > /var/db/repose-unlock/presence-key.1.provenance \
+         && chmod 644 /var/db/repose-unlock/presence-key.1.provenance\" with administrator privileges"
+    );
+    run_privileged(&script)?;
+
+    // Pairing is not finished until this Mac is actually watching for the
+    // phone. Stopping at "key written" hands back a paired Mac that does
+    // nothing, and the panel would have said 已配对 above a dead pipeline.
+    let _ = set_presence_running(&app, true);
+
     Ok(PairingSession {
-        code: "4F2K9A".into(),
-        qr_payload: "repose-pair://placeholder".into(),
-        expires_at: expires,
+        stage: PairingStage::Done,
+        digits: None,
+        fingerprint,
+        detail: Some("这台 Mac 已经认得你的手机了。".into()),
     })
 }
 
 #[tauri::command]
-pub fn unlock_pair_cancel() {}
+pub fn unlock_pair_cancel() {
+    let Ok(mut slot) = PAIRING.lock() else { return };
+    if let Some(mut live) = slot.take() {
+        // Kill rather than answer "no": the tool treats any non-y as an abort
+        // and exits anyway, and a dead pipe must not leave this hanging.
+        let _ = live.child.kill();
+        let _ = live.child.wait();
+    }
+}
 
 #[tauri::command]
 pub fn unlock_calibrate_sample(value: CalibrateArgs) -> Result<CalibrationReport, UnlockError> {
@@ -1314,7 +1660,7 @@ mod tests {
             bundle_present: true,
             bundle_signature_ok: Some(true),
             daemon_loaded: Some(true),
-            presence_key: PresenceKeyState::Ok,
+            presence_key: PresenceKeyState::Ok { paired: true },
             presence: PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) },
         }
     }
@@ -1424,13 +1770,98 @@ mod tests {
     }
 
     #[test]
-    fn a_provisioned_key_is_never_described_as_pairing() {
-        // The key arrives over USB and defends against nobody in the middle.
-        // Three artifacts on this project have described protections the code
-        // did not have; this asserts the panel is not the fourth.
+    fn a_dev_key_is_never_described_as_pairing() {
+        // A USB-pushed key defends against nobody in the middle. Three
+        // artifacts on this project have described protections the code did not
+        // have; this asserts the panel is not the fourth.
+        let mut f = facts();
+        f.presence_key = PresenceKeyState::Ok { paired: false };
+        let a = assess(&f);
+        let c = find(&a, ComponentId::Transport);
+        assert!(c.detail.contains("中间人"), "must disclaim the defence: {}", c.detail);
+        assert!(c.remediation.is_some(), "must offer a way to get a real key");
+    }
+
+    #[test]
+    fn a_paired_key_is_not_slandered_as_a_dev_key() {
+        // The mirror image, and the reason provenance is recorded at all: once
+        // real pairing shipped, the blanket disclaimer became its own false
+        // statement -- telling someone who compared six digits that they had
+        // not. Wrong in the reassuring direction and wrong in the alarming
+        // direction are the same bug.
         let a = assess(&facts());
-        let d = &find(&a, ComponentId::Transport).detail;
-        assert!(d.contains("不是"), "the transport row must disclaim pairing: {d}");
+        let c = find(&a, ComponentId::Transport);
+        assert!(!c.detail.contains("开发密钥"), "a paired key is not a dev key: {}", c.detail);
+        assert!(c.detail.contains("配对"), "should say it is paired: {}", c.detail);
+    }
+
+    #[test]
+    fn an_installed_mac_with_no_key_is_sent_to_pair_not_to_a_drill() {
+        // AwaitingVerification's button is 「锁屏，试一次」. With no key the
+        // plugin can only deny, so that button invited the user to watch
+        // nothing happen -- while the state that offers 配对手机 was never
+        // returned by anything.
+        let mut f = facts();
+        f.presence_key = PresenceKeyState::Missing;
+        assert_eq!(assess(&f).state, UnlockState::AwaitingPairing);
+    }
+
+    // ---- pairing stages ----------------------------------------------------
+    //
+    // The panel drives a real key exchange now, so the stage machine is the
+    // thing standing between a person and a key derived from a conversation
+    // they never checked. These assert that no path reaches a comparison the
+    // tool did not offer, and that no failure is worded as a retry when it is
+    // evidence of somebody in the middle.
+
+    #[test]
+    fn still_running_with_no_digits_is_scanning() {
+        assert_eq!(pairing_stage(None, None).stage, PairingStage::Scanning);
+    }
+
+    #[test]
+    fn digits_while_alive_are_the_comparison() {
+        let s = pairing_stage(Some("063529\n"), None);
+        assert_eq!(s.stage, PairingStage::Compare);
+        assert_eq!(s.digits.as_deref(), Some("063529"));
+    }
+
+    #[test]
+    fn a_tool_that_exited_before_digits_never_offers_a_comparison() {
+        let s = pairing_stage(None, Some(Some(3)));
+        assert_eq!(s.stage, PairingStage::Failed);
+        assert!(s.digits.is_none());
+    }
+
+    #[test]
+    fn digits_left_behind_by_a_dead_tool_are_not_still_answerable() {
+        // The window timed out while the digits were on screen. Keeping
+        // Compare would show live 一样/不一样 buttons wired to a process that
+        // is gone -- the answer would vanish and the screen would sit there.
+        let s = pairing_stage(Some("063529"), Some(Some(7)));
+        assert_eq!(s.stage, PairingStage::Failed);
+    }
+
+    #[test]
+    fn a_commitment_mismatch_is_never_described_as_worth_retrying() {
+        // Exit 5 means the phone's revealed nonce did not match its earlier
+        // commitment. That is what a man in the middle leaves behind, and
+        // "try again" would walk the user straight back into it.
+        let m = pairing_failure(Some(5));
+        assert!(m.contains("冒充"), "must name what it means: {m}");
+        assert!(!m.contains("再试一次"), "must not invite a retry: {m}");
+    }
+
+    #[test]
+    fn every_failure_says_no_key_was_written_or_what_to_do() {
+        for code in [Some(2), Some(3), Some(4), Some(6), Some(7), None] {
+            let m = pairing_failure(code);
+            assert!(!m.is_empty(), "code {code:?} has no explanation");
+            assert!(
+                m.contains("没有写入") || m.contains("再试一次") || m.contains("重新"),
+                "code {code:?} leaves the user with no next step: {m}"
+            );
+        }
     }
 
     // ---- pipeline lifecycle ------------------------------------------------

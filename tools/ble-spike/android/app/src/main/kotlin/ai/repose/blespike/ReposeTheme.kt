@@ -33,42 +33,45 @@ data class Palette(
 
 object ReposeTheme {
 
+    // Lifted from the Flutter shell's reposeTheme(), which shares its palette
+    // with src/styles.css -- so the phone, the Mac app and the site are the same
+    // product rather than three things with a similar mood.
     private val LIGHT = Palette(
-        background = 0xFFF1EDE3.toInt(),
-        surface = 0xFFFBFAF5.toInt(),
-        surfaceMuted = 0xFFF3EFE6.toInt(),
+        background = 0xFFFBFCF9.toInt(),
+        surface = 0xFFFFFFFF.toInt(),
+        surfaceMuted = 0xFFEFF3E9.toInt(),
         accent = 0xFF526A43.toInt(),
-        accentSoft = 0xFFE4EADD.toInt(),
-        onAccent = 0xFFF7F5EE.toInt(),
-        textPrimary = 0xFF2B2E27.toInt(),
-        textSecondary = 0xFF6B6F62.toInt(),
-        divider = 0xFFE2DED2.toInt(),
-        amberBg = 0xFFF7EFE2.toInt(),
-        amberBorder = 0xFFECDFC8.toInt(),
-        amberText = 0xFF9C7F4E.toInt(),
-        infoBg = 0xFFE7ECDF.toInt(),
+        accentSoft = 0xFFEFF3E9.toInt(),
+        onAccent = 0xFFFFFFFF.toInt(),
+        textPrimary = 0xFF303B32.toInt(),
+        textSecondary = 0xFF677160.toInt(),
+        divider = 0xFFE9ECE4.toInt(),
+        amberBg = 0xFFFAF4E9.toInt(),
+        amberBorder = 0xFFEDE1C9.toInt(),
+        amberText = 0xFF8A6F42.toInt(),
+        infoBg = 0xFFEFF3E9.toInt(),
         infoText = 0xFF52604A.toInt(),
-        ringSoft = 0xFFDCE6D0.toInt(),
+        ringSoft = 0xFFDFE7D4.toInt(),
         ripple = 0x33526A43,
     )
 
     private val DARK = Palette(
-        background = 0xFF14160E.toInt(),
-        surface = 0xFF20231A.toInt(),
-        surfaceMuted = 0xFF1A1D14.toInt(),
-        accent = 0xFF9CBB7F.toInt(),
-        accentSoft = 0xFF2A3122.toInt(),
-        onAccent = 0xFF16180F.toInt(),
-        textPrimary = 0xFFECEBE0.toInt(),
-        textSecondary = 0xFFA7AC98.toInt(),
-        divider = 0xFF2E3227.toInt(),
-        amberBg = 0xFF2C2A1E.toInt(),
-        amberBorder = 0xFF4A4230.toInt(),
+        background = 0xFF202B24.toInt(),
+        surface = 0xFF26322A.toInt(),
+        surfaceMuted = 0xFF303E2B.toInt(),
+        accent = 0xFFA9C391.toInt(),
+        accentSoft = 0xFF303E2B.toInt(),
+        onAccent = 0xFF202B24.toInt(),
+        textPrimary = 0xFFD5DECE.toInt(),
+        textSecondary = 0xFFABB9A0.toInt(),
+        divider = 0xFF43513E.toInt(),
+        amberBg = 0xFF2E2C20.toInt(),
+        amberBorder = 0xFF4C4432.toInt(),
         amberText = 0xFFD9C08A.toInt(),
-        infoBg = 0xFF232A1F.toInt(),
+        infoBg = 0xFF303E2B.toInt(),
         infoText = 0xFFB4BCA6.toInt(),
-        ringSoft = 0xFF2E3826.toInt(),
-        ripple = 0x449CBB7F,
+        ringSoft = 0xFF35442F.toInt(),
+        ripple = 0x44A9C391,
     )
 
     fun isNight(context: Context): Boolean =

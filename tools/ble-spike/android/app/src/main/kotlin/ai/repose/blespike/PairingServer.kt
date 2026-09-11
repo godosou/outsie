@@ -158,10 +158,27 @@ class PairingServer(
         stop()
     }
 
-    /** Open a window. Returns false if the radio refused. */
+    /** Open a window. Returns false if it could not start, with lastError saying why. */
     fun start(): Boolean {
         stop()
         lastError = null
+
+        // Ask before touching the radio.
+        //
+        // A fresh install has no Bluetooth permission, and openGattServer throws
+        // SecurityException rather than returning null -- so tapping 开始配对 on a
+        // newly installed app killed the process outright. From the user's side
+        // the app simply vanished, with nothing to read and nothing to fix.
+        for (p in listOf(
+            android.Manifest.permission.BLUETOOTH_CONNECT,
+            android.Manifest.permission.BLUETOOTH_ADVERTISE,
+        )) {
+            if (context.checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                lastError = "还没有蓝牙权限。请在弹出的窗口里允许，然后再试一次。"
+                return false
+            }
+        }
+
         val manager = context.getSystemService(BluetoothManager::class.java)
         val adapter = manager?.adapter
         if (adapter == null || !adapter.isEnabled) {
@@ -170,9 +187,17 @@ class PairingServer(
         }
         session = PairingSession()
 
-        val server = manager.openGattServer(context, serverCallback)
+        // Even with permission granted, the stack can refuse. Nothing the radio
+        // does should be able to close the app while someone is halfway through
+        // pairing.
+        val server = runCatching { manager.openGattServer(context, serverCallback) }
+            .getOrElse { e ->
+                lastError = "打不开配对通道：${e.message}"
+                Log.e(TAG, "openGattServer failed", e)
+                null
+            }
         if (server == null) {
-            lastError = "打不开 GATT 服务端"
+            if (lastError == null) lastError = "打不开配对通道"
             return false
         }
         val service = BluetoothGattService(

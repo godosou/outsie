@@ -60,60 +60,69 @@ fun buildHomeScreen(
     val root = screenScaffold(
         context = context,
         pal = pal,
-        // Not a state word. It used to say 守护中 -- in the largest type on the
-        // screen, directly above "任何 Mac 都会拒绝" on a phone with no key. The
-        // headline below carries the state; the title just names the thing.
-        title = "手机钥匙",
+        title = "",
+        showTitle = false,
     ) { column ->
 
         // ---- Hero: a key in a softly pulsing sage ring ----
-        val hero = FrameLayout(context)
+        //
+        // The pulse is state, not decoration. With no presence key nothing is
+        // fine, so the hero goes muted and still -- an animation that says calm
+        // during a broken state is the same lie as a wrong title, just harder
+        // to notice.
+        val hero = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.rounded(
+                if (healthy) pal.accentSoft else pal.surfaceMuted,
+                context.dpF(24f),
+            )
+            setPadding(context.dp(22), context.dp(22), context.dp(22), context.dp(24))
+        }
+        val stack = FrameLayout(context)
         val ring = View(context).apply {
-            background = Ui.rounded(if (healthy) pal.ringSoft else pal.surfaceMuted, context.dpF(70f))
-            layoutParams = FrameLayout.LayoutParams(context.dp(140), context.dp(140), Gravity.CENTER)
+            background = Ui.rounded(if (healthy) pal.ringSoft else pal.divider, context.dpF(60f))
+            layoutParams = FrameLayout.LayoutParams(context.dp(120), context.dp(120), Gravity.CENTER)
         }
         val disc = TextView(context).apply {
-            text = "🔑" // key
+            text = "🔑"
             gravity = Gravity.CENTER
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
-            background = Ui.rounded(if (healthy) pal.accentSoft else pal.surfaceMuted, context.dpF(52f))
-            alpha = if (healthy) 1f else 0.55f
-            layoutParams = FrameLayout.LayoutParams(context.dp(104), context.dp(104), Gravity.CENTER)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f)
+            background = Ui.rounded(pal.surface, context.dpF(44f))
+            alpha = if (healthy) 1f else 0.6f
+            layoutParams = FrameLayout.LayoutParams(context.dp(88), context.dp(88), Gravity.CENTER)
         }
-        hero.addView(ring)
-        hero.addView(disc)
+        stack.addView(ring)
+        stack.addView(disc)
         if (healthy) startPulse(ring)
-        column.addView(
-            hero,
-            LinearLayout.LayoutParams(MATCH_PARENT, context.dp(160)).apply {
-                topMargin = context.dp(8)
-            },
+        hero.addView(
+            stack,
+            LinearLayout.LayoutParams(MATCH_PARENT, context.dp(126)),
         )
 
         headline = TextView(context).apply {
             gravity = Gravity.CENTER
             setTextColor(pal.textPrimary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
         }
-        column.addView(headline, Ui.lp(top = context.dp(6)))
+        hero.addView(headline, Ui.lp(top = context.dp(12)))
         subhead = TextView(context).apply {
             gravity = Gravity.CENTER
             setTextColor(pal.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+            setLineSpacing(context.dpF(4f), 1f)
         }
-        column.addView(subhead, Ui.lp(top = context.dp(4)))
+        hero.addView(subhead, Ui.lp(top = context.dp(8)))
+        column.addView(hero, Ui.lp(top = context.dp(6)))
 
         // ---- The advertise toggle card ----
-        val toggleCard = Ui.card(context, pal)
+        val toggleCard = sectionCard(context, pal, "📡", "让附近的 Mac 认出我")
         val toggleRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        toggleRow.addView(
-            Ui.heading(context, pal, "让附近的 Mac 认出我"),
-            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f),
-        )
+        toggleStatus = Ui.secondary(context, pal, "")
+        toggleRow.addView(toggleStatus, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         toggle = Switch(context).apply {
             thumbTintList = ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
@@ -128,29 +137,30 @@ fun buildHomeScreen(
                 onAdvertiseChange(isChecked)
             }
         }
-        toggleRow.addView(toggle, Ui.lp(width = WRAP_CONTENT))
-        toggleCard.addView(toggleRow)
-
-        toggleStatus = Ui.secondary(context, pal, "")
-        toggleCard.addView(toggleStatus, Ui.lp(top = context.dp(10)))
-        column.addView(toggleCard, Ui.lp(top = context.dp(22)))
+        toggleRow.addView(toggle, Ui.lp(width = WRAP_CONTENT, left = context.dp(12)))
+        toggleCard.addView(toggleRow, Ui.lp(top = context.dp(12)))
+        column.addView(toggleCard, Ui.lp(top = context.dp(14)))
 
         // ---- What this phone can actually see ----
         //
-        // Not a device list: there is no pairing store, and the previous version's
-        // list was seeded placeholders shown as though they were real.
-        val keyCard = Ui.card(context, pal)
-        keyCard.addView(Ui.secondary(context, pal, "这台手机的信标"))
+        // Not a device list: there is no pairing store, and the previous
+        // version's list was seeded placeholders shown as though they were real.
+        val keyCard = sectionCard(context, pal, "🔑", "配对状态")
         keyStatus = Ui.body(context, pal, "")
-        keyCard.addView(keyStatus, Ui.lp(top = context.dp(10)))
+        keyCard.addView(keyStatus, Ui.lp(top = context.dp(12)))
         keyCard.addView(
-            Ui.secondary(context, pal, "信标是单向的，没有 Mac 会回话，所以这里看不到哪台 Mac 收到了。要看那一侧，去 Mac 上的 Repose。"),
-            Ui.lp(top = context.dp(10)),
+            Ui.secondary(
+                context,
+                pal,
+                "这台手机只往外发信号、收不到回音，所以看不出哪台 Mac 认出了你。" +
+                    "要看那一边，去 Mac 上的 Repose。",
+            ),
+            Ui.lp(top = context.dp(8)),
         )
-        column.addView(keyCard, Ui.lp(top = context.dp(16)))
+        column.addView(keyCard, Ui.lp(top = context.dp(14)))
 
         // ---- Keep-alive entry ----
-        val keepAlive = Ui.card(context, pal).apply {
+        val keepAlive = sectionCard(context, pal, "🔋", "让 Repose 一直醒着").apply {
             isClickable = true
             isFocusable = true
             setOnClickListener { nav.go(Screen.KEEPALIVE) }
@@ -160,7 +170,7 @@ fun buildHomeScreen(
             gravity = Gravity.CENTER_VERTICAL
         }
         kaRow.addView(
-            bulletRow(context, pal, "让 Repose 一直醒着", "锁屏时也要能被 Mac 认出 · 后台设置"),
+            Ui.secondary(context, pal, "锁屏时也要能被 Mac 认出 · 后台设置"),
             LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f),
         )
         kaRow.addView(
@@ -171,13 +181,12 @@ fun buildHomeScreen(
             },
             Ui.lp(width = WRAP_CONTENT),
         )
-        keepAlive.addView(kaRow)
-        column.addView(keepAlive, Ui.lp(top = context.dp(16)))
+        keepAlive.addView(kaRow, Ui.lp(top = context.dp(12)))
+        column.addView(keepAlive, Ui.lp(top = context.dp(14)))
 
-        // ---- Footnote ----
         column.addView(
             Ui.secondary(context, pal, "锁屏时的提示都发到这台手机——Mac 那时锁着，你也看不到。"),
-            Ui.lp(top = context.dp(18), left = context.dp(4), right = context.dp(4)),
+            Ui.lp(top = context.dp(16), left = context.dp(4), right = context.dp(4)),
         )
     }
 
@@ -205,39 +214,39 @@ fun buildHomeScreen(
                 subhead.text = "附近的 Mac 认不出这台手机"
             }
             advertising && authentic -> {
-                headline.text = "正在广播"
-                subhead.text = "配好同一把密钥的 Mac 才认得出这串信号"
+                headline.text = "守着你的 Mac"
+                subhead.text = "只有和你配对过的 Mac 认得出这台手机"
             }
             advertising -> {
-                headline.text = "正在广播，但没有密钥"
-                subhead.text = "标签是随机凑的，任何 Mac 都会拒绝"
+                headline.text = "还没有配对"
+                subhead.text = "Mac 还认不出这台手机，先配对一次"
             }
             else -> {
-                headline.text = "已开启，但没能上天线"
-                subhead.text = "这台设备可能没有蓝牙硬件"
+                headline.text = "开着，但蓝牙没能用起来"
+                subhead.text = "这台设备可能没有蓝牙"
             }
         }
 
         when {
             !running -> {
-                toggleStatus.text = "已关闭 · 没有在广播"
+                toggleStatus.text = "已关闭 · Mac 认不出这台手机"
                 toggleStatus.setTextColor(pal.textSecondary)
             }
             advertising -> {
                 // Deliberately not "正在被认出": nothing tells this phone that.
-                toggleStatus.text = "● 已开启 · 正在广播，每 ${SpikeContract.WINDOW_SECONDS} 秒换一次标签"
+                toggleStatus.text = "● 已开启 · 正在让附近的 Mac 认出你"
                 toggleStatus.setTextColor(if (authentic) pal.accent else pal.amberText)
             }
             else -> {
-                toggleStatus.text = "已开启，但这台设备暂时无法广播（可能没有蓝牙硬件）——换到真机就能广播。"
+                toggleStatus.text = "已开启，但这台设备用不了蓝牙。"
                 toggleStatus.setTextColor(pal.amberText)
             }
         }
 
         keyStatus.text = if (authentic) {
-            "密钥指纹 ${PresenceKey.fingerprint(context) ?: "?"} · 已发出 ${SpikeState.beaconsSent} 次"
+            "已配对 · 编号 ${PresenceKey.fingerprint(context) ?: "?"}"
         } else {
-            "没有配对密钥。信标照常发，但标签是随机凑出来的，Mac 会看见这台手机然后拒绝它。"
+            "还没有配对。Mac 会看见这台手机，但认不出它是你的，所以不会解锁。"
         }
         keyStatus.setTextColor(if (authentic) pal.textPrimary else pal.amberText)
     }

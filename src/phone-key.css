@@ -206,3 +206,64 @@
 .phone-key-modal .pk-prompt-note {
   margin: 18px 0 0; font-size: 11.5px; line-height: 1.8; color: var(--muted);
 }
+
+/* ---- Pairing sheet ------------------------------------------------------ */
+
+/* Narrower than the install disclosure on purpose. That sheet has to carry a
+   disclosure people must read; this one has a single job — get six digits
+   compared — and a wide box invites filling it with prose that competes with
+   them. */
+.pk-pair-modal { max-width: 420px; }
+
+/* The six digits. Deliberately the largest thing the app ever renders.
+   Tabular figures so the glyphs line up with the phone's monospace, and wide
+   tracking so a transposed pair is visible rather than merely present. */
+.pk-pair-digits {
+  margin: 22px 0 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: clamp(40px, 11vw, 54px);
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  /* Balance the trailing letter-spacing so the block reads centred. */
+  text-indent: 0.18em;
+  text-align: center;
+  color: var(--accent, #526a43);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.pk-pair-hint {
+  margin: 16px 0 0; font-size: 12px; line-height: 1.8; color: var(--muted);
+}
+
+/* Waiting: three dots, slow. Not a spinner — a spinner reads as "working on
+   it", and nothing is being worked on here; we are waiting on a person to pick
+   up their phone. */
+.pk-pair-waiting {
+  display: flex; justify-content: center; gap: 9px; margin: 30px 0 6px;
+}
+.pk-pair-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent, #526a43); opacity: 0.25;
+  animation: pk-pair-breathe 1.5s ease-in-out infinite;
+}
+.pk-pair-dot:nth-child(2) { animation-delay: 0.2s; }
+.pk-pair-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pk-pair-breathe {
+  0%, 100% { opacity: 0.22; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk-pair-dot { animation: none; opacity: 0.45; }
+}
+
+.pk-pair-fingerprint {
+  margin: 20px 0 0; display: flex; align-items: baseline; gap: 12px;
+  padding: 14px 16px; border-radius: 14px;
+  background: var(--surface-muted, rgba(82, 106, 67, 0.07));
+}
+.pk-pair-fingerprint span { font-size: 11.5px; color: var(--muted); }
+.pk-pair-fingerprint b {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 21px; letter-spacing: 0.12em; color: var(--text);
+}

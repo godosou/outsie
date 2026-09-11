@@ -142,8 +142,7 @@ class BleSpikeService : Service() {
         SpikeState.fingerprint = PresenceKey.fingerprint(this)
         if (!beacon.authentic) {
             SpikeState.event(
-                "no presence key: broadcasting an invalid tag. The Mac will see this " +
-                    "device and refuse it.",
+                "还没有配对：Mac 会看见这台手机，但认不出是你的。",
             )
         }
 
@@ -213,9 +212,9 @@ class BleSpikeService : Service() {
 
     private fun buildNotification(): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Repose 在场信标")
+            .setContentTitle("Repose 手机钥匙")
             .setContentText(
-                if (SpikeState.authentic) "广播中 · 已配置密钥" else "广播中 · 未配置密钥（无效标签）",
+                if (SpikeState.authentic) "正在让你的 Mac 认出这台手机" else "还没有配对，Mac 认不出这台手机",
             )
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)

@@ -10,25 +10,29 @@ import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Screen 1 — 密钥状态 / 配对.
+ * Screen 1 — 配对.
  *
  * Three views, in priority order:
  *
  *   1. A pairing window is open  -> the six digits, or "waiting for the Mac"
- *   2. A key exists              -> its fingerprint, and a way to re-pair
+ *   2. A key exists              -> its short id, and a way to re-pair
  *   3. Neither                   -> start pairing
  *
  * The window beats the key on purpose. Somebody re-pairing needs the digits in
- * front of them, not the fingerprint of the key they are in the middle of
- * replacing.
+ * front of them, not the id of the key they are in the middle of replacing.
  *
- * This screen has now been rewritten three times, twice for the same reason: it
+ * This screen has now been rewritten four times, twice for the same reason: it
  * said things the code did not do. The first showed a locally-invented code and
  * claimed the Mac was showing it too. The second said plainly that no key
  * exchange existed. One does now, and the copy has to be equally careful in the
  * other direction -- the six digits really are the whole of the MITM defence, so
  * the screen's job is to make comparing them feel like the point, not a
  * formality to tap past.
+ *
+ * The fourth pass was about shape rather than truth: four stacked paragraphs on
+ * a flat background read as a debug build, and a debug build is not a thing
+ * anyone should hand their lock screen to. Hero, cards, and a step row now say
+ * where you are.
  */
 fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val pal = ReposeTheme.of(context)
@@ -36,30 +40,12 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
     val fingerprint = PresenceKey.fingerprint(context)
     val windowOpen = Pairing.isOpen || Pairing.digits != null
 
-    val title = when {
-        windowOpen -> "正在配对"
-        provisioned -> "这台手机已有在场密钥"
-        else -> "这台手机还没有在场密钥"
-    }
-
-    val root = screenScaffold(context = context, pal = pal, title = title) { column ->
-        if (!windowOpen) {
-            column.addView(
-                Ui.amberNote(
-                    context,
-                    pal,
-                    if (provisioned) {
-                        "这把密钥可能来自两条路：USB 下发（开发用，防不了中间人），" +
-                            "或者两端比对六位数字的配对。界面分不出来 —— 不确定就重新配对一次。"
-                    } else {
-                        "配对时两端会各显示一串六位数字，由你核对它们一致。" +
-                            "这一步就是防中间人的全部：不一致就说明有人在中间。"
-                    },
-                ),
-                Ui.lp(top = context.dp(10)),
-            )
-        }
-
+    val root = screenScaffold(
+        context = context,
+        pal = pal,
+        title = "",
+        showTitle = false,
+    ) { column ->
         when {
             windowOpen -> renderPairingWindow(context, pal, store, nav, column)
             provisioned -> renderProvisioned(context, pal, store, nav, column, fingerprint)
@@ -84,7 +70,9 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
  * The comparison, or the wait before it.
  *
  * Everything here exists to make one question easy to answer correctly: are
- * these the same six digits the Mac is showing?
+ * these the same six digits the Mac is showing? So the digits are the largest
+ * thing on the screen and nothing competes with them — no id, no diagnostics,
+ * no second call to action.
  */
 private fun renderPairingWindow(
     context: Context,
@@ -96,15 +84,21 @@ private fun renderPairingWindow(
     val digits = Pairing.digits
     if (digits != null) {
         column.addView(
-            Ui.body(context, pal, "Mac 上现在应当显示同样的六位数字。"),
-            Ui.lp(top = context.dp(14)),
+            heroCard(
+                context, pal,
+                chip = "第 2 步，共 2 步",
+                glyph = "👀",
+                headline = "核对这六位数字",
+                body = "Mac 上现在也应该显示同一串。",
+            ),
+            Ui.lp(top = context.dp(6)),
         )
         val card = Ui.card(context, pal).apply { gravity = Gravity.CENTER_HORIZONTAL }
         card.addView(
             TextView(context).apply {
                 text = digits
                 setTextColor(pal.accent)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 44f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 46f)
                 typeface = Typeface.create("monospace", Typeface.BOLD)
                 gravity = Gravity.CENTER
                 letterSpacing = 0.3f
@@ -112,18 +106,18 @@ private fun renderPairingWindow(
             },
             Ui.lp(width = WRAP_CONTENT),
         )
-        column.addView(card, Ui.lp(top = context.dp(18)))
+        column.addView(card, Ui.lp(top = context.dp(14)))
         column.addView(
             Ui.amberNote(
                 context,
                 pal,
-                "不一致就说明有人在中间。这种时候按「不一致」，并且不要重试同一次 —— " +
-                    "允许重试等于让对方一直猜下去，六位数字就不再是六位数字。",
+                "两边不一样，就说明中间有人在冒充。这时候按「不一样」，" +
+                    "然后换个地方从头重新配一次 —— 不要就着这次再试。",
             ),
-            Ui.lp(top = context.dp(18)),
+            Ui.lp(top = context.dp(16)),
         )
         column.addView(
-            Ui.primaryButton(context, pal, "一致，完成配对") {
+            Ui.primaryButton(context, pal, "一样，完成配对") {
                 if (Pairing.confirm()) {
                     store.paired = true
                     Toast.makeText(context, "配对完成。", Toast.LENGTH_LONG).show()
@@ -136,32 +130,46 @@ private fun renderPairingWindow(
                 }
                 nav.go(Screen.PAIRING)
             },
-            Ui.lp(top = context.dp(22)),
+            Ui.lp(top = context.dp(20)),
         )
         column.addView(
-            Ui.ghostButton(context, pal, "不一致，中止") {
+            Ui.ghostButton(context, pal, "不一样，停下") {
                 Pairing.reject()
                 Toast.makeText(context, "已中止。", Toast.LENGTH_LONG).show()
                 nav.go(Screen.PAIRING)
             },
-            Ui.lp(top = context.dp(12)),
+            Ui.lp(top = context.dp(10)),
         )
     } else {
         column.addView(
-            Ui.body(context, pal, "配对窗口已打开，等待 Mac 连接。"),
-            Ui.lp(top = context.dp(14)),
+            heroCard(
+                context, pal,
+                chip = "第 1 步，共 2 步",
+                glyph = "📡",
+                headline = "手机准备好了",
+                body = "等 Mac 那边开始。",
+            ),
+            Ui.lp(top = context.dp(6)),
         )
-        column.addView(
-            Ui.infoNote(
+        val how = sectionCard(context, pal, "💻", "在 Mac 上")
+        how.addView(
+            Ui.body(
                 context,
                 pal,
-                "在 Mac 上执行：\n  tools/ble-spike/pair.sh\n\n" +
-                    "两边都会显示一串六位数字，核对一致再确认。窗口 " +
-                    "${SpikeContract.PAIRING_WINDOW_SECONDS} 秒后自动关闭，" +
-                    "这段时间在场信标会暂停。",
+                "打开 Repose → 设置 → 手机钥匙，点「配对手机」。",
             ),
-            Ui.lp(top = context.dp(18)),
+            Ui.lp(top = context.dp(12)),
         )
+        how.addView(
+            Ui.secondary(
+                context,
+                pal,
+                "两边会各显示一串六位数字，看一眼是不是一样，再分别确认。" +
+                    "三分钟内没配好就会自己停下，重新开始即可。",
+            ),
+            Ui.lp(top = context.dp(10)),
+        )
+        column.addView(how, Ui.lp(top = context.dp(14)))
         Pairing.lastError?.let {
             column.addView(Ui.amberNote(context, pal, it), Ui.lp(top = context.dp(14)))
         }
@@ -170,7 +178,7 @@ private fun renderPairingWindow(
                 Pairing.stop()
                 nav.go(Screen.PAIRING)
             },
-            Ui.lp(top = context.dp(22)),
+            Ui.lp(top = context.dp(20)),
         )
     }
 }
@@ -184,42 +192,49 @@ private fun renderProvisioned(
     fingerprint: String?,
 ) {
     column.addView(
-        Ui.body(context, pal, "把下面这串和 Mac 上显示的指纹对一下。不一致就说明不是同一把钥匙。"),
-        Ui.lp(top = context.dp(14)),
+        heroCard(
+            context, pal,
+            chip = "已配对",
+            glyph = "🔑",
+            headline = "已经配对好了",
+            body = "配对过的 Mac 认得这台手机。",
+        ),
+        Ui.lp(top = context.dp(6)),
     )
-    val card = Ui.card(context, pal).apply { gravity = Gravity.CENTER_HORIZONTAL }
-    card.addView(
-        Ui.secondary(context, pal, "密钥指纹").apply { gravity = Gravity.CENTER },
-        Ui.lp(width = WRAP_CONTENT),
-    )
+
+    val card = sectionCard(context, pal, "🔖", "配对编号")
     card.addView(
         TextView(context).apply {
             text = fingerprint ?: "????????"
             setTextColor(pal.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 38f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
             typeface = Typeface.create("monospace", Typeface.BOLD)
-            gravity = Gravity.CENTER
-            letterSpacing = 0.24f
+            letterSpacing = 0.2f
             maxLines = 1
         },
-        Ui.lp(width = WRAP_CONTENT, top = context.dp(8)),
+        Ui.lp(top = context.dp(12)),
     )
-    column.addView(card, Ui.lp(top = context.dp(18)))
+    card.addView(
+        Ui.secondary(context, pal, "Mac 上显示的应该是同一串。不一样就说明配的不是同一台。"),
+        Ui.lp(top = context.dp(8)),
+    )
+    column.addView(card, Ui.lp(top = context.dp(14)))
+
     column.addView(
         Ui.infoNote(
             context,
             pal,
-            "指纹是 K 的哈希，不是 K 的一部分——可以给别人看。密钥本身不可导出，" +
-                "只能在安全芯片里参与签名。",
+            "这个编号可以给别人看，它不是钥匙本身。真正的钥匙存在手机的安全芯片里，" +
+                "谁也拿不出来，包括这个 App。",
         ),
-        Ui.lp(top = context.dp(18)),
+        Ui.lp(top = context.dp(14)),
     )
     column.addView(
         Ui.primaryButton(context, pal, "继续") {
             store.paired = true
             nav.go(Screen.HOME)
         },
-        Ui.lp(top = context.dp(24)),
+        Ui.lp(top = context.dp(20)),
     )
     // Replace without destroying first. The only route used to be "delete, then
     // hope pairing works", which leaves a Mac trusting nothing if anything goes
@@ -230,29 +245,45 @@ private fun renderProvisioned(
             Pairing.start(context) { nav.go(Screen.PAIRING) }
             nav.go(Screen.PAIRING)
         },
-        Ui.lp(top = context.dp(12)),
-    )
-    column.addView(
-        Ui.ghostButton(context, pal, "删除这把密钥") {
-            PresenceKey.delete(context, SpikeContract.PRESENCE_KEY_ID)
-            store.paired = false
-            Toast.makeText(context, "已删除。信标将开始广播无效标签。", Toast.LENGTH_LONG).show()
-            nav.go(Screen.PAIRING)
-        },
-        Ui.lp(top = context.dp(12)),
+        Ui.lp(top = context.dp(10)),
     )
 }
 
 private fun renderNoKey(context: Context, pal: Palette, nav: Nav, column: LinearLayout) {
     column.addView(
+        heroCard(
+            context, pal,
+            chip = "还没开始",
+            glyph = "🔗",
+            headline = "先和你的 Mac 配对",
+            body = "配好之后，人在电脑前就能直接回车解锁。",
+            muted = true,
+        ),
+        Ui.lp(top = context.dp(6)),
+    )
+    column.addView(
+        stepRow(context, pal, listOf("配对", "开着", "靠近"), activeIndex = 0),
+        Ui.lp(top = context.dp(14)),
+    )
+    val card = sectionCard(context, pal, "🔢", "配对怎么做")
+    card.addView(
         Ui.body(
             context,
             pal,
-            "现在信标照常广播，但标签是用一把随机数临时凑出来的——Mac 会看见这台手机，" +
-                "然后拒绝它。这就是没有密钥时应有的样子。",
+            "两边各显示一串六位数字，你看一眼是不是一样。",
         ),
-        Ui.lp(top = context.dp(14)),
+        Ui.lp(top = context.dp(12)),
     )
+    card.addView(
+        Ui.secondary(
+            context,
+            pal,
+            "这一眼就是全部的安全保障：不一样，就说明中间有人在冒充。" +
+                "现在 Mac 会看见这台手机，但认不出它是你的，所以不会解锁。",
+        ),
+        Ui.lp(top = context.dp(10)),
+    )
+    column.addView(card, Ui.lp(top = context.dp(14)))
     Pairing.lastError?.let {
         column.addView(Ui.amberNote(context, pal, it), Ui.lp(top = context.dp(14)))
     }
@@ -261,10 +292,10 @@ private fun renderNoKey(context: Context, pal: Palette, nav: Nav, column: Linear
             Pairing.start(context) { nav.go(Screen.PAIRING) }
             nav.go(Screen.PAIRING)
         },
-        Ui.lp(top = context.dp(22)),
+        Ui.lp(top = context.dp(20)),
     )
     column.addView(
         Ui.ghostButton(context, pal, "先跳过") { nav.go(Screen.HOME) },
-        Ui.lp(top = context.dp(12)),
+        Ui.lp(top = context.dp(10)),
     )
 }

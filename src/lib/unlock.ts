@@ -496,6 +496,11 @@ export type UnlockDesktopBridge = {
   setEnabled: (value: { enabled: boolean }) => Promise<unknown>
   revokeDevice: (value: { deviceId: string }) => Promise<unknown>
   beginPairing: () => Promise<unknown>
+  /** Where the live exchange has got to. Polled while the sheet is open. */
+  pollPairing: () => Promise<unknown>
+  /** The human says the six digits match. The only path that writes a key. */
+  confirmPairing: () => Promise<unknown>
+  cancelPairing: () => Promise<void>
   calibrateSample: (value: { kind: 'near' | 'far' }) => Promise<unknown>
   startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<void>
   openBluetoothSettings: () => Promise<void>
@@ -565,5 +570,56 @@ export function normalizePreflight(value: unknown): PreflightReport {
     foreign: Array.isArray(p.foreign)
       ? p.foreign.filter((e): e is string => typeof e === 'string' && e.length <= 200).slice(0, 12)
       : [],
+  }
+}
+
+// ---- Pairing (repose-pair-v2) ----------------------------------------------
+
+export type PairingStage = 'idle' | 'scanning' | 'compare' | 'done' | 'failed'
+
+export type PairingSession = {
+  stage: PairingStage
+  /** The six SAS digits. Only ever present in `compare`. */
+  digits: string | null
+  /** The paired key's short fingerprint. Only in `done`. */
+  fingerprint: string | null
+  detail: string | null
+}
+
+export const IDLE_PAIRING: PairingSession = {
+  stage: 'idle', digits: null, fingerprint: null, detail: null,
+}
+
+/**
+ * Normalize a pairing status from the backend.
+ *
+ * Stricter than the other normalizers on one point: digits are only kept when
+ * they are exactly six ASCII digits AND the stage is `compare`. Those digits
+ * are the entire man-in-the-middle defence — a person compares them against
+ * their phone and presses 一样 — so anything the panel is not certain of must
+ * not be rendered as them. Unparseable input becomes a failure, never a
+ * comparison the user might answer.
+ */
+export function normalizePairing(value: unknown): PairingSession {
+  if (!value || typeof value !== 'object') {
+    return { stage: 'failed', digits: null, fingerprint: null, detail: '配对没有完成。' }
+  }
+  const p = value as Record<string, unknown>
+  const stage = oneOf<PairingStage>(p.stage, ['idle', 'scanning', 'compare', 'done', 'failed'] as const)
+  if (!stage) {
+    return { stage: 'failed', digits: null, fingerprint: null, detail: '配对没有完成。' }
+  }
+  const rawDigits = str(p.digits)
+  const digits = stage === 'compare' && rawDigits && /^\d{6}$/.test(rawDigits) ? rawDigits : null
+  // A comparison stage with nothing to compare is not a comparison.
+  if (stage === 'compare' && !digits) {
+    return { stage: 'failed', digits: null, fingerprint: null, detail: '没有读到要核对的数字，请重新配对。' }
+  }
+  const fingerprint = str(p.fingerprint)
+  return {
+    stage,
+    digits,
+    fingerprint: stage === 'done' && fingerprint && /^[0-9A-F]{8}$/.test(fingerprint) ? fingerprint : null,
+    detail: str(p.detail)?.slice(0, 400) ?? null,
   }
 }

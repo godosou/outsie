@@ -49,9 +49,14 @@ fingerprint() {
 FP="$(fingerprint "${K}")"
 
 echo "  写入这台 Mac（需要一次管理员授权）…" >&2
+# The marker next to the key records HOW it got here. The app shows a different
+# sentence for a key somebody compared six digits for and one a script pushed
+# over USB, and it cannot tell them apart from the bytes.
 run_root "mkdir -p '${KEY_DIR}' && chown root:wheel '${KEY_DIR}' && chmod 755 '${KEY_DIR}' \
   && install -m 600 -o root -g wheel /dev/null '${KEY_FILE}' \
-  && printf '%s\n' '${K}' > '${KEY_FILE}' && chmod 600 '${KEY_FILE}'" \
+  && printf '%s\n' '${K}' > '${KEY_FILE}' && chmod 600 '${KEY_FILE}' \
+  && printf 'repose-pair-v2\n' > '${KEY_FILE}.provenance' \
+  && chmod 644 '${KEY_FILE}.provenance'" \
   || { echo "pair: could not write ${KEY_FILE}" >&2; exit 2; }
 
 echo "" >&2

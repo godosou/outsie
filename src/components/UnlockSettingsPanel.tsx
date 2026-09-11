@@ -15,9 +15,9 @@ import { KeyRound, Smartphone, ShieldCheck, X, Monitor } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
   beginRequest, finishRequest, failRequest, canIssue, healthClass, normalizePreflight,
-  INITIAL_REQUEST_STATE,
+  INITIAL_REQUEST_STATE, normalizePairing, IDLE_PAIRING,
   type UnlockSnapshot, type UnlockError, type PanelCommand, type RequestState,
-  type PreflightReport,
+  type PreflightReport, type PairingSession,
   type UnlockDesktopBridge,
 } from '../lib/unlock'
 
@@ -43,6 +43,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   const [showManifest, setShowManifest] = useState(false)
   const [armedRevoke, setArmedRevoke] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [pairing, setPairing] = useState<PairingSession>(IDLE_PAIRING)
   const requestRef = useRef(request)
   requestRef.current = request
   // Keep a ref so the presence listener can patch just the presence axis without
@@ -94,6 +95,67 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
     }
   }, [bridge, onToast])
 
+  // ---- Pairing (repose-pair-v2) -------------------------------------------
+  //
+  // The whole exchange lives behind this sheet. Until now the only way to pair
+  // was a shell script, while the phone's own screen told people to press a
+  // button here -- so the phone was documenting a control that did not exist.
+  //
+  // The poll loop is the sheet's clock. It stops the moment the exchange
+  // reaches a terminal stage, and the effect's cleanup cancels the tool if the
+  // sheet closes, because a pairing window left open is a connectable radio
+  // surface nobody is watching.
+
+  const startPairing = useCallback(async () => {
+    if (!bridge) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
+    setPairing({ stage: 'scanning', digits: null, fingerprint: null, detail: null })
+    try {
+      setPairing(normalizePairing(await bridge.beginPairing()))
+    } catch (e) {
+      const err = asUnlockError(e)
+      setPairing({ stage: 'failed', digits: null, fingerprint: null, detail: err.detail || '配对没能开始' })
+    }
+  }, [bridge, onToast])
+
+  const closePairing = useCallback(() => {
+    void bridge?.cancelPairing().catch(() => undefined)
+    setPairing(IDLE_PAIRING)
+  }, [bridge])
+
+  const confirmPairing = useCallback(async () => {
+    if (!bridge) return
+    // Not a stage of its own: the administrator prompt appears on top of this
+    // sheet, and the digits must stay behind it. Someone who is mid-comparison
+    // should still be able to look.
+    try {
+      const next = normalizePairing(await bridge.confirmPairing())
+      setPairing(next)
+      if (next.stage === 'done') {
+        const raw = await bridge.getSnapshot().catch(() => null)
+        if (raw) setSnapshot(normalizeUnlockSnapshot(raw))
+      }
+    } catch (e) {
+      const err = asUnlockError(e)
+      setPairing({ stage: 'failed', digits: null, fingerprint: null, detail: err.detail || '没有写入密钥' })
+    }
+  }, [bridge])
+
+  // Poll only while something is actually in flight.
+  useEffect(() => {
+    if (!bridge) return
+    if (pairing.stage !== 'scanning' && pairing.stage !== 'compare') return
+    let alive = true
+    const timer = window.setInterval(() => {
+      void bridge.pollPairing()
+        .then(raw => { if (alive) setPairing(normalizePairing(raw)) })
+        .catch(() => undefined)
+    }, 700)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [bridge, pairing.stage])
+
+  // Closing the app or navigating away must not leave the tool on the radio.
+  useEffect(() => () => { void bridge?.cancelPairing().catch(() => undefined) }, [bridge])
+
   const dispatchCommand = useCallback((command: PanelCommand) => {
     if (!bridge) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
     switch (command) {
@@ -105,7 +167,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
       case 'open-bluetooth-settings': void bridge.openBluetoothSettings(); break
       case 'start-password-drill': void bridge.startDrill({ kind: 'password-drill' }); break
       case 'start-phone-drill': void bridge.startDrill({ kind: 'phone-drill' }); break
-      case 'begin-pairing': void run(command, () => bridge.beginPairing()); break
+      case 'begin-pairing': void startPairing(); break
       case 'calibrate': void run(command, () => bridge.calibrateSample({ kind: 'far' })); break
     }
   }, [bridge, run, onToast])
@@ -270,6 +332,14 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
       {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} pre={pre} />}
       {showManifest && <RemoveConfirm onClose={() => setShowManifest(false)} onConfirm={() => { setShowManifest(false); dispatchCommand('uninstall') }} />}
+      {pairing.stage !== 'idle' && (
+        <PairingSheet
+          session={pairing}
+          onClose={closePairing}
+          onConfirm={() => void confirmPairing()}
+          onRetry={() => void startPairing()}
+        />
+      )}
     </section>
   )
 }
@@ -333,22 +403,111 @@ function InstallDisclosure(
         </ol>
       </details>
 
-      {/* Said before it happens, because the dialog does not say it itself.
-          macOS attributes an authorization prompt to the executable that asks,
-          and Repose asks through osascript -- so the box is titled "osascript",
-          a name the user has no reason to recognise, at the exact moment they
-          are being asked for an administrator password. The real fix is for the
-          app process to request authorization itself; until then, saying what
-          is coming is better than letting an unexplained prompt appear.
-          Tracked in docs/issues/0003-authorization-prompt-identity.md. */}
+      {/* Said before it happens, because an unannounced password box is the
+          moment people are trained to be suspicious of -- and should be.
+          macOS attributes the prompt to the executable that asks. Repose used
+          to ask by shelling out to /usr/bin/osascript, so the box was titled
+          "osascript": a name with no relationship to anything the user
+          installed. It now asks in-process via NSAppleScript and the box says
+          Repose, which is what makes "确认弹窗上写的是 Repose" safe advice
+          rather than a thing we taught them to ignore.
+          See docs/issues/0003-authorization-prompt-identity.md. */}
       <p className="pk-prompt-note">
-        点下面之后，macOS 会弹出密码框。<b>它的标题会显示「osascript」</b>——那是 Repose
-        用来向系统请求授权的工具，不是别的程序。
+        点下面之后，macOS 会弹出密码框，问你要管理员密码。<b>确认弹窗上写的是「Repose」</b>
+        ——不是的话就别输。
       </p>
       <div className="pk-modal-actions">
         <button className="button primary" onClick={onConfirm}>开启手机钥匙</button>
         <button className="button light" onClick={onClose}>先不用</button>
       </div>
+    </ModalShell>
+  )
+}
+
+/**
+ * The pairing sheet — four stages of one exchange.
+ *
+ * The `compare` stage is the only place in this product where a human decision
+ * is cryptographically load-bearing. Six digits appear here and six appear on
+ * the phone; if they match, nobody is in the middle. So that stage is built to
+ * make comparing feel like the point rather than a dialog to dismiss: the
+ * digits are the largest thing on screen, the confirm button says what is being
+ * claimed ("和手机上一样") instead of "确定", and the mismatch button is a real
+ * answer rather than a cancel.
+ *
+ * Deliberately absent: a "跳过核对" escape, and any auto-confirm after a
+ * timeout. Both would turn the defence into a formality.
+ */
+function PairingSheet(
+  { session, onClose, onConfirm, onRetry }:
+  { session: PairingSession; onClose: () => void; onConfirm: () => void; onRetry: () => void },
+) {
+  const title = session.stage === 'done' ? '配对完成'
+    : session.stage === 'failed' ? '配对没有完成'
+    : session.stage === 'compare' ? '核对这六位数字'
+    : '正在找你的手机'
+
+  return (
+    <ModalShell label={title} onClose={onClose} className="phone-key-modal pk-pair-modal">
+      <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
+      <h2>{title}</h2>
+
+      {session.stage === 'scanning' && (
+        <>
+          <p className="modal-intro">
+            在手机上打开 Repose，点「开始配对」，然后把手机放在这台 Mac 旁边。
+          </p>
+          <div className="pk-pair-waiting" role="status" aria-live="polite">
+            <span className="pk-pair-dot" /><span className="pk-pair-dot" /><span className="pk-pair-dot" />
+          </div>
+          <p className="pk-pair-hint">找到之后，两边会各显示一串六位数字。</p>
+          <div className="pk-modal-actions">
+            <button className="button light" onClick={onClose}>取消</button>
+          </div>
+        </>
+      )}
+
+      {session.stage === 'compare' && (
+        <>
+          <p className="modal-intro">手机上现在也应该显示这串数字。</p>
+          <p className="pk-pair-digits" aria-label={`配对数字 ${session.digits?.split('').join(' ')}`}>
+            {session.digits}
+          </p>
+          <p className="pk-pair-hint">
+            两边一样，就说明中间没有人冒充——这一眼是整个配对唯一的安全保障。
+            不一样就按「不一样」，然后换个地方重新配一次。
+          </p>
+          <div className="pk-modal-actions">
+            <button className="button primary" onClick={onConfirm}>和手机上一样</button>
+            <button className="button light" onClick={onClose}>不一样，停下</button>
+          </div>
+        </>
+      )}
+
+      {session.stage === 'done' && (
+        <>
+          <p className="modal-intro">{session.detail ?? '这台 Mac 已经认得你的手机了。'}</p>
+          {session.fingerprint && (
+            <p className="pk-pair-fingerprint">
+              <span>配对编号</span><b>{session.fingerprint}</b>
+            </p>
+          )}
+          <p className="pk-pair-hint">手机上的「这把钥匙」应该显示同一串编号。不一样就说明配到了别的机器。</p>
+          <div className="pk-modal-actions">
+            <button className="button primary" onClick={onClose}>好</button>
+          </div>
+        </>
+      )}
+
+      {session.stage === 'failed' && (
+        <>
+          <p className="modal-intro">{session.detail ?? '配对没有完成，没有写入任何密钥。'}</p>
+          <div className="pk-modal-actions">
+            <button className="button primary" onClick={onRetry}>重新配对</button>
+            <button className="button light" onClick={onClose}>先不配</button>
+          </div>
+        </>
+      )}
     </ModalShell>
   )
 }

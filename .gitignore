@@ -6,3 +6,8 @@ dist/
 artifacts/
 release/
 src-tauri/target/
+.public/
+.worktrees/
+.env
+.env.*
+!.env.example
