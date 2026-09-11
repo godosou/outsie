@@ -216,6 +216,15 @@ export default function App() {
     document.title = `${time(remaining)} · ${inBreak ? '好好休息' : running ? '专注中' : '已暂停'} — Outsie`
     window.repose?.setStatus({ running, phase, remaining, breakId, canPostpone, postponeSeconds })
   }, [phase, running, remaining, inBreak, breakId, canPostpone, postponeSeconds])
+  // A shortcut pressed on the phone. Shown wherever the user is, because the
+  // phone only knows it sent something -- whether a key was actually pressed is
+  // this Mac's to report, and a press that quietly did nothing is the failure
+  // this whole feature is most likely to have.
+  useEffect(() => window.repose?.console?.onCommand(e => {
+    if (e.ok) showToast(`手机按了「${e.action}」${e.app ? ` · ${e.app}` : ''}`)
+    else showToast(e.detail ?? `「${e.action ?? '那个按钮'}」没有按成功`)
+  }), [])
+
   useEffect(() => window.repose?.onCommand(({ command, breakId: completedBreakId }) => {
     if (command === 'toggle-pause' && !(strictBreak && inBreak)) timer.toggleRunning()
     if (command === 'start-short-break') timer.startBreak('short')

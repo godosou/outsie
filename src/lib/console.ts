@@ -48,6 +48,8 @@ export type ConsoleDesktopBridge = {
   status: () => Promise<unknown>
   requestTrust: () => Promise<boolean>
   run: (value: { appId: string; actionId: string }) => Promise<void>
+  /** Fires when the phone asks for an action. Returns an unsubscribe. */
+  onCommand: (cb: (e: { action: string | null; app?: string; ok: boolean; detail?: string }) => void) => () => void
   pickApp: () => Promise<unknown>
   save: (value: { config: unknown }) => Promise<unknown>
 }

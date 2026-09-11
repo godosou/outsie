@@ -89,13 +89,18 @@ class BleSpikeService : Service() {
          * a button that silently does nothing is worse than one that says why.
          */
         fun postCommand(context: android.content.Context, cmd: Int): Boolean {
-            if (!PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)) return false
+            // Any slot, not slot 1: from pair-v3 this phone's key lives wherever
+            // it chose. Checking slot 1 made every command from a v3-paired
+            // phone refuse itself before it was even sent.
+            if (!PresenceKey.hasAny(context)) return false
             pendingSeq = AppStore(context).nextCommandSeq()
             pendingCmd = cmd
             pendingUntil = SystemClock.elapsedRealtime() + SpikeContract.COMMAND_BROADCAST_MS
+            Log.i(TAG, "command $cmd queued, seq=$pendingSeq")
             SpikeState.event(
                 when (cmd) {
                     SpikeContract.CMD_LOCK -> "已发出：锁定 Mac"
+                    in SpikeContract.CMD_SHORTCUT_BASE..255 -> "已发出：快捷操作 $cmd"
                     else -> "已发出指令 $cmd"
                 },
             )
@@ -164,15 +169,23 @@ class BleSpikeService : Service() {
      */
     private val rotate = object : Runnable {
         override fun run() {
-            val first = slots.firstOrNull() ?: return
-            val c = first.beacon.currentCounter()
+            // NOT an early return: `return` here leaves run() without
+            // rescheduling, so one moment with no slots -- between a revoke and
+            // a pairing, say -- would stop the rotation permanently and the
+            // phone would go quiet until the service was restarted.
+            val first = slots.firstOrNull()
+            val c = first?.beacon?.currentCounter() ?: 0L
             // A command has to go out now, not at the next 30s window boundary,
             // and it has to stop going out when it expires. Both are changes to
             // what the payload should say, so both force a refresh.
             val cmdNow = liveCommand()
             // Any slot out of date refreshes them all: they share a window and
             // a command, so they are never legitimately out of step.
-            if (slots.any { it.advertisedCounter != c || it.advertisedCmd != cmdNow }) refreshBeacon(c)
+            if (first != null &&
+                slots.any { it.advertisedCounter != c || it.advertisedCmd != cmdNow }
+            ) {
+                refreshBeacon(c)
+            }
             // Poll faster while something is pending, so the press-to-air delay
             // is not itself mistaken for the radio being slow.
             val pending = pendingCmd != SpikeContract.CMD_NONE &&

@@ -100,6 +100,22 @@ class MainActivity : Activity(), Nav {
             SpikeState.event("autostart requested (test seam)")
             requestPermissionsThenStart()
         }
+        // The same seam, for a shortcut byte: `am start ... --ei command 16`.
+        //
+        // It exists because the Mac half of 快捷控制 has to be testable before
+        // the phone has a catalogue to draw buttons from -- and because a test
+        // that drives the radio by tapping a button whose label is still being
+        // redesigned fails for the wrong reason.
+        //
+        // It grants nothing: anything that can send this could already tap the
+        // buttons, and the command is still refused by the Mac unless the tag
+        // verifies under a paired key.
+        val cmd = intent?.getIntExtra("command", 0) ?: 0
+        if (cmd >= SpikeContract.CMD_SHORTCUT_BASE) {
+            android.util.Log.i(BleSpikeService.TAG, "test seam: command $cmd")
+            SpikeState.event("command $cmd requested (test seam)")
+            BleSpikeService.postCommand(this, cmd)
+        }
     }
 
     /**

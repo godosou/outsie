@@ -68,6 +68,17 @@ object SpikeContract {
     const val CMD_ALLOW_UNLOCK_RESERVED = 2
 
     /**
+     * Shortcut actions start here. 0..15 are protocol commands.
+     *
+     * The byte is assigned BY THE MAC and stored in its configuration, not
+     * derived from a position in a list. Positions renumber when you delete
+     * something, and a phone holding a catalogue from a minute ago would then
+     * press the wrong key -- silently, into whatever is open. A byte whose
+     * action has been deleted matches nothing, and the Mac says so.
+     */
+    const val CMD_SHORTCUT_BASE = 16
+
+    /**
      * How long a command keeps going out before the beacon returns to CMD_NONE.
      *
      * WHY 25 AND NOT 6

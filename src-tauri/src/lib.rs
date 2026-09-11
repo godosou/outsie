@@ -927,6 +927,10 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Listens for shortcut commands from the phone. In the app because
+            // pressing a key needs the accessibility grant, which belongs here
+            // and never to the root half.
+            console::start_command_watcher(app.handle().clone());
             // Inspect the packaged WKWebView renderer without starting timers,
             // changing saved preferences or covering the user's monitors.
             if std::env::var_os("REPOSE_STRETCH_PREVIEW").is_some() {

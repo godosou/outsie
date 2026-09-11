@@ -19,9 +19,21 @@
 //! using that branch keeps its shortcuts.
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub const CONSOLE_FILE: &str = "work-console-v1.json";
+
+/// Same idiom as the rest of the app: shell to `date` rather than pull in a
+/// date crate for one log line.
+fn now_iso() -> String {
+    std::process::Command::new("/bin/date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +56,18 @@ pub struct ConsoleAction {
     pub kind: String,
     #[serde(default)]
     pub steps: Vec<ConsoleStep>,
+    /// The byte the phone puts in its beacon to ask for this action.
+    ///
+    /// Assigned by the Mac and STORED, not derived from position. The obvious
+    /// design -- "the Nth action in the list" -- renumbers every action after
+    /// one you delete, so a phone holding a catalogue from a minute ago presses
+    /// the wrong key. Nothing announces that; it just types the wrong thing
+    /// into whatever is open.
+    ///
+    /// A byte belonging to a deleted action matches nothing, and the Mac says so
+    /// rather than guessing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmd_byte: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -106,6 +130,63 @@ pub fn action_health(action: &ConsoleAction) -> ActionHealth {
         return ActionHealth::MissingKey;
     }
     ActionHealth::Ok
+}
+
+/// Command bytes below this are the fixed protocol commands (lock, etc).
+/// Shortcuts take the rest.
+pub const CONSOLE_CMD_BASE: u8 = 16;
+
+/// Give every action a byte, leaving the ones that already have one alone.
+///
+/// Stability is the whole point: an action keeps its byte across edits, so a
+/// phone's catalogue only goes out of date about actions that were actually
+/// added or removed. Bytes freed by a deletion are reused only once every other
+/// value is taken -- a phone that has been asleep should press nothing rather
+/// than press the action that replaced the one it remembers.
+pub fn assign_cmd_bytes(config: &mut ConsoleConfig) {
+    let mut taken: std::collections::BTreeSet<u8> = config
+        .apps
+        .iter()
+        .flat_map(|a| a.actions.iter())
+        .filter_map(|a| a.cmd_byte)
+        .filter(|b| *b >= CONSOLE_CMD_BASE)
+        .collect();
+    // Start after the highest in use, so a deletion does not immediately hand
+    // its byte to the next action created.
+    let mut next = taken.iter().next_back().map_or(CONSOLE_CMD_BASE, |b| b.saturating_add(1));
+    for app in &mut config.apps {
+        for action in &mut app.actions {
+            if action.cmd_byte.is_some_and(|b| b >= CONSOLE_CMD_BASE) {
+                continue;
+            }
+            while next >= CONSOLE_CMD_BASE && taken.contains(&next) {
+                next = next.wrapping_add(1);
+            }
+            if next < CONSOLE_CMD_BASE {
+                // Wrapped past 255 and back through the reserved range: every
+                // byte is spoken for. Leaving it unassigned is right -- the
+                // action still works from this Mac, it just cannot be asked for
+                // from a phone, and the page can say so.
+                next = CONSOLE_CMD_BASE;
+                if taken.len() >= (256 - CONSOLE_CMD_BASE as usize) {
+                    return;
+                }
+            }
+            action.cmd_byte = Some(next);
+            taken.insert(next);
+            next = next.wrapping_add(1);
+        }
+    }
+}
+
+/// The action a command byte asks for, if any.
+pub fn action_for_cmd(config: &ConsoleConfig, byte: u8) -> Option<(&ConsoleApp, &ConsoleAction)> {
+    config.apps.iter().find_map(|app| {
+        app.actions
+            .iter()
+            .find(|a| a.cmd_byte == Some(byte))
+            .map(|a| (app, a))
+    })
 }
 
 pub fn find_action<'a>(
@@ -259,6 +340,49 @@ pub fn run_action(_app: &ConsoleApp, _action: &ConsoleAction) -> Result<(), Stri
     Err("只有 Mac 桌面版能按键。".into())
 }
 
+/// A verified command from the phone, or nothing.
+///
+/// The verifier has already done the work that matters: it emits a non-zero
+/// `cmd=` only when the tag verified AND the sequence was new, so a replayed
+/// advertisement never reaches here. This only has to read what it decided,
+/// and refuse anything it did not.
+pub fn console_command(line: &str) -> Option<(u8, i64)> {
+    let fields: Vec<&str> = line.split(',').collect();
+    if fields.len() < 9 {
+        return None;
+    }
+    // By name, not by column. The verdict moved by two columns once already and
+    // every row silently became unverified -- fail-safe, but a whole feature
+    // not working with nothing saying so.
+    let field = |name: &str| {
+        fields
+            .iter()
+            .find_map(|f| f.trim().strip_prefix(name).map(str::trim))
+    };
+    if field("auth=") != Some("VALID") {
+        return None;
+    }
+    let cmd: u8 = field("cmd=")?.parse().ok()?;
+    if cmd < CONSOLE_CMD_BASE {
+        // Protocol commands (lock, and the reserved one) are somebody else's.
+        return None;
+    }
+    let at: i64 = fields[0].trim().parse().ok()?;
+    Some((cmd, at))
+}
+
+/// Commands in this text that are new to us, oldest first.
+///
+/// `after_ms` is the watcher's high-water mark. Rows from before it are not
+/// re-run: the file is appended to for the life of the pipeline, and re-reading
+/// it must not replay yesterday's button presses into today's editor.
+pub fn console_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64)> {
+    csv.lines()
+        .filter_map(console_command)
+        .filter(|(_, at)| *at > after_ms)
+        .collect()
+}
+
 // ---- storage --------------------------------------------------------------
 
 fn config_path(app: &AppHandle) -> Option<std::path::PathBuf> {
@@ -277,6 +401,93 @@ pub fn load_config(app: &AppHandle) -> ConsoleConfig {
         .unwrap_or_default()
 }
 
+// ---- the watcher ----------------------------------------------------------
+
+/// Watch the verifier's output and press what the phone asks for.
+///
+/// In the app, not in the privileged half, and that is not an accident:
+/// pressing a key needs the accessibility grant, which belongs to this app and
+/// to the user's session. The root chain has neither and should never acquire
+/// them.
+///
+/// Polling a file rather than a socket because the file is already there, is
+/// already append-only, and is already the thing every other reader in this
+/// product agrees on. A second channel would be a second thing that can
+/// disagree with it.
+pub fn start_command_watcher(app: AppHandle) {
+    std::thread::spawn(move || {
+        // Anything already in the file belongs to before we were listening. A
+        // fresh mark rather than 0: the pipeline's file survives app restarts,
+        // and replaying it would type old presses into whatever is open now.
+        let path = match app.path().app_data_dir() {
+            Ok(d) => d.join("presence-run").join("verified.csv"),
+            Err(_) => return,
+        };
+        let mut mark: i64 = std::fs::read_to_string(&path)
+            .map(|csv| console_commands_since(&csv, 0).last().map_or(0, |(_, at)| *at))
+            .unwrap_or(0);
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            let Ok(csv) = std::fs::read_to_string(&path) else { continue };
+            for (byte, at) in console_commands_since(&csv, mark) {
+                mark = at.max(mark);
+                let config = ensure_cmd_bytes(&app);
+                // Written as well as emitted. A toast is gone in four seconds
+                // and the person who pressed the button was looking at their
+                // phone; "did it actually press anything" has to be answerable
+                // afterwards, by them or by whoever they ask.
+                let note = |text: String| {
+                    if let Ok(dir) = app.path().app_data_dir() {
+                        use std::io::Write;
+                        if let Ok(mut f) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(dir.join("console.log"))
+                        {
+                            let _ = writeln!(f, "{} {text}", now_iso());
+                        }
+                    }
+                };
+                match action_for_cmd(&config, byte) {
+                    Some((target, action)) => {
+                        let outcome = run_action(target, action);
+                        note(match &outcome {
+                            Ok(()) => format!("cmd={byte} 按了「{}」（{}）", action.name, target.name),
+                            Err(e) => format!("cmd={byte} 「{}」没按成：{e}", action.name),
+                        });
+                        // Emitted either way. A press that could not be carried
+                        // out is news -- the phone only ever knows it sent
+                        // something.
+                        let _ = app.emit(
+                            "console-command",
+                            serde_json::json!({
+                                "action": action.name,
+                                "app": target.name,
+                                "ok": outcome.is_ok(),
+                                "detail": outcome.err(),
+                            }),
+                        );
+                    }
+                    None => {
+                        note(format!("cmd={byte} 对不上任何操作"));
+                        // A byte from a catalogue this Mac no longer has. Doing
+                        // nothing is right; doing it silently is not.
+                        let _ = app.emit(
+                            "console-command",
+                            serde_json::json!({
+                                "action": serde_json::Value::Null,
+                                "ok": false,
+                                "detail": "手机上那个按钮，这台 Mac 上已经没有对应的操作了。在手机上重新取一次列表。",
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+    });
+}
+
 // ---- commands -------------------------------------------------------------
 
 #[derive(Serialize)]
@@ -288,7 +499,33 @@ pub struct ConsoleStatus {
 
 #[tauri::command]
 pub fn console_status(app: AppHandle) -> ConsoleStatus {
-    ConsoleStatus { trusted: trusted(false), config: load_config(&app) }
+    ConsoleStatus { trusted: trusted(false), config: ensure_cmd_bytes(&app) }
+}
+
+/// Read the config, and give any action without a command byte one -- writing
+/// the result back.
+///
+/// A write on a read, deliberately. The byte has to exist and be STABLE before
+/// a phone can be told about it: assigning it fresh each time from list order
+/// would put it back to a position by another name, and deleting an action
+/// would silently repoint every phone's buttons. One write the first time, then
+/// it never changes again.
+pub fn ensure_cmd_bytes(app: &AppHandle) -> ConsoleConfig {
+    let mut config = load_config(app);
+    let before: Vec<Option<u8>> =
+        config.apps.iter().flat_map(|a| a.actions.iter().map(|x| x.cmd_byte)).collect();
+    assign_cmd_bytes(&mut config);
+    let after: Vec<Option<u8>> =
+        config.apps.iter().flat_map(|a| a.actions.iter().map(|x| x.cmd_byte)).collect();
+    if before != after {
+        if let (Some(path), Ok(body)) = (config_path(app), serde_json::to_string_pretty(&config)) {
+            let tmp = path.with_extension("json.writing");
+            if std::fs::write(&tmp, body).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
+        }
+    }
+    config
 }
 
 /// Open the system's own accessibility dialog. Only from a button the user
@@ -367,6 +604,7 @@ pub struct SaveArgs {
 pub fn console_save(app: AppHandle, value: SaveArgs) -> Result<ConsoleConfig, String> {
     let mut config = value.config;
     config.revision = load_config(&app).revision.wrapping_add(1);
+    assign_cmd_bytes(&mut config);
     // Fill in `kind` only when it is genuinely absent, and by shape.
     //
     // The first version of this stamped "sequence" on everything with an empty
@@ -496,6 +734,114 @@ mod tests {
             }
         }
         assert_eq!(cfg.apps[0].actions[0].kind, "sequence");
+    }
+
+    fn cfg(actions: &[(&str, Option<u8>)]) -> ConsoleConfig {
+        ConsoleConfig {
+            revision: 1,
+            apps: vec![ConsoleApp {
+                id: "a".into(), name: "A".into(), bundle_id: "com.a".into(), app_path: None,
+                actions: actions
+                    .iter()
+                    .map(|(id, b)| ConsoleAction {
+                        id: (*id).into(),
+                        name: (*id).into(),
+                        cmd_byte: *b,
+                        steps: vec![step("k", &["cmd"])],
+                        ..Default::default()
+                    })
+                    .collect(),
+            }],
+        }
+    }
+
+    #[test]
+    fn only_verified_rows_can_ask_for_a_keypress() {
+        // auth=BAD means something was transmitting that we could not
+        // authenticate. Obeying it would let a stranger's radio type into
+        // whatever is open on this Mac.
+        let bad = "1000,-53,ABC,2,15,tag,0,7,auth=BAD,cmd=16";
+        assert_eq!(console_command(bad), None);
+        let good = "1000,-53,ABC,2,15,tag,0,7,auth=VALID,cmd=16";
+        assert_eq!(console_command(good), Some((16, 1000)));
+    }
+
+    #[test]
+    fn a_protocol_command_is_not_a_shortcut() {
+        // cmd=1 locks the Mac. If it also matched an action, a shortcut button
+        // and the lock button would be the same press.
+        for cmd in 0..CONSOLE_CMD_BASE {
+            let line = format!("1000,-53,ABC,2,15,tag,0,7,auth=VALID,cmd={cmd}");
+            assert_eq!(console_command(&line), None, "cmd={cmd}");
+        }
+    }
+
+    #[test]
+    fn rows_from_before_we_started_are_not_replayed() {
+        // verified.csv is appended to for the life of the pipeline. Reading it
+        // without a high-water mark would type every button ever pressed into
+        // whatever happens to be open now.
+        let csv = "\
+1000,-53,ABC,2,15,tag,0,7,auth=VALID,cmd=16
+2000,-53,ABC,2,15,tag,0,8,auth=VALID,cmd=17
+3000,-53,ABC,2,15,tag,0,9,auth=VALID,cmd=18
+";
+        assert_eq!(console_commands_since(csv, 2000), vec![(18, 3000)]);
+        assert_eq!(console_commands_since(csv, 9999), vec![]);
+    }
+
+    #[test]
+    fn the_fields_are_read_by_name() {
+        // The one bug this file class keeps producing: a column moved and every
+        // row became unverified, silently.
+        let padded = "1000,-53,ABC,2,15,tag,0,7,extra,auth=VALID,cmd=16";
+        assert_eq!(console_command(padded), Some((16, 1000)));
+    }
+
+    #[test]
+    fn an_action_keeps_its_byte_across_edits() {
+        // The whole reason the byte is stored rather than derived. If it were
+        // "the Nth action", deleting one would renumber everything after it,
+        // and a phone holding a catalogue from a minute ago would press the
+        // wrong key -- silently, into whatever is open.
+        let mut c = cfg(&[("one", Some(16)), ("two", Some(17)), ("three", Some(18))]);
+        c.apps[0].actions.remove(0);
+        assign_cmd_bytes(&mut c);
+        assert_eq!(c.apps[0].actions[0].cmd_byte, Some(17));
+        assert_eq!(c.apps[0].actions[1].cmd_byte, Some(18));
+    }
+
+    #[test]
+    fn a_new_action_does_not_inherit_a_deleted_ones_byte() {
+        // A phone that has been asleep should press nothing, not press whatever
+        // replaced the action it remembers.
+        let mut c = cfg(&[("one", Some(16)), ("two", Some(17))]);
+        c.apps[0].actions.remove(0);            // frees 16
+        c.apps[0].actions.push(ConsoleAction {
+            id: "new".into(), name: "new".into(), steps: vec![step("k", &[])], ..Default::default()
+        });
+        assign_cmd_bytes(&mut c);
+        let bytes: Vec<_> = c.apps[0].actions.iter().map(|a| a.cmd_byte).collect();
+        assert_eq!(bytes, vec![Some(17), Some(18)], "16 was reused too eagerly");
+    }
+
+    #[test]
+    fn bytes_start_above_the_protocol_commands() {
+        // 0..15 belong to lock and friends. An action landing on 1 would be a
+        // shortcut button that locks the Mac.
+        let mut c = cfg(&[("one", None), ("two", None)]);
+        assign_cmd_bytes(&mut c);
+        for a in &c.apps[0].actions {
+            assert!(a.cmd_byte.unwrap() >= CONSOLE_CMD_BASE);
+        }
+    }
+
+    #[test]
+    fn a_byte_nobody_owns_finds_nothing() {
+        let c = cfg(&[("one", Some(16))]);
+        assert!(action_for_cmd(&c, 16).is_some());
+        assert!(action_for_cmd(&c, 17).is_none(), "a stale phone must match nothing");
+        assert!(action_for_cmd(&c, 1).is_none(), "a protocol command is not an action");
     }
 
     #[test]

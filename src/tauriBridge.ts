@@ -49,6 +49,8 @@ declare global {
   }
 }
 
+const consoleCommandCallbacks = new Set<(e: { action: string | null; app?: string; ok: boolean; detail?: string }) => void>()
+
 const commandNames = new Set<DesktopCommandName>([
   'toggle-pause',
   'start-short-break',
@@ -165,10 +167,24 @@ export async function initializeDesktopBridge() {
     onPresence(callback) { unlockPresenceCallbacks.add(callback); return () => unlockPresenceCallbacks.delete(callback) },
   }
 
+  // A command from the phone lands wherever the user is looking, so this is
+  // global rather than a listener on the shortcuts page. The phone only ever
+  // knows it SENT something -- whether a key was pressed is the Mac's to say.
+  void listen<{ action: string | null; app?: string; ok: boolean; detail?: string }>(
+    'console-command',
+    ({ payload }) => {
+      consoleCommandCallbacks.forEach(cb => cb(payload))
+    },
+  )
+
   const consoleBridge: ConsoleDesktopBridge = {
     status: () => invoke<unknown>('console_status'),
     requestTrust: () => invoke<boolean>('console_request_trust'),
     run: value => invoke<void>('console_run', { value }),
+    onCommand(callback) {
+      consoleCommandCallbacks.add(callback)
+      return () => consoleCommandCallbacks.delete(callback)
+    },
     pickApp: () => invoke<unknown>('console_pick_app'),
     save: value => invoke<unknown>('console_save', { value }),
   }
