@@ -152,6 +152,7 @@ export async function initializeDesktopBridge() {
     setEnabled: value => invoke<unknown>('unlock_set_enabled', { value }),
     setPresenceRunning: value => invoke<unknown>('unlock_presence_set', { value }),
     revokeDevice: value => invoke<unknown>('unlock_revoke_device', { value }),
+    setDeviceCapability: value => invoke<unknown>('unlock_set_device_capability', { value }),
     beginPairing: () => invoke<unknown>('unlock_pair_begin'),
     pollPairing: () => invoke<unknown>('unlock_pair_poll'),
     confirmPairing: () => invoke<unknown>('unlock_pair_confirm'),

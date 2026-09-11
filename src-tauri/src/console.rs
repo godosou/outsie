@@ -347,6 +347,15 @@ pub fn run_action(_app: &ConsoleApp, _action: &ConsoleAction) -> Result<(), Stri
 /// advertisement never reaches here. This only has to read what it decided,
 /// and refuse anything it did not.
 pub fn console_command(line: &str) -> Option<(u8, i64)> {
+    console_command_with_key(line).map(|(cmd, at, _)| (cmd, at))
+}
+
+/// The same, with the key id of the phone that sent it.
+///
+/// The id is what decides whether that phone is allowed to press anything at
+/// all. Without it a Mac with two phones could only say yes to both or no to
+/// both.
+pub fn console_command_with_key(line: &str) -> Option<(u8, i64, u8)> {
     let fields: Vec<&str> = line.split(',').collect();
     if fields.len() < 9 {
         return None;
@@ -368,7 +377,8 @@ pub fn console_command(line: &str) -> Option<(u8, i64)> {
         return None;
     }
     let at: i64 = fields[0].trim().parse().ok()?;
-    Some((cmd, at))
+    let key_id: u8 = fields[4].trim().parse().ok()?;
+    Some((cmd, at, key_id))
 }
 
 /// Commands in this text that are new to us, oldest first.
@@ -376,10 +386,10 @@ pub fn console_command(line: &str) -> Option<(u8, i64)> {
 /// `after_ms` is the watcher's high-water mark. Rows from before it are not
 /// re-run: the file is appended to for the life of the pipeline, and re-reading
 /// it must not replay yesterday's button presses into today's editor.
-pub fn console_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64)> {
+pub fn console_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64, u8)> {
     csv.lines()
-        .filter_map(console_command)
-        .filter(|(_, at)| *at > after_ms)
+        .filter_map(console_command_with_key)
+        .filter(|(_, at, _)| *at > after_ms)
         .collect()
 }
 
@@ -542,7 +552,7 @@ pub fn start_command_watcher(app: AppHandle) {
             Err(_) => return,
         };
         let mut mark: i64 = std::fs::read_to_string(&path)
-            .map(|csv| console_commands_since(&csv, 0).last().map_or(0, |(_, at)| *at))
+            .map(|csv| console_commands_since(&csv, 0).last().map_or(0, |(_, at, _)| *at))
             .unwrap_or(0);
 
         loop {
@@ -563,13 +573,13 @@ pub fn start_command_watcher(app: AppHandle) {
                     }),
                 );
             }
-            for (byte, at) in console_commands_since(&csv, mark) {
+            for (byte, at, key_id) in console_commands_since(&csv, mark) {
                 mark = at.max(mark);
-                let config = ensure_cmd_bytes(&app);
-                // Written as well as emitted. A toast is gone in four seconds
-                // and the person who pressed the button was looking at their
-                // phone; "did it actually press anything" has to be answerable
-                // afterwards, by them or by whoever they ask.
+                // Written as well as emitted, and defined BEFORE the first thing
+                // that can refuse. A toast is gone in four seconds and the person
+                // who pressed the button was looking at their phone; "did it
+                // actually press anything" has to be answerable afterwards --
+                // and a refusal is the case where that question gets asked.
                 let note = |text: String| {
                     if let Ok(dir) = app.path().app_data_dir() {
                         use std::io::Write;
@@ -582,6 +592,21 @@ pub fn start_command_watcher(app: AppHandle) {
                         }
                     }
                 };
+                // Allowed to press anything at all? Off by default: pairing is
+                // consent to unlock, not consent to type into whatever is open.
+                if !crate::unlock::load_capabilities(&app).control_allowed(key_id) {
+                    note(format!("cmd={byte} 被拒：钥匙 {key_id} 没有按键权限"));
+                    let _ = app.emit(
+                        "console-command",
+                        serde_json::json!({
+                            "action": serde_json::Value::Null,
+                            "ok": false,
+                            "detail": "这部手机还没被允许按键。在「手机控制」里打开它的快捷控制开关。",
+                        }),
+                    );
+                    continue;
+                }
+                let config = ensure_cmd_bytes(&app);
                 match action_for_cmd(&config, byte) {
                     Some((target, action)) => {
                         let outcome = run_action(target, action);
@@ -971,7 +996,7 @@ mod tests {
 2000,-53,ABC,2,15,tag,0,8,auth=VALID,cmd=17
 3000,-53,ABC,2,15,tag,0,9,auth=VALID,cmd=18
 ";
-        assert_eq!(console_commands_since(csv, 2000), vec![(18, 3000)]);
+        assert_eq!(console_commands_since(csv, 2000), vec![(18, 3000, 15)]);
         assert_eq!(console_commands_since(csv, 9999), vec![]);
     }
 

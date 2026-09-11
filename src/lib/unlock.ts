@@ -110,6 +110,11 @@ export type PairedDevice = {
   pairedAt: string
   /** False for a key pushed over USB by a dev script. It can still unlock. */
   paired: boolean
+  /** Whether the owner allows this phone to unlock, separately from whether
+   *  anything is currently watching for it. */
+  unlockAllowed: boolean
+  /** Whether this phone may press shortcuts. Off until switched on. */
+  controlAllowed: boolean
   /**
    * False for a key installed before pairing recorded which phone it came from.
    * It still works; the Mac simply cannot recognise that phone again, so
@@ -256,6 +261,8 @@ export function normalizeUnlockSnapshot(
       pairedAt: str(d.pairedAt) ?? '',
       paired: d.paired === true,
       identified: d.identified === true,
+      unlockAllowed: d.unlockAllowed === true,
+      controlAllowed: d.controlAllowed === true,
       canUnlock: d.canUnlock === true,
       blockedReason: str(d.blockedReason),
     }]
@@ -402,7 +409,7 @@ export function normalizeCalibrationProgress(raw: unknown): CalibrationProgress 
 export type PanelCommand =
   | 'install' | 'repair-rule' | 'reinstall-component' | 'uninstall'
   | 'start-password-drill' | 'start-phone-drill' | 'begin-pairing' | 'calibrate'
-  | 'resume' | 'open-bluetooth-settings' | 'revoke-device'
+  | 'resume' | 'open-bluetooth-settings' | 'revoke-device' | 'set-capability'
 
 export function deriveUnlockView(snapshot: UnlockSnapshot): UnlockView {
   switch (snapshot.state) {
@@ -643,6 +650,11 @@ export type UnlockDesktopBridge = {
   uninstall: () => Promise<unknown>
   setEnabled: (value: { enabled: boolean }) => Promise<unknown>
   revokeDevice: (value: { deviceId: string }) => Promise<unknown>
+  setDeviceCapability: (value: {
+    deviceId: string
+    capability: 'unlock' | 'control'
+    allowed: boolean
+  }) => Promise<unknown>
   beginPairing: () => Promise<unknown>
   /** Where the live exchange has got to. Polled while the sheet is open. */
   pollPairing: () => Promise<unknown>

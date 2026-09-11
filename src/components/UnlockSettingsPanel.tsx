@@ -584,6 +584,9 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           void run('revoke-device', () => bridge!.revokeDevice({ deviceId: id }))
         }}
         onCalibrate={id => setCalibrating(id)}
+        onCapability={(deviceId, capability, allowed) =>
+          void run('set-capability', () => bridge!.setDeviceCapability({ deviceId, capability, allowed }))
+        }
       />
     )}
     </>
@@ -796,7 +799,7 @@ function CalibrationVerdict({ result, onRedo, onClose }: {
 // Also deliberately not here: a 快捷控制 switch. Nothing reads such a flag yet,
 // and a switch that stores a preference no code enforces is the same lie as a
 // hardcoded `keys_removed: true`.
-function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate }: {
+function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate, onCapability }: {
   devices: PairedDevice[]
   onPair: (() => void) | null
   busy: boolean
@@ -804,6 +807,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
   onArm: (id: string | null) => void
   onRevoke: (id: string) => void
   onCalibrate: (id: string) => void
+  onCapability: (id: string, capability: 'unlock' | 'control', allowed: boolean) => void
 }) {
   return (
     <section className="panel preferences-panel">
@@ -828,6 +832,30 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
             <p className="pk-device-state">
               {device.canUnlock ? '可以解锁' : device.blockedReason ?? '现在不能解锁'}
             </p>
+
+            {/* Two decisions, one row each, because they are not the same
+                decision. Pairing is consent to unlock; typing into whatever is
+                open is a second thing to agree to, and it starts off. */}
+            <div className="pk-caps">
+              <label className="pk-cap">
+                <input
+                  type="checkbox"
+                  checked={device.unlockAllowed}
+                  disabled={busy}
+                  onChange={e => onCapability(device.id, 'unlock', e.target.checked)}
+                />
+                <span>用它解锁</span>
+              </label>
+              <label className="pk-cap">
+                <input
+                  type="checkbox"
+                  checked={device.controlAllowed}
+                  disabled={busy}
+                  onChange={e => onCapability(device.id, 'control', e.target.checked)}
+                />
+                <span>让它按快捷键</span>
+              </label>
+            </div>
             <p className="pk-device-meta">
               {device.paired
                 ? `在这台 Mac 上配对${formatPairedAt(device.pairedAt)}`
@@ -883,9 +911,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
               再配一部手机
             </button>
           )}
-          <p className="security-limit" style={{ marginTop: 14 }}>
-            给每部手机单独的开关，还没做——现在上面那个开关管的是全部。
-          </p>
+
         </>
       )}
     </section>

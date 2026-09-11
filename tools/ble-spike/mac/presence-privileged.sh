@@ -87,6 +87,9 @@ export REPOSE_RUNFLAG="${REPOSE_RUNFLAG}"
 # Per-phone bands, `keyId:near:far` comma separated. Optional for the same
 # reason: a Mac nobody has calibrated still runs, on the bridge's defaults.
 [ -n "${REPOSE_BANDS:-}" ] && export REPOSE_BANDS="${REPOSE_BANDS}"
+# The live per-phone off switch. Optional: a Mac with nothing switched off has
+# no file, and the bridge then treats every verified key as allowed.
+[ -n "${REPOSE_DISABLED_FILE:-}" ] && export REPOSE_DISABLED_FILE="${REPOSE_DISABLED_FILE}"
 
 # The stages are DIRECT children of this script, not wrapped in an inner
 # `sh -c`. pkill -P reaches children, not grandchildren, so a wrapper meant the

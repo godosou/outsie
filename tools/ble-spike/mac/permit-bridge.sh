@@ -109,6 +109,46 @@ FAR_DBM="${REPOSE_FAR_DBM:--85}"       # <= this: far enough to count as gone
 # every key until someone walks the calibration.
 BANDS="${REPOSE_BANDS:-}"
 
+# Phones the owner has switched off, one key id per line.
+#
+# Re-read while running, not taken once at start: a switch that needed an
+# administrator password and a pipeline restart to take effect is a switch
+# nobody flips, and "I turned that phone off" has to mean the next beacon.
+#
+# The file lives in the user-writable work directory, and that is safe in
+# exactly one direction: every id in it makes this Mac REFUSE a phone it would
+# otherwise accept. Nothing here can grant access, so a file anyone can edit
+# cannot be used to gain any.
+DISABLED_FILE="${REPOSE_DISABLED_FILE:-}"
+DISABLED=""
+DISABLED_AT=0
+
+refresh_disabled() {
+    [ -n "${DISABLED_FILE}" ] || return 0
+    _now="$1"
+    # Once a second is plenty: rows arrive far faster, and a second of lag on a
+    # switch nobody is watching costs nothing.
+    [ "${_now}" != "${DISABLED_AT}" ] || return 0
+    DISABLED_AT="${_now}"
+    _was="${DISABLED}"
+    if [ -r "${DISABLED_FILE}" ]; then
+        DISABLED=",$(tr -s '[:space:]' ',' < "${DISABLED_FILE}")"
+    else
+        DISABLED=""
+    fi
+    # A changed list means somebody just flipped a switch, and a switch that
+    # takes forty-five seconds of staleness to take effect is one the user will
+    # conclude did nothing. Drop the permit and let the next verified beacon
+    # from a phone that is still allowed put it back -- which takes a second,
+    # and is the only way to be right without tracking presence per key.
+    if [ "${_was}" != "${DISABLED}" ] && [ "${present}" = 1 ]; then
+        log "the per-phone switches changed; re-deciding"
+        present=0
+        clear_permit
+        publish away ""
+    fi
+}
+
 # Echo `near far` for a key id, falling back to the shared pair.
 band_for() {
     _k="$1"
@@ -323,6 +363,11 @@ while :; do
         # a wrong id here costs the wrong thresholds, never a wrong verdict,
         # because auth= is what decides whether the row counts at all.
         kid="$(printf '%s' "${line}" | cut -d, -f5 | tr -d '[:space:]')"
+        refresh_disabled "${now}"
+        disabled=0
+        case "${DISABLED}" in
+            *",${kid},"*) disabled=1 ;;
+        esac
         set -- $(band_for "${kid}")
         near_now="$1"; far_now="$2"
 
@@ -339,16 +384,25 @@ while :; do
         # sends it now, so nothing here answers it -- an unreachable branch that
         # still looks alive is the thing this project keeps deleting.
         case "${vcmd}" in
-            1) run_command lock ;;
+            1) [ "${disabled}" = 1 ] || run_command lock ;;
         esac
 
         # An unverified row is not a weak signal, it is a device we cannot name.
         # It updates nothing -- not even last_sample -- so a stream of imposter
         # beacons cannot hold a stale permit alive.
-        if [ "${auth}" != "VALID" ]; then
-            if [ -n "${auth}" ] && [ "${auth}" != "${last_reject}" ]; then
-                last_reject="${auth}"
-                log "ignoring ${auth} beacons (rssi=${rssi}) -- not the paired device"
+        if [ "${auth}" != "VALID" ] || [ "${disabled}" = 1 ]; then
+            _why="${auth}"
+            # A switched-off phone IS the paired device. Saying otherwise would
+            # send someone looking for an impostor when what happened is that
+            # they flipped a switch.
+            [ "${disabled}" = 1 ] && _why="DISABLED(key ${kid})"
+            if [ -n "${_why}" ] && [ "${_why}" != "${last_reject}" ]; then
+                last_reject="${_why}"
+                if [ "${disabled}" = 1 ]; then
+                    log "key ${kid} is switched off; ignoring it"
+                else
+                    log "ignoring ${auth} beacons (rssi=${rssi}) -- not the paired device"
+                fi
             fi
             rssi=""
         fi

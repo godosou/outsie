@@ -32,7 +32,7 @@ function snapshot(overrides: Partial<UnlockSnapshot> = {}): UnlockSnapshot {
       { id: 'transport', health: 'ok', detail: '蓝牙已开' },
     ],
     componentInvocation: { kind: 'observed', at: '2026-09-09T14:22:00Z' },
-    devices: [{ id: '1', name: 'realme RMX3888', platform: 'Android', pairedAt: '2026-09-09', paired: true, identified: true, canUnlock: true, blockedReason: null }],
+    devices: [{ id: '1', name: 'realme RMX3888', platform: 'Android', pairedAt: '2026-09-09', paired: true, identified: true, unlockAllowed: true, controlAllowed: false, canUnlock: true, blockedReason: null }],
     stats: { unlocksToday: 4, lastUnlockAt: '2026-09-09T14:22:00Z' },
     lastFailure: null,
     macosBuild: '23G93',

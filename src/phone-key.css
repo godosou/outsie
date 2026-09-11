@@ -668,3 +668,28 @@
   color: var(--text);
   font-size: 13px;
 }
+
+/* Two decisions per phone, not one. Checkboxes rather than the big switch: the
+   master switch above answers "is anything watching at all", and giving a row
+   the same control would say these are the same kind of decision. */
+.pk-caps {
+  margin-top: 10px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.pk-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--subtle);
+  cursor: pointer;
+}
+.pk-cap input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+.pk-cap input:disabled { cursor: default; }

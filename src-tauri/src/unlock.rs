@@ -173,8 +173,7 @@ pub enum ComponentInvocation {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairedDevice {
-    /// The key slot it occupies. Today only slot 1 exists; protocol v3 gives
-    /// the phone its own id, and then this stops being a constant.
+    /// The key slot it occupies, chosen by the phone at pairing.
     pub id: String,
     pub name: String,
     pub platform: String,
@@ -193,6 +192,13 @@ pub struct PairedDevice {
     pub identified: bool,
     /// Whether this device can unlock right now, and why not when it cannot.
     pub can_unlock: bool,
+    /// Whether the OWNER has allowed this phone to unlock, separately from
+    /// whether anything is watching. Two different questions: the first is a
+    /// decision, the second is a state.
+    pub unlock_allowed: bool,
+    /// Whether this phone may press shortcuts. Off by default -- pairing is
+    /// consent to unlock, not consent to type.
+    pub control_allowed: bool,
     pub blocked_reason: Option<String>,
 }
 
@@ -282,6 +288,7 @@ pub fn paired_devices(
     slots: &[KeySlot],
     name_for: &dyn Fn(u8) -> Option<String>,
     watching: bool,
+    caps: &DeviceCapabilities,
 ) -> Vec<PairedDevice> {
     let mut out: Vec<PairedDevice> = slots
         .iter()
@@ -297,6 +304,7 @@ pub fn paired_devices(
                 name_for(slot.id),
                 slot.written_at.clone(),
                 watching,
+                caps,
             ))
         })
         .collect();
@@ -313,12 +321,14 @@ fn device_row(
     saved_name: Option<String>,
     paired_at: Option<String>,
     watching: bool,
+    caps: &DeviceCapabilities,
 ) -> PairedDevice {
     let name = match (paired, saved_name.as_deref().map(str::trim).filter(|n| !n.is_empty())) {
         (true, Some(n)) => n.to_string(),
         (true, None) => "已配对的手机".to_string(),
         (false, _) => "USB 下发的开发密钥".to_string(),
     };
+    let allowed = caps.unlock_allowed(id);
     PairedDevice {
         id: id.to_string(),
         name,
@@ -326,9 +336,154 @@ fn device_row(
         paired_at: paired_at.unwrap_or_default(),
         paired,
         identified,
-        can_unlock: watching,
-        blocked_reason: (!watching).then(|| "上面的开关关着，现在谁都解不了锁".to_string()),
+        can_unlock: watching && allowed,
+        unlock_allowed: allowed,
+        control_allowed: caps.control_allowed(id),
+        // The reason names whichever switch is actually off, and the phone's own
+        // one first: if both are off, telling someone to go flip the master is
+        // sending them to the wrong place.
+        blocked_reason: match (allowed, watching) {
+            (false, _) => Some("这部手机的解锁开关关着".to_string()),
+            (true, false) => Some("上面的总开关关着，现在谁都解不了锁".to_string()),
+            (true, true) => None,
+        },
     }
+}
+
+/// What each phone is allowed to do, as the owner decided.
+///
+/// Separate from whether it CAN: a phone may be allowed to unlock while nothing
+/// is watching for it. Collapsing the two would make the switch read as broken
+/// whenever the monitor happened to be off.
+#[derive(Clone, Debug, Default)]
+pub struct DeviceCapabilities {
+    /// Slots explicitly switched off for unlocking. Absence means allowed:
+    /// pairing IS consent to unlock, and a phone that had to be enabled after
+    /// pairing would look like a pairing that had not finished.
+    pub unlock_off: Vec<u8>,
+    /// Slots explicitly allowed to press shortcuts. Absence means NOT allowed,
+    /// the opposite default: pairing is consent to unlock, not consent to type
+    /// into whatever is open.
+    pub control_on: Vec<u8>,
+}
+
+impl DeviceCapabilities {
+    pub fn unlock_allowed(&self, id: u8) -> bool {
+        !self.unlock_off.contains(&id)
+    }
+    pub fn control_allowed(&self, id: u8) -> bool {
+        self.control_on.contains(&id)
+    }
+}
+
+pub const CAPABILITIES_FILE: &str = "device-capabilities.json";
+
+/// What each phone on this Mac is allowed to do.
+pub fn load_capabilities(app: &AppHandle) -> DeviceCapabilities {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .and_then(|d| std::fs::read_to_string(d.join(CAPABILITIES_FILE)).ok())
+        .map(|raw| parse_capabilities(&raw))
+        .unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityArgs {
+    pub device_id: String,
+    /// "unlock" or "control".
+    pub capability: String,
+    pub allowed: bool,
+}
+
+/// Flip one phone's permission.
+///
+/// No administrator prompt, and that is not a shortcut: neither switch can grant
+/// anything. Turning unlock OFF makes this Mac stricter, and turning control ON
+/// still leaves every command subject to the paired key and the accessibility
+/// grant. A file the user can write cannot loosen either.
+#[tauri::command]
+pub fn unlock_set_device_capability(
+    app: AppHandle,
+    value: CapabilityArgs,
+) -> Result<UnlockSnapshot, UnlockError> {
+    let id: u8 = value.device_id.parse().map_err(|_| {
+        UnlockError::new(UnlockErrorCode::Unsupported, format!("不是一个钥匙编号：{}", value.device_id))
+    })?;
+    let mut caps = load_capabilities(&app);
+    match value.capability.as_str() {
+        "unlock" => {
+            caps.unlock_off.retain(|x| *x != id);
+            if !value.allowed {
+                caps.unlock_off.push(id);
+            }
+        }
+        "control" => {
+            caps.control_on.retain(|x| *x != id);
+            if value.allowed {
+                caps.control_on.push(id);
+            }
+        }
+        other => {
+            return Err(UnlockError::new(
+                UnlockErrorCode::Unsupported,
+                format!("不认识的权限「{other}」"),
+            ))
+        }
+    }
+    caps.unlock_off.sort_unstable();
+    caps.control_on.sort_unstable();
+
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+    let _ = std::fs::create_dir_all(&dir);
+    let body = serde_json::json!({ "unlockOff": caps.unlock_off, "controlOn": caps.control_on });
+    let path = dir.join(CAPABILITIES_FILE);
+    let tmp = path.with_extension("json.writing");
+    std::fs::write(&tmp, body.to_string())
+        .and_then(|_| std::fs::rename(&tmp, &path))
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, format!("存不下来：{e}")))?;
+
+    // The bridge reads the disabled list itself, so unlock takes effect on the
+    // next beacon rather than on the next pipeline restart -- a switch that
+    // needed an administrator password to take effect is a switch nobody flips.
+    let _ = write_disabled_keys(&app, &caps);
+    HostMacBackend::new(&app).get_snapshot()
+}
+
+/// The list the bridge reads, one id per line.
+///
+/// In the pipeline's work directory, which the user can write. That is safe in
+/// exactly one direction: every id in this file makes the Mac refuse a phone it
+/// would otherwise accept. Nothing here can grant access, so a file anyone can
+/// edit cannot be used to gain any.
+fn write_disabled_keys(app: &AppHandle, caps: &DeviceCapabilities) -> std::io::Result<()> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+        .join("presence-run");
+    let _ = std::fs::create_dir_all(&dir);
+    let body: String = caps.unlock_off.iter().map(|id| format!("{id}\n")).collect();
+    std::fs::write(dir.join("disabled-keys"), body)
+}
+
+/// Parse the stored capabilities. Anything unreadable means the defaults, which
+/// are "unlock yes, control no" -- the safe direction for both.
+pub fn parse_capabilities(raw: &str) -> DeviceCapabilities {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return DeviceCapabilities::default();
+    };
+    let ids = |key: &str| -> Vec<u8> {
+        v.get(key)
+            .and_then(|x| x.as_array())
+            .map(|a| a.iter().filter_map(|n| n.as_u64()).filter_map(|n| u8::try_from(n).ok()).collect())
+            .unwrap_or_default()
+    };
+    DeviceCapabilities { unlock_off: ids("unlockOff"), control_on: ids("controlOn") }
 }
 
 
@@ -1181,6 +1336,7 @@ impl UnlockBackend for HostMacBackend {
                 &Self::key_slots(),
                 &|id| Self::saved_peer_name(&self.app, id),
                 assessment.presence_running,
+                &load_capabilities(&self.app),
             ),
             stats: UnlockStats { unlocks_today: 0, last_unlock_at: None },
             last_failure: None,
@@ -2173,6 +2329,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         // Empty when nothing has been calibrated, which leaves the bridge on
         // its own conservative defaults rather than on zeroes.
         .env("REPOSE_BANDS", &bands)
+        .env("REPOSE_DISABLED_FILE", work.join("disabled-keys"))
         .env("REPOSE_PIPELINE_DIR", &work)
         // We raise the authorization ourselves, below.
         .env("REPOSE_SKIP_PRIVILEGED", "1")
@@ -2246,7 +2403,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         "do shell script \"REPOSE_MODE=local REPOSE_BIN={bin} REPOSE_KEY_DIR={keys} \
          REPOSE_RAW={raw} REPOSE_VERIFIED={verified} REPOSE_RUNFLAG={flag} \
          REPOSE_PERMIT_DIR={permit} REPOSE_STATUS_FILE={status} REPOSE_LOG_DIR={work} \
-         REPOSE_BANDS={bands} \
+         REPOSE_BANDS={bands} REPOSE_DISABLED_FILE={disabled} \
          {priv_sh}\" with administrator privileges",
         bin = applescript_quote(&dir.to_string_lossy()),
         keys = applescript_quote(PRESENCE_KEY_DIR),
@@ -2257,6 +2414,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         status = applescript_quote(&status.to_string_lossy()),
         work = applescript_quote(&work.to_string_lossy()),
         bands = applescript_quote(&bands),
+        disabled = applescript_quote(&work.join("disabled-keys").to_string_lossy()),
         priv_sh = applescript_quote(&dir.join("presence-privileged.sh").to_string_lossy()),
     );
     std::thread::spawn(move || {
@@ -3674,17 +3832,106 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
     }
 
     #[test]
+    fn pairing_is_consent_to_unlock_but_not_consent_to_type() {
+        // The two defaults are deliberately opposite. A phone that had to be
+        // switched on after pairing would look like a pairing that had not
+        // finished; a phone that could type into whatever is open the moment it
+        // paired would be a capability nobody asked for.
+        let caps = DeviceCapabilities::default();
+        assert!(caps.unlock_allowed(15));
+        assert!(!caps.control_allowed(15));
+    }
+
+    #[test]
+    fn a_switched_off_phone_says_which_switch_is_off() {
+        // With both off, telling someone to go flip the master switch sends them
+        // to the wrong place.
+        let caps = DeviceCapabilities { unlock_off: vec![15], control_on: vec![] };
+        let rows = paired_devices(
+            &[slot(15, PresenceKeyState::Ok { paired: true })],
+            &|_| None,
+            true,
+            &caps,
+        );
+        assert!(!rows[0].can_unlock);
+        assert!(!rows[0].unlock_allowed);
+        assert!(rows[0].blocked_reason.as_deref().unwrap().contains("这部手机"));
+
+        // Allowed, but nothing is watching: a different sentence.
+        let rows = paired_devices(
+            &[slot(15, PresenceKeyState::Ok { paired: true })],
+            &|_| None,
+            false,
+            &DeviceCapabilities::default(),
+        );
+        assert!(rows[0].unlock_allowed, "the decision survives the monitor being off");
+        assert!(!rows[0].can_unlock);
+        assert!(rows[0].blocked_reason.as_deref().unwrap().contains("总开关"));
+    }
+
+    #[test]
+    fn switching_one_phone_off_leaves_the_others_alone() {
+        let caps = DeviceCapabilities { unlock_off: vec![15], control_on: vec![9] };
+        let rows = paired_devices(
+            &[
+                slot(9, PresenceKeyState::Ok { paired: true }),
+                slot(15, PresenceKeyState::Ok { paired: true }),
+            ],
+            &|_| None,
+            true,
+            &caps,
+        );
+        assert!(rows[0].can_unlock && rows[0].control_allowed, "9 should be untouched");
+        assert!(!rows[1].can_unlock && !rows[1].control_allowed);
+    }
+
+    #[test]
+    fn an_unreadable_capability_file_means_the_safe_defaults() {
+        for raw in ["", "not json", "{}", r#"{"unlockOff":"x","controlOn":5}"#] {
+            let caps = parse_capabilities(raw);
+            assert!(caps.unlock_allowed(15), "{raw}");
+            assert!(!caps.control_allowed(15), "{raw}");
+        }
+        let caps = parse_capabilities(r#"{"unlockOff":[15,999],"controlOn":[9]}"#);
+        assert!(!caps.unlock_allowed(15));
+        // 999 is not a slot; dropping it is right, and keeping it would have
+        // meant a file that cannot be parsed disabling nothing at all.
+        assert!(caps.unlock_allowed(9));
+        assert!(caps.control_allowed(9));
+    }
+
+    #[test]
+    fn the_bridge_reads_the_off_switch_while_it_runs() {
+        // Taken once at start, it would need an administrator password and a
+        // pipeline restart to take effect -- and a switch that costs a password
+        // is a switch nobody flips.
+        let sh = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tools/ble-spike/mac/permit-bridge.sh"),
+        )
+        .expect("permit-bridge.sh should be readable");
+        assert!(sh.contains("refresh_disabled"), "the bridge never re-reads the list");
+        assert!(sh.contains("REPOSE_DISABLED_FILE"), "the bridge never reads the list at all");
+        // A switched-off phone must not still be able to lock the Mac.
+        assert!(
+            sh.contains(r#"[ "${disabled}" = 1 ] || run_command lock"#),
+            "a switched-off phone can still send commands",
+        );
+    }
+
+    #[test]
     fn no_usable_key_means_an_empty_list() {
         // A device row is a promise that something can unlock this Mac. With no
         // key, or a key the verifier refuses, nothing can -- and a row saying
         // otherwise is the bug this whole file is written against.
         let names = |_: u8| Some("realme GT5 Pro".to_string());
-        assert!(paired_devices(&[], &names, true).is_empty());
-        assert!(paired_devices(&[slot(1, PresenceKeyState::Missing)], &names, true).is_empty());
+        assert!(paired_devices(&[], &names, true, &DeviceCapabilities::default()).is_empty());
+        assert!(paired_devices(&[slot(1, PresenceKeyState::Missing)], &names, true, &DeviceCapabilities::default()).is_empty());
         assert!(paired_devices(
             &[slot(1, PresenceKeyState::BadPermissions { detail: String::new() })],
             &names,
-            true
+            true,
+            &DeviceCapabilities::default(),
         )
         .is_empty());
     }
@@ -3702,6 +3949,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
             ],
             &names,
             true,
+            &DeviceCapabilities::default(),
         );
         assert_eq!(rows.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["1", "7"]);
         assert_eq!(rows[0].name, "手机 1");
@@ -3716,6 +3964,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
             &[slot(1, PresenceKeyState::Ok { paired: false })],
             &|_| Some("realme GT5 Pro".into()),
             true,
+            &DeviceCapabilities::default(),
         );
         assert!(!rows[0].paired);
         assert!(!rows[0].name.contains("realme"), "a saved name must not label a dev key: {}", rows[0].name);
@@ -3724,14 +3973,14 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
     #[test]
     fn a_paired_phone_without_a_saved_name_still_gets_a_row() {
         for name in [None, Some(String::new()), Some("   ".to_string())] {
-            let rows = paired_devices(&[slot(1, PresenceKeyState::Ok { paired: true })], &|_| name.clone(), true);
+            let rows = paired_devices(&[slot(1, PresenceKeyState::Ok { paired: true })], &|_| name.clone(), true, &DeviceCapabilities::default());
             assert_eq!(rows[0].name, "已配对的手机");
         }
     }
 
     #[test]
     fn a_phone_that_cannot_unlock_says_why() {
-        let rows = paired_devices(&[slot(1, PresenceKeyState::Ok { paired: true })], &|_| None, false);
+        let rows = paired_devices(&[slot(1, PresenceKeyState::Ok { paired: true })], &|_| None, false, &DeviceCapabilities::default());
         assert!(!rows[0].can_unlock);
         assert!(rows[0].blocked_reason.is_some(), "a disabled row must carry its reason");
     }

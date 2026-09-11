@@ -893,6 +893,7 @@ pub fn run() {
             unlock::unlock_presence_set,
             unlock::unlock_pause_for,
             unlock::unlock_revoke_device,
+            unlock::unlock_set_device_capability,
             unlock::unlock_pair_begin,
             unlock::unlock_pair_poll,
             unlock::unlock_pair_confirm,
