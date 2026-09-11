@@ -1370,7 +1370,33 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
     if let Some(p) = pid_path(app) {
         let _ = std::fs::write(p, child.id().to_string());
     }
-    Ok(())
+
+    // Wait for the first heartbeat before saying we started.
+    //
+    // This returned the moment the process was spawned, so the snapshot taken
+    // straight afterwards read a status file the bridge had not written yet.
+    // The switch stayed grey, and pressing it a second time turned it on --
+    // by which point the first press had, in fact, worked. The user pressed
+    // twice and concluded the first press was ignored, which is a fair reading
+    // of what they were shown.
+    //
+    // The privileged half is behind an authorization dialog, so the wait has to
+    // cover a human typing a password. Twenty-five seconds, polled; a start
+    // that has not published by then really has not started, and the panel says
+    // so rather than showing a switch whose state is a guess.
+    for _ in 0..50 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if matches!(
+            HostMacBackend::presence_report(app),
+            PresenceReport::Fresh { .. } | PresenceReport::NoAuthorization
+        ) {
+            return Ok(());
+        }
+    }
+    Err(UnlockError::new(
+        UnlockErrorCode::Unsupported,
+        "在场监测启动了，但一直没有报告状态。可能是管理员密码框被取消了，再试一次。",
+    ))
 }
 
 fn resolve_scripts_dir(app: &AppHandle) -> Option<PathBuf> {
