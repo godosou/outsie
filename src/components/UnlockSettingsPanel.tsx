@@ -421,33 +421,35 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
       )}
 
       {/* Status line (axis C). Only `near` is a green dot; `away` is neutral. */}
-      {!degraded && loaded && (
-        <div className={`phone-key-status tone-${view.status.tone}`}>
-          <span className={`pk-dot${view.showReadyDot ? ' ready' : ''}`} />
-          <span className="pk-status-main">{view.status.main}</span>
-          {view.status.sub && <span className="pk-status-sub">{view.status.sub}</span>}
-        </div>
-      )}
-
-      {/* Primary action for the current state (exactly one, a verb).
-
-          Except when it would be a second way to do what the switch above
-          already does. On a Mac with nothing installed the switch says 回车解锁
-          and the button said 开始设置, side by side, both opening the same
-          disclosure -- two controls for one decision, which makes a reader stop
-          and work out whether they differ. They do not. */}
-      {!degraded && view.primaryAction && view.primaryAction.command !== 'install' && (
-        <div className="phone-key-primary">
-          <button className="button primary" disabled={busy} onClick={() => dispatchCommand(view.primaryAction!.command)}>
-            {view.primaryAction.verb}
-          </button>
-        </div>
-      )}
-
       {/* Component status, collapsed. "never-observed" must read as "还没观察到", not a green tick. */}
       {!degraded && loaded && snapshot.state !== 'not-installed' && (
         <details className="phone-key-detail" open={detailsOpen} onToggle={e => setDetailsOpen((e.target as HTMLDetailsElement).open)}>
-          <summary>技术细节</summary>
+          {/* NOT 技术细节 any more, and not 提示信息 either.
+              「提示信息」 reads as "hints" and does not cover what is actually
+              in here: two things you DO (run the check, undo the whole
+              feature), this Mac's id, and what the feature cannot protect
+              against. 技术细节 stopped being true the moment actions moved in.
+              「更多」 claims nothing it does not deliver. */}
+          <summary>更多</summary>
+
+          {/* The check, and the one line that says whether it has ever run.
+              It used to sit in the middle of the page under an amber banner --
+              a permanent alarm for a thing you do once. */}
+          {!degraded && loaded && (
+            <div className="pk-drill">
+              <p className={`pk-drill-state tone-${view.status.tone}`}>
+                <span className={`pk-dot${view.showReadyDot ? ' ready' : ''}`} />
+                {view.status.main}
+                {view.status.sub && <span className="pk-status-sub">{view.status.sub}</span>}
+              </p>
+              {view.primaryAction && view.primaryAction.command !== 'install' && (
+                <button className="button light" disabled={busy} onClick={() => dispatchCommand(view.primaryAction!.command)}>
+                  {view.primaryAction.verb}
+                </button>
+              )}
+            </div>
+          )}
+
           <dl className="pk-klist">
             {snapshot.components.map(c => (
               <div className="pk-krow" key={c.id}>
