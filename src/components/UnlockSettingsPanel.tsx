@@ -444,6 +444,16 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
                 <dd className={healthClass(c.health)}>{c.detail}</dd>
               </div>
             ))}
+            {/* The phone can hear several Macs and has no name for any of
+                them -- pairing exchanges a name but does not yet bind it to
+                this id. Four hex digits it can match against four here is the
+                whole point of putting them on both screens. */}
+            {snapshot.macId && (
+              <div className="pk-krow">
+                <dt>这台 Mac 的编号</dt>
+                <dd>Mac {snapshot.macId}</dd>
+              </div>
+            )}
             <div className="pk-krow">
               <dt>被系统调用</dt>
               <dd className={snapshot.componentInvocation.kind === 'observed' ? 'good' : ''}>

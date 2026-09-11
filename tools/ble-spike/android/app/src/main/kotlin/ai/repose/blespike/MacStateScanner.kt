@@ -14,13 +14,20 @@ import android.util.Log
 /**
  * Listens for the Mac's own beacon and verifies it before believing a word.
  *
- * The payload rides in the advertisement's local name as hex, because
- * CoreBluetooth on macOS does not let a peripheral publish Service Data. That
- * is a macOS limitation, not a design choice, and it costs nothing: the bytes
- * are the same bytes and the tag covers them.
+ * The payload rides in the advertisement's local name, because CoreBluetooth on
+ * macOS does not let a peripheral publish Service Data. That is a macOS
+ * limitation, not a design choice, and it costs nothing: the bytes are the same
+ * bytes and the tag covers them.
  *
- *   payload = version(1) ‖ keyId(1) ‖ state(1) ‖ tag(8)
- *   msg     = "repose-macstate-v1 beacon" ‖ keyId(1) ‖ counter(8 BE) ‖ state(1)
+ * Encoded base64url, not hex. A legacy advertisement has 31 bytes, and after
+ * flags and the service UUID list only 22 characters are left for the name --
+ * which v1's 11-byte payload filled exactly in hex. v2's mac id would have
+ * pushed it to 26, and macOS simply declines to advertise rather than
+ * complaining, so the Mac would look switched off. Hex is still accepted on the
+ * way in for a Mac that has not been updated yet.
+ *
+ *   payload = version(1) ‖ keyId(1) ‖ macId(2) ‖ state(1) ‖ tag(8)
+ *   msg     = "repose-macstate-v2 beacon" ‖ keyId(1) ‖ macId(2) ‖ counter(8 BE) ‖ state(1)
  *
  * WHY THE TAG MATTERS HERE TOO
  *
@@ -36,7 +43,7 @@ class MacStateScanner(private val context: Context) {
 
     private companion object {
         const val TAG = "ReposeMacState"
-        const val PAYLOAD_LEN = 3 + SpikeContract.TAG_LEN
+        const val PAYLOAD_LEN = 5 + SpikeContract.TAG_LEN
     }
 
     private var scanning = false
@@ -44,17 +51,18 @@ class MacStateScanner(private val context: Context) {
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val name = result.scanRecord?.deviceName ?: return
-            val payload = hexOrNull(name) ?: return
+            val payload = payloadOrNull(name) ?: return
             if (payload.size != PAYLOAD_LEN) return
             if (payload[0].toInt() and 0xFF != SpikeContract.MAC_STATE_VERSION) return
 
             val keyId = payload[1].toInt() and 0xFF
             if (keyId != SpikeContract.PRESENCE_KEY_ID) return
-            val locked = (payload[2].toInt() and 0xFF) == 1
-            val tag = payload.copyOfRange(3, PAYLOAD_LEN)
+            val macId = ((payload[2].toInt() and 0xFF) shl 8) or (payload[3].toInt() and 0xFF)
+            val locked = (payload[4].toInt() and 0xFF) == 1
+            val tag = payload.copyOfRange(5, PAYLOAD_LEN)
 
-            if (verify(keyId, locked, tag)) {
-                MacState.heard(locked)
+            if (verify(keyId, macId, locked, tag)) {
+                MacState.heard(macId, locked)
             }
         }
 
@@ -71,12 +79,12 @@ class MacStateScanner(private val context: Context) {
      * ±1 window, same tolerance the Mac gives the phone: two clocks that agree
      * to within thirty seconds is all either side assumes.
      */
-    private fun verify(keyId: Int, locked: Boolean, tag: ByteArray): Boolean {
+    private fun verify(keyId: Int, macId: Int, locked: Boolean, tag: ByteArray): Boolean {
         if (!PresenceKey.has(keyId)) return false
         val c0 = System.currentTimeMillis() / 1000L / SpikeContract.WINDOW_SECONDS
         for (c in longArrayOf(c0 - 1, c0, c0 + 1)) {
             val msg = SpikeContract.MAC_STATE_LABEL.toByteArray(Charsets.US_ASCII) +
-                byteArrayOf(keyId.toByte()) +
+                byteArrayOf(keyId.toByte(), ((macId shr 8) and 0xFF).toByte(), (macId and 0xFF).toByte()) +
                 PresenceBeacon.beLong(c) +
                 byteArrayOf(if (locked) 1 else 0)
             val full = runCatching { PresenceKey.hmac(keyId, msg) }.getOrNull() ?: return false
@@ -123,6 +131,25 @@ class MacStateScanner(private val context: Context) {
         // screen. Drop it now rather than let it age out looking current.
         MacState.forget()
     }
+
+    /**
+     * The local name as bytes: base64url first, hex as a fallback.
+     *
+     * Both, because a Mac still running the older build advertises hex, and a
+     * phone that refused it would report that Mac as absent rather than as out
+     * of date. The tag is checked either way, so accepting two spellings costs
+     * nothing: an attacker who could forge the bytes does not need help with
+     * the encoding.
+     */
+    private fun payloadOrNull(s: String): ByteArray? =
+        base64UrlOrNull(s) ?: hexOrNull(s)
+
+    private fun base64UrlOrNull(s: String): ByteArray? = runCatching {
+        android.util.Base64.decode(
+            s,
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP,
+        )
+    }.getOrNull()?.takeIf { it.size == PAYLOAD_LEN }
 
     private fun hexOrNull(s: String): ByteArray? {
         if (s.length % 2 != 0 || s.isEmpty()) return null

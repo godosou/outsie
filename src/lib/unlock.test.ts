@@ -36,7 +36,8 @@ function snapshot(overrides: Partial<UnlockSnapshot> = {}): UnlockSnapshot {
     stats: { unlocksToday: 4, lastUnlockAt: '2026-09-09T14:22:00Z' },
     lastFailure: null,
     macosBuild: '23G93',
-    componentVersion: '0.1.0',
+    macId: null,
+  componentVersion: '0.1.0',
     ...overrides,
   }
 }

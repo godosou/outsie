@@ -155,8 +155,13 @@ fun buildHomeScreen(
             Ui.secondary(
                 context,
                 pal,
-                "上面那张卡是配对过的 Mac 报来的。所有 Mac 共用同一把钥匙，" +
-                    "所以分不出是哪一台 —— 要看某一台的详细情况，去那台 Mac 上的 ${Brand.NAME}。",
+                // 「分不出是哪一台」 stopped being true when the beacon started
+                // carrying a mac id inside the authenticated message. Leaving
+                // it would be the screen apologising for a limitation that no
+                // longer exists -- and telling someone to walk to a Mac they
+                // could have identified from here.
+                "上面那张卡是配对过的 Mac 报来的。每台 Mac 报的编号不一样，所以附近有几台就分得出几台；" +
+                    "名字没有跟着报过来，要对上是哪一台，看那台 Mac 上「技术细节」里的同一串编号。",
             ),
             Ui.lp(top = context.dp(8)),
         )
@@ -311,25 +316,42 @@ fun buildHomeScreen(
             }
         }
 
-        when (MacState.current()) {
-            MacLockState.LOCKED -> {
-                macStatus?.text = "锁着"
-                macStatus?.setTextColor(pal.textPrimary)
-                // The payoff sentence, and it is only allowed on screen because
-                // a tag minted with the paired key said so.
-                macHint?.text = "走过去，密码框留空，按一下回车就能进。"
-            }
-            MacLockState.UNLOCKED -> {
-                macStatus?.text = "开着"
-                macStatus?.setTextColor(pal.textPrimary)
-                macHint?.text = "没锁，不用解锁。"
-            }
-            MacLockState.UNKNOWN -> {
+        // Every Mac in range, each with its own answer.
+        //
+        // The single-state version was correct only while a phone could pair
+        // with one Mac. With two, the beacon that arrived last became the
+        // answer for both -- so a locked Mac in the next room could tell you
+        // the one in front of you was locked too.
+        val macs = MacState.sightings()
+        when {
+            macs.isEmpty() -> {
                 macStatus?.text = "不知道"
                 macStatus?.setTextColor(pal.textSecondary)
                 // Says which possibilities it cannot tell apart, rather than a
                 // bare 未知 that reads as a fault.
                 macHint?.text = "附近没找到你的 Mac。可能不在身边、睡着了，或者没开 Outsie。"
+            }
+            macs.size == 1 -> {
+                val only = macs[0]
+                macStatus?.text = if (only.state == MacLockState.LOCKED) "锁着" else "开着"
+                macStatus?.setTextColor(pal.textPrimary)
+                macHint?.text = if (only.state == MacLockState.LOCKED) {
+                    // The payoff sentence, and it is only allowed on screen
+                    // because a tag minted with the paired key said so.
+                    "走过去，密码框留空，按一下回车就能进。"
+                } else {
+                    "没锁，不用解锁。"
+                }
+            }
+            else -> {
+                // Listed, not summarised. Two Macs in different states have no
+                // single true answer, and 「其中一台锁着」 is exactly the sentence
+                // that sends someone to the wrong desk.
+                macStatus?.text = "附近有 ${macs.size} 台"
+                macStatus?.setTextColor(pal.textPrimary)
+                macHint?.text = macs.joinToString("，") {
+                    "${macLabel(it.macId)} ${if (it.state == MacLockState.LOCKED) "锁着" else "开着"}"
+                } + "。名字要去各自那台 Mac 上看。"
             }
         }
 
@@ -387,3 +409,16 @@ private fun startPulse(ring: View) {
         override fun onViewDetachedFromWindow(v: View) { animator.cancel() }
     })
 }
+
+/**
+ * A short, stable label for a Mac the phone has only ever heard from.
+ *
+ * Four hex digits, because that is genuinely all the beacon carries. Pairing
+ * exchanges a human name, but it does not yet bind that name to this id -- so
+ * showing one here would mean guessing which Mac the name belonged to, and
+ * guessing wrong is worse than four hex digits the reader can match against the
+ * same four on the Mac's own screen.
+ */
+fun macLabel(macId: Int): String =
+    if (macId == SpikeContract.MAC_ID_UNKNOWN) "一台没报编号的 Mac"
+    else "Mac %04X".format(macId)

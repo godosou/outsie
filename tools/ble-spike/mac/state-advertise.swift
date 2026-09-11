@@ -9,8 +9,9 @@
 // This is the other direction, built the same way: a second one-way beacon,
 // from the Mac, carrying one byte of state under the same paired key.
 //
-//   payload = version(1) ‖ keyId(1) ‖ state(1) ‖ tag(8)        13 bytes
-//   msg     = "repose-macstate-v1 beacon" ‖ keyId(1) ‖ counter(8 BE) ‖ state(1)
+//   payload = version(1) ‖ keyId(1) ‖ macId(2) ‖ state(1) ‖ tag(8)   13 bytes,
+//             carried in the local name as unpadded base64url (18 chars)
+//   msg     = "repose-macstate-v2 beacon" ‖ keyId(1) ‖ macId(2) ‖ counter(8 BE) ‖ state(1)
 //
 // WHY THIS PROCESS HOLDS NO KEY
 //
@@ -24,7 +25,7 @@
 // silent rather than advertising an unauthenticated state -- a beacon the phone
 // would reject anyway, but one that would look like a working Mac on a capture.
 //
-// stdin:  macstate,<keyId>,<counter>,<tagUnlocked>,<tagLocked>   (other lines ignored)
+// stdin:  macstate,<keyId>,<counter>,<tagUnlocked>,<tagLocked>,<macIdHex>
 // stderr: human-readable events
 //
 // Build: swiftc -O -o state-advertise state-advertise.swift -framework CoreBluetooth
@@ -37,8 +38,16 @@ import IOKit
 /// service (FFF1) so a scanner looking for one never has to reason about the
 /// others.
 let macStateUUID = CBUUID(string: "FFF7")
-let macStateVersion: UInt8 = 0x01
+let macStateVersion: UInt8 = 0x02
 let windowSeconds: Int64 = 30
+
+/// base64url without padding. 13 bytes -> 18 characters.
+func base64url(_ d: Data) -> String {
+    d.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-")
+        .replacingOccurrences(of: "/", with: "_")
+        .replacingOccurrences(of: "=", with: "")
+}
 
 func log(_ s: String) {
     let ts = ISO8601DateFormatter().string(from: Date())
@@ -76,6 +85,10 @@ func screenIsLocked() -> Bool {
 /// One window's worth of tags, as handed over by the privileged half.
 struct Tags {
     let keyId: UInt8
+    /// Which Mac this is. Minted by presence-verify, which is the process that
+    /// holds the key; this one only relays it, so it cannot claim to be a Mac
+    /// it was not handed a tag for.
+    let macId: UInt16
     let counter: Int64
     let unlocked: Data
     let locked: Data
@@ -88,6 +101,22 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
     private var onAir: (Int64, Bool)?   // (counter, locked) currently advertised
 
     func start() { manager = CBPeripheralManager(delegate: self, queue: nil) }
+
+    /// The one callback that says whether the last startAdvertising actually
+    /// worked.
+    ///
+    /// It was not implemented, and that is how a payload two bytes over the
+    /// 31-byte advertisement budget stayed invisible: this process went on
+    /// logging "advertising state=unlocked" every window while nothing was on
+    /// the air, and the phone, which can only report what it hears, said
+    /// 「不知道」 -- the same thing it says when the Mac is asleep.
+    func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
+        if let error {
+            log("NOT advertising: \(error.localizedDescription)")
+            onAir = nil          // so the next window retries rather than
+                                 // believing the state is already up
+        }
+    }
 
     func peripheralManagerDidUpdateState(_ m: CBPeripheralManager) {
         switch m.state {
@@ -121,17 +150,34 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
         if let cur = onAir, cur == (t.counter, locked) { return }
 
         let tag = locked ? t.locked : t.unlocked
-        var payload = Data([macStateVersion, t.keyId, locked ? 1 : 0])
+        var payload = Data([
+            macStateVersion,
+            t.keyId,
+            UInt8((t.macId >> 8) & 0xFF),
+            UInt8(t.macId & 0xFF),
+            locked ? 1 : 0,
+        ])
         payload.append(tag)
 
         manager.stopAdvertising()
         manager.startAdvertising([
             CBAdvertisementDataServiceUUIDsKey: [macStateUUID],
             // CoreBluetooth on macOS does not expose Service Data to a
-            // peripheral, so the payload rides in the local name as hex. It is
-            // 26 characters, inside the 248-byte limit and inside the 31-byte
-            // advertisement once the UUID list is counted.
-            CBAdvertisementDataLocalNameKey: payload.map { String(format: "%02x", $0) }.joined(),
+            // peripheral, so the payload rides in the local name.
+            //
+            // BASE64URL, NOT HEX, AND THAT IS NOT A STYLE CHOICE.
+            //
+            // A legacy advertisement is 31 bytes: 3 for flags, 4 for the 16-bit
+            // service UUID list, 2 of header for the name. That leaves 22
+            // characters. v1's 11-byte payload was exactly 22 in hex -- full to
+            // the brim -- and v2's extra two bytes for the mac id pushed it to
+            // 26, which macOS silently refused to put on the air. On the phone
+            // that is indistinguishable from a Mac that is switched off.
+            //
+            // base64url carries the same 13 bytes in 18 characters, unpadded,
+            // out of an alphabet no BLE stack will mangle. The encoding is not
+            // security-relevant: the tag covers the bytes, not their spelling.
+            CBAdvertisementDataLocalNameKey: base64url(payload),
         ])
         onAir = (t.counter, locked)
         log("advertising state=\(locked ? "locked" : "unlocked") window=\(t.counter)")
@@ -168,11 +214,15 @@ DispatchQueue.global().async {
 DispatchQueue.global().async {
     while let line = readLine(strippingNewline: true) {
         let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-        guard f.count == 5, f[0] == "macstate",
+        // Six fields now: the mac id came last so a v1 verifier's five-field
+        // line is rejected outright rather than being read as a v2 line with a
+        // zero id, which would advertise a Mac that claims to be no Mac.
+        guard f.count == 6, f[0] == "macstate",
               let keyId = UInt8(f[1]), let counter = Int64(f[2]),
-              let unlocked = hexDecode(f[3]), let locked = hexDecode(f[4])
+              let unlocked = hexDecode(f[3]), let locked = hexDecode(f[4]),
+              let macId = UInt16(f[5], radix: 16)
         else { continue }
-        let t = Tags(keyId: keyId, counter: counter, unlocked: unlocked, locked: locked)
+        let t = Tags(keyId: keyId, macId: macId, counter: counter, unlocked: unlocked, locked: locked)
         DispatchQueue.main.async { advertiser.accept(t) }
     }
     log("input ended; nothing left to authenticate a state with, stopping")

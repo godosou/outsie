@@ -81,14 +81,21 @@ say() { printf 'pipeline: %s\n' "$*" >&2; }
 [ -e "${KEY_DIR}/presence-key.${KEY_ID}" ] \
   || { say "no presence key at ${KEY_DIR}/presence-key.${KEY_ID} -- run provision-dev-key.sh"; exit 2; }
 
-for t in rssi-scan presence-verify; do
+# state-advertise was missing from this list, and that is not a cosmetic gap:
+# it is one half of a two-implementation protocol. Editing the beacon's layout
+# rebuilt the verifier and left the advertiser on the old format, which on air
+# looks exactly like a Mac that has stopped answering -- and on the phone like
+# being out of range. Found 2026-09-12 while moving macstate to v2.
+for t in rssi-scan presence-verify state-advertise; do
   src="${HERE}/${t}.swift"
+  [ -r "${src}" ] || continue     # installed bundles ship binaries, not sources
   if [ ! -x "${HERE}/${t}" ] || [ "${src}" -nt "${HERE}/${t}" ]; then
-    if [ "$t" = rssi-scan ]; then
-      swiftc -O -o "${HERE}/${t}" "${src}" -framework CoreBluetooth || exit 2
-    else
-      swiftc -O -o "${HERE}/${t}" "${src}" || exit 2
-    fi
+    case "$t" in
+      rssi-scan|state-advertise)
+        swiftc -O -o "${HERE}/${t}" "${src}" -framework CoreBluetooth || exit 2 ;;
+      *)
+        swiftc -O -o "${HERE}/${t}" "${src}" || exit 2 ;;
+    esac
     say "built ${t}"
   fi
 done

@@ -135,7 +135,7 @@ object SpikeContract {
      */
     val PAIR_CHAR_NAME: UUID = UUID.fromString("0000FFF6-0000-1000-8000-00805F9B34FB")
 
-    // --- the Mac's own beacon (repose-macstate-v1) ----------------------------
+    // --- the Mac's own beacon (repose-macstate-v2) ----------------------------
     //
     // The other direction. The presence beacon is one-way, so the phone could
     // never say anything true about the Mac -- only what it had just done. This
@@ -147,8 +147,26 @@ object SpikeContract {
     // phone is present", or a recording of one becomes a forgery of the other.
 
     val MAC_STATE_SERVICE_UUID: UUID = UUID.fromString("0000FFF7-0000-1000-8000-00805F9B34FB")
-    const val MAC_STATE_LABEL = "repose-macstate-v1 beacon"
-    const val MAC_STATE_VERSION = 0x01
+    const val MAC_STATE_LABEL = "repose-macstate-v2 beacon"
+    const val MAC_STATE_VERSION = 0x02
+
+    /**
+     * Two bytes naming which Mac sent the beacon, inside the authenticated
+     * message.
+     *
+     * v1 carried only the key id, and a phone paired with several Macs holds
+     * one key -- so every Mac's beacon looked the same to it. It could say "a
+     * paired Mac is locked" and not which one, which is the kind of answer that
+     * sends you to the wrong desk.
+     *
+     * In the pre-image, not merely beside it: an id the phone reads from an
+     * unauthenticated field is a label anyone with a radio can set, and a phone
+     * that believes it can be told the wrong Mac is locked.
+     *
+     * 0 is reserved for a Mac that could not read its own hardware UUID. The
+     * phone shows that as one unnamed Mac rather than inventing an identity.
+     */
+    const val MAC_ID_UNKNOWN = 0
 
     /**
      * How long a heard state stays believable.

@@ -40,6 +40,7 @@
 
 import CryptoKit
 import Foundation
+import IOKit
 
 let beaconLabel = "repose-presence-v2 beacon"
 
@@ -48,7 +49,39 @@ let beaconLabel = "repose-presence-v2 beacon"
 /// two directions must never be interchangeable: a tag minted for "the Mac is
 /// unlocked" must not also verify as "the phone is present", or a recording of
 /// one becomes a forgery of the other.
-let macStateLabel = "repose-macstate-v1 beacon"
+let macStateLabel = "repose-macstate-v2 beacon"
+
+/// Two bytes naming THIS Mac, inside the authenticated message.
+///
+/// v1 carried only the key id, and one phone paired with several Macs holds one
+/// key -- so every Mac's beacon looked identical to it. The phone could say "a
+/// paired Mac near you is locked" and nothing about which, which is the kind of
+/// answer that sends you to the wrong desk.
+///
+/// Derived, not assigned: SHA-256 of the hardware UUID, first two bytes. No
+/// registry to keep in sync, and it survives a reinstall. Two bytes will
+/// collide roughly once in 256 for someone with 25 Macs -- acceptable for a
+/// label, which is why the name shown beside it comes from pairing and this is
+/// only what ties the beacon to it.
+func macIdentity() -> UInt16 {
+    let port: mach_port_t
+    if #available(macOS 12.0, *) { port = kIOMainPortDefault } else { port = kIOMasterPortDefault }
+    let svc = IOServiceGetMatchingService(port, IOServiceMatching("IOPlatformExpertDevice"))
+    defer { if svc != 0 { IOObjectRelease(svc) } }
+    guard svc != 0,
+          let cf = IORegistryEntryCreateCFProperty(svc, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0),
+          let uuid = cf.takeRetainedValue() as? String
+    else {
+        // No identity is better than a made-up one: 0 is reserved and the
+        // phone shows it as "分不清是哪一台" rather than as a Mac.
+        return 0
+    }
+    let h = SHA256.hash(data: Data(uuid.utf8))
+    let b = Array(h)
+    return (UInt16(b[0]) << 8) | UInt16(b[1])
+}
+
+let macId: UInt16 = macIdentity()
 let windowSeconds: Int64 = 30
 let tagLen = 8
 let defaultKeyDir = "/var/db/repose-unlock"
@@ -215,9 +248,14 @@ func verify(keyId: UInt8, tag: Data, now: Int64, keys: KeyStore,
 /// Same shape as the phone's, different label and a state byte instead of a
 /// command. The counter is still derived from each side's own clock and never
 /// transmitted, so a recording ages out within a window either way.
-func macStateMessage(keyId: UInt8, counter: Int64, locked: Bool) -> Data {
+func macStateMessage(keyId: UInt8, macId: UInt16, counter: Int64, locked: Bool) -> Data {
     var d = Data(macStateLabel.utf8)
     d.append(keyId)
+    // Inside the pre-image, not merely alongside it: a mac id the phone reads
+    // from an unauthenticated field is a label anyone can set, and a phone that
+    // trusts it can be told the wrong Mac is locked.
+    d.append(UInt8((macId >> 8) & 0xFF))
+    d.append(UInt8(macId & 0xFF))
     let u = UInt64(bitPattern: counter)
     for shift in stride(from: 56, through: 0, by: -8) {
         d.append(UInt8((u >> UInt64(shift)) & 0xFF))
@@ -244,10 +282,10 @@ func emitMacStateTags(keys: KeyStore, keyId: UInt8, now: Int64) {
     let c = now / windowSeconds
     let tag = { (locked: Bool) -> String in
         Data(HMAC<SHA256>.authenticationCode(
-            for: macStateMessage(keyId: keyId, counter: c, locked: locked), using: k))
+            for: macStateMessage(keyId: keyId, macId: macId, counter: c, locked: locked), using: k))
             .prefix(tagLen).map { String(format: "%02x", $0) }.joined()
     }
-    print("macstate,\(keyId),\(c),\(tag(false)),\(tag(true))")
+    print("macstate,\(keyId),\(c),\(tag(false)),\(tag(true)),\(String(format: "%04x", macId))")
 }
 
 // MARK: - command replay defence
@@ -312,8 +350,51 @@ let vectors: [Vector] = [
            keyId: 1, counter: 58000000, cmd: 2, seq: 42, tagHex: "e9b003496a5b1c05"),
 ]
 
+/// Known answers for the Mac's own beacon, so the two implementations of
+/// macStateMessage -- this one and MacStateScanner.kt -- cannot drift apart
+/// without a test going red on one side.
+///
+/// Computed independently with Python's hmac before being written down, not
+/// copied out of this binary's own output: a vector produced by the code it
+/// checks agrees with itself no matter what either of them says. A drift here reads on the phone as
+/// "the Mac stopped answering", which is indistinguishable from being out of
+/// range and is the most expensive kind of silent failure this product has.
+struct MacStateVector {
+    let keyHex: String
+    let keyId: UInt8
+    let macId: UInt16
+    let counter: Int64
+    let locked: Bool
+    let tagHex: String
+}
+
+let macStateVectors: [MacStateVector] = [
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, locked: true, tagHex: "d16d729bc487b663"),
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, locked: false, tagHex: "ee8a24179231a934"),
+    // A different Mac, everything else identical: the tag must change, or the
+    // mac id is decoration rather than part of the authenticated message.
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0x0001, counter: 58000000, locked: true, tagHex: "eedf1ad32139ab89"),
+]
+
 func selfTest() -> Int32 {
     var failures = 0
+
+    for (i, v) in macStateVectors.enumerated() {
+        let k = SymmetricKey(data: hexDecode(v.keyHex)!)
+        let got = Data(HMAC<SHA256>.authenticationCode(
+            for: macStateMessage(keyId: v.keyId, macId: v.macId, counter: v.counter, locked: v.locked),
+            using: k)).prefix(tagLen)
+        let gotHex = got.map { String(format: "%02x", $0) }.joined()
+        if gotHex == v.tagHex {
+            print("  ok   macstate vector \(i): macId=\(String(format: "%04x", v.macId)) locked=\(v.locked) -> \(gotHex)")
+        } else {
+            print("  FAIL macstate vector \(i): expected \(v.tagHex), got \(gotHex)")
+            failures += 1
+        }
+    }
     for (i, v) in vectors.enumerated() {
         let k = SymmetricKey(data: hexDecode(v.keyHex)!)
         let got = Data(HMAC<SHA256>.authenticationCode(

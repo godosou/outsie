@@ -116,6 +116,7 @@ export type UnlockSnapshot = {
   components: UnlockComponent[]
   componentInvocation: ComponentInvocation
   device: PairedDevice | null
+  macId: string | null
   stats: { unlocksToday: number; lastUnlockAt: string | null }
   lastFailure: LastFailure | null
   macosBuild: string
@@ -135,6 +136,7 @@ export const UNSUPPORTED_SNAPSHOT: UnlockSnapshot = Object.freeze({
   components: [],
   componentInvocation: { kind: 'never-observed' as const },
   device: null,
+  macId: null,
   stats: { unlocksToday: 0, lastUnlockAt: null },
   lastFailure: null,
   macosBuild: '',
@@ -250,6 +252,7 @@ export function normalizeUnlockSnapshot(
 
   return {
     readAt, state, presence, presenceRunning, variant, components, componentInvocation, device,
+    macId: str(s.macId),
     stats, lastFailure,
     macosBuild: str(s.macosBuild) ?? '',
     componentVersion: str(s.componentVersion) ?? '',

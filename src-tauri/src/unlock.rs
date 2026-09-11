@@ -258,6 +258,9 @@ pub struct UnlockSnapshot {
     pub last_failure: Option<serde_json::Value>,
     pub macos_build: String,
     pub component_version: String,
+    /// Four hex digits identifying this Mac in the beacon the phone hears.
+    /// None until the monitor has published at least one window.
+    pub mac_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1013,6 +1016,7 @@ impl UnlockBackend for HostMacBackend {
             last_failure: None,
             macos_build,
             component_version: env!("CARGO_PKG_VERSION").to_string(),
+            mac_id: mac_identity(&verified_csv(&self.app)),
         })
     }
 
@@ -1476,6 +1480,23 @@ pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, Unlo
         });
     }
     Ok(result)
+}
+
+/// This Mac's four-hex-digit id, as the phone sees it.
+///
+/// Read back out of the verifier's own output rather than recomputed here.
+/// presence-verify derives it from the hardware UUID and puts it in the
+/// authenticated message; a second implementation in Rust would be a second
+/// thing that can drift, and a Mac whose panel shows one id while its beacon
+/// carries another is worse than a panel that shows none.
+pub fn mac_identity(csv: &str) -> Option<String> {
+    csv.lines()
+        .rev()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split(',').collect();
+            (f.len() == 6 && f[0] == "macstate").then(|| f[5].trim().to_uppercase())
+        })
+        .find(|id| id.len() == 4 && id.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// The thresholds a calibration left behind, if one did.
@@ -2544,6 +2565,7 @@ mod tests {
             last_failure: None,
             macos_build: "b".into(),
             component_version: "0".into(),
+            mac_id: None,
         };
         let v: serde_json::Value = serde_json::to_value(&s).unwrap();
         assert!(v.get("readAt").is_some());
@@ -2991,6 +3013,36 @@ mod tests {
         };
         assert_eq!(read(&ok), Some((-55, -75)));
         assert_eq!(read(&bad), None);
+    }
+
+    #[test]
+    fn the_mac_id_comes_from_the_verifier_not_from_a_second_guess() {
+        let csv = "\
+1000,-53,ABC,2,1,tag,0,1,auth=VALID,cmd=0
+macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce,ab12
+1001,-55,ABC,2,1,tag,0,2,auth=VALID,cmd=0
+";
+        assert_eq!(mac_identity(csv), Some("AB12".to_string()));
+    }
+
+    #[test]
+    fn the_newest_macstate_line_wins() {
+        // The file is appended to for the life of the pipeline, so an old id
+        // from before a hardware change must not outrank the current one.
+        let csv = "\
+macstate,1,59638000,aa,bb,0001
+macstate,1,59638225,cc,dd,ab12
+";
+        assert_eq!(mac_identity(csv), Some("AB12".to_string()));
+    }
+
+    #[test]
+    fn a_v1_macstate_line_yields_no_id_rather_than_a_wrong_one() {
+        // Five fields is the old format, which had no id at all. Reading its
+        // last field would report the locked tag's first four characters as
+        // this Mac's identity.
+        let csv = "macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce\n";
+        assert_eq!(mac_identity(csv), None);
     }
 
     #[test]

@@ -7,7 +7,7 @@ import android.os.SystemClock
  *
  * The presence beacon is one-way, so until now the phone knew nothing about the
  * Mac at all. Every sentence it showed was either about itself ("已发出") or an
- * invention. `repose-macstate-v1` is the Mac broadcasting its own lock state
+ * invention. `repose-macstate-v2` is the Mac broadcasting its own lock state
  * under the same key, which finally makes「Mac 锁着，按回车就能进」a fact rather
  * than a guess.
  *
@@ -19,10 +19,23 @@ import android.os.SystemClock
  */
 enum class MacLockState { LOCKED, UNLOCKED, UNKNOWN }
 
+/** One Mac, as this phone currently believes it to be. */
+data class MacSighting(val macId: Int, val state: MacLockState)
+
 object MacState {
 
-    @Volatile private var state: MacLockState = MacLockState.UNKNOWN
-    @Volatile private var heardAtUptime: Long = 0L
+    /**
+     * One entry per Mac, keyed by the id inside the authenticated beacon.
+     *
+     * It used to be a single state, which was correct only while a phone could
+     * pair with exactly one Mac. With several, the last beacon to arrive
+     * overwrote the others -- so a locked Mac in the next room could silently
+     * become the answer to「你的 Mac 锁了吗」about the one in front of you.
+     *
+     * Each entry ages out on its own clock: walking away from one Mac must not
+     * make the phone forget a second one it is still hearing.
+     */
+    private val heard = java.util.concurrent.ConcurrentHashMap<Int, Pair<MacLockState, Long>>()
 
     /**
      * Recorded only for a tag that verified. An unverified beacon is not news.
@@ -34,31 +47,47 @@ object MacState {
      * elapsedRealtime() in a unit test returns 0 and 0 is how this records
      * "never heard anything".
      */
-    fun heard(locked: Boolean, nowUptime: Long = SystemClock.elapsedRealtime()) {
-        state = if (locked) MacLockState.LOCKED else MacLockState.UNLOCKED
+    fun heard(macId: Int, locked: Boolean, nowUptime: Long = SystemClock.elapsedRealtime()) {
+        val state = if (locked) MacLockState.LOCKED else MacLockState.UNLOCKED
         // Guard the sentinel: a clock reading of 0 would mean "forget it".
-        heardAtUptime = if (nowUptime == 0L) 1L else nowUptime
+        heard[macId] = state to if (nowUptime == 0L) 1L else nowUptime
         SpikeState.notifyListeners()
     }
 
     fun forget() {
-        state = MacLockState.UNKNOWN
-        heardAtUptime = 0L
+        heard.clear()
         SpikeState.notifyListeners()
     }
 
     /**
-     * The current belief, aged out.
+     * Every Mac still within its freshness window, most recently heard first.
+     *
+     * Stale entries are dropped rather than returned as UNKNOWN: a Mac this
+     * phone has not heard from in a minute is not a Mac with an unknown state,
+     * it is a Mac that is not here. "Unknown" belongs to [current], which
+     * answers about the whole set.
+     */
+    fun sightings(nowUptime: Long = SystemClock.elapsedRealtime()): List<MacSighting> =
+        heard.entries
+            .filter { nowUptime - it.value.second <= SpikeContract.MAC_STATE_STALE_MS }
+            .sortedByDescending { it.value.second }
+            .map { MacSighting(it.key, it.value.first) }
+
+    /**
+     * The one-line answer for the home screen, aged out.
      *
      * Uptime, not wall clock: a phone whose clock jumps -- a timezone change, an
      * NTP correction -- would otherwise either freeze this answer or expire it
      * instantly, and the frozen case is the dangerous one. It would leave
      *「Mac 锁着」on screen for a Mac that is no longer there.
+     *
+     * With several Macs in range this reports UNKNOWN unless they agree. Two
+     * Macs in different states have no single true answer, and picking one
+     * would be the phone choosing which of two facts to show -- see the
+     * three-state note above.
      */
-    fun current(nowUptime: Long = SystemClock.elapsedRealtime()): MacLockState =
-        if (heardAtUptime == 0L || nowUptime - heardAtUptime > SpikeContract.MAC_STATE_STALE_MS) {
-            MacLockState.UNKNOWN
-        } else {
-            state
-        }
+    fun current(nowUptime: Long = SystemClock.elapsedRealtime()): MacLockState {
+        val states = sightings(nowUptime).map { it.state }.distinct()
+        return if (states.size == 1) states[0] else MacLockState.UNKNOWN
+    }
 }

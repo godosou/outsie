@@ -73,8 +73,9 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                 Ui.secondary(
                     context,
                     pal,
-                    "这台手机能听到附近有配对过的 Mac，但分不出是哪一台、也不知道一共有几台 —— " +
-                        "它们共用同一把钥匙。要看某一台的情况，去那台 Mac 上的 ${Brand.NAME}。",
+                    "这台手机听得到附近每一台配对过的 Mac，各自报一个编号，所以分得出是哪几台。" +
+                        "它们共用同一把钥匙——删掉钥匙，所有 Mac 一起失效。" +
+                        "编号对应的是哪台电脑，看那台 Mac 上「技术细节」里的同一串。",
                 ),
                 Ui.lp(top = context.dp(12)),
             )
