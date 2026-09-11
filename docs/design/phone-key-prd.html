@@ -160,6 +160,9 @@ footer { margin-top:90px; padding-top:24px; border-top:1px solid var(--line);
     <li><b>不替代密码。</b>任何状态下 Mac 密码都能登录。这句话在每一屏都常驻。</li>
     <li><b>不做身份识别。</b>它判断的是"配对过的手机在不在附近"，不是"是不是你本人"。</li>
     <li><b>不做远程控制。</b>手机能锁屏，不能开屏（见 §2.4）。</li>
+    <li><b>不在手机上编辑快捷键。</b>哪个 App、按哪几个键、每个操作占哪个 <code>cmd</code> 字节，
+      只能在 Mac 上定——按键录制要一把真键盘，而字节是协议的一部分。
+      手机上能改的只有<b>看到哪些、什么顺序</b>（§6.5），那是显示偏好，不是配置。</li>
   </ul>
 </section>
 
@@ -247,9 +250,14 @@ state-advertise  广播 Mac 状态 ←──  permit-bridge     判近/远，写
 
 手机
   主屏      电脑卡片列表 + 添加电脑
+  控制面板  从卡片的「控制」进入 · 先点 App 标签，再出这个 App 的按钮
+    挑选与排序  显示哪些、什么顺序——只存在这部手机上
   这把钥匙  钥匙本身、配过的电脑、取消配对</code></pre>
   <p><b>锁屏放在「手机钥匙」而不是「快捷控制」</b>：锁屏是解锁的安全对位，
     快捷控制是效率工具。按风险分组，不按"都是手机发来的指令"分组。</p>
+  <p><b>「挑选与排序」挂在控制面板里面，不进设置页</b>：它改的是眼前这一屏显示什么，
+    不改钥匙、不改权限、不改 Mac 上的任何配置。
+    放进设置页会让它看起来像一个安全开关，而它不是（§6.5）。</p>
 </section>
 
 <!-- ─────────────────────────────────────────────── -->
@@ -421,7 +429,8 @@ state-advertise  广播 Mac 状态 ←──  permit-bridge     判近/远，写
     <span class="sec-num">06</span>
     <h2 id="s6">手机界面</h2>
     <p class="section-lede">配好之后你几乎没有理由打开它。所以主屏的日常职责只有三件：
-      确认它在工作、锁住电脑、偶尔关掉。</p>
+      确认它在工作、锁住电脑、偶尔关掉。<b>唯一天天要开的是控制面板（6.4）</b>——
+      那一屏不是设置，是工具。</p>
   </div>
 
   <h3>6.1 主屏 · 电脑卡片列表</h3>
@@ -485,6 +494,137 @@ state-advertise  广播 Mac 状态 ←──  permit-bridge     判近/远，写
     而这三分钟里你要走到 Mac、点配对、等扫描、比对数字、点确认、输密码——很容易超时。
     于是手机的窗口在交换进行到一半时关掉，Mac 配好了、手机没有。
     现在每一个协议步骤都把截止时间往后推：<b>人是这条流程里最慢的一步，不该是超时的那一个。</b>
+  </div>
+
+  <h3>6.4 控制面板 · 先点 App，再出按钮</h3>
+  <div class="screen">
+    <div class="mock" style="max-width:290px">
+      <div class="s">‹ Jingmin 的 MacBook</div>
+      <div style="display:flex;gap:6px;margin-top:10px;font-size:12px">
+        <span style="background:var(--accent);color:var(--accent-in);border-radius:20px;padding:3px 11px">终端</span>
+        <span style="background:var(--sage);color:var(--accent);border-radius:20px;padding:3px 11px">Figma</span>
+        <span style="background:var(--sage);color:var(--accent);border-radius:20px;padding:3px 11px">VS Code</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;text-align:center;font-size:11px">
+        <div style="border:1px solid var(--line);border-radius:10px;padding:9px 4px">▥<br>左右分屏</div>
+        <div style="border:1px solid var(--line);border-radius:10px;padding:9px 4px">▤<br>上下分屏</div>
+        <div style="border:1px solid var(--line);border-radius:10px;padding:9px 4px">✕<br>关闭面板</div>
+        <div style="border:1px solid var(--line);border-radius:10px;padding:9px 4px">↹<br>下一个</div>
+      </div>
+      <div class="s" style="margin-top:10px">按下去，Mac 会先把「终端」切到最前面，再按那组键。</div>
+      <div class="fold">⚙︎ 挑选与排序</div>
+    </div>
+    <div class="why">
+      <p><b>不平铺，是因为目录会长。</b>一次实测里 Mac 送来 87 个操作。
+        平铺出来是一面按钮墙，而且找一个操作要先在心里按 App 把它们分一遍——
+        目录本来就是按 App 组织的，屏幕照着它分组就行。</p>
+      <p><span class="rule">1.1</span><b>标签既是分组，也是目标——这一点要说出来。</b>
+        选中「终端」再点「左右分屏」，读起来像是把键发给终端，
+        而它<b>确实就是</b>：Mac 收到指令后先 <code>activate</code> 那个 App
+        把它切到最前面，再按键（<code>console.rs</code> 的 <code>run_action</code>）。
+        切到前面这件事会真的发生在屏幕上，所以屏幕上要先说，
+        <b>不能让人按完才发现工作区被换掉了</b>。</p>
+      <div class="callout attn" style="font-size:13.5px">
+        <b>但「已按下」仍然不能写，「已发出」才能。</b>
+        指令走的是单向信标，没有回程：切不切得过去、键落没落下，
+        手机一概不知道——Mac 那边找不到这个 App、屏幕锁着、
+        或者中途有人点走了别的窗口，都会失败而手机上看起来一样。
+        要写「已按下」，得让 Mac 在状态信标里回一个「最近执行到 seq=N」，
+        那是 macstate-v3。
+        <span class="pill no">未实现</span>
+      </div>
+      <p>标签条<b>只列还有可见操作的 App</b>。一个 App 的操作被全部藏起来，它的标签也一并消失——
+        否则点进去是一片空白，而空白解释不了自己。</p>
+      <p><span class="rule">6.4</span>一个操作都还没同步过来时，这一屏不是一排灰按钮，
+        而是先说这些按钮是什么、从哪来，再给「同步一下」。</p>
+      <p>「挑选与排序」放在这一屏底部，<b>跟着它作用的东西走</b>，不去设置页。</p>
+    </div>
+  </div>
+
+  <h3>6.5 挑选与排序：手机拥有"显示什么"</h3>
+  <div class="screen">
+    <div class="mock" style="max-width:290px">
+      <div class="s">‹ 挑选与排序 · Jingmin 的 MacBook</div>
+      <div class="s" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;margin-top:12px">APP</div>
+      <div class="row"><span class="s">≡</span><div class="g"><b>终端 · tmux</b>
+        <div class="s">6 个操作，显示 4 个</div></div><div class="sw"></div></div>
+      <div class="row"><span class="s">≡</span><div class="g"><b>Figma</b>
+        <div class="s">4 个操作，都显示</div></div><div class="sw"></div></div>
+      <div class="row" style="opacity:.55"><span class="s">≡</span><div class="g"><b>VS Code</b>
+        <div class="s">9 个操作，都藏起来了</div></div><div class="sw off"></div></div>
+      <hr>
+      <div class="s" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em">终端 · TMUX 的操作</div>
+      <div class="row"><span class="s">≡</span><div class="g"><b>▥ 左右分屏</b>
+        <div class="s">⌃B %</div></div><div class="sw"></div></div>
+      <div class="row" style="opacity:.55"><span class="s">≡</span><div class="g"><b>⌕ 搜索</b>
+        <div class="s">⌃B /</div></div><div class="sw off"></div></div>
+      <div class="s" style="margin-top:6px">藏起来只是这部手机不显示它。<b>要禁止这部手机按键，去 Mac 上关掉它的「让它按快捷键」。</b></div>
+      <div class="btn ghost">恢复成 Mac 上的顺序</div>
+    </div>
+    <div class="why">
+      <p><b>这和「手机上没有编辑器」不冲突，两句话管的是两件事：</b></p>
+      <ul>
+        <li><b>Mac 拥有"存在什么"</b>——哪个 App、按哪几个键、每个操作对应哪个 <code>cmd</code> 字节。
+          留在 Mac 上有两个各自成立的理由：按键录制要一把真键盘；
+          而字节是<b>协议的一部分</b>，由 Mac 分配、写进 <code>work-console-v1.json</code>、此后不再变。</li>
+        <li><b>手机拥有"显示什么、什么顺序"</b>——从同步来的目录里挑出自己常用的，
+          藏掉不用的，拖动排序。挑选和排序是手指擅长的事，也是<b>每部手机各不相同</b>的事。</li>
+      </ul>
+      <p><span class="rule">2.1</span><b>这条需求完全不碰安全模型。</b>
+        偏好不回传 Mac、不改目录、不改任何 <code>cmd</code> 字节、不参与签名。
+        目录仍然是 <code>K_cat</code> 签过的那一份，手机只是<b>选择性地渲染它的一个子集</b>。
+        少显示几个按钮，一个字节都没变。</p>
+      <div class="callout attn">
+        <b>隐藏一个操作不等于禁止它。</b>被藏起来的操作，它的字节照样能发出去——
+        换一部手机、重装一次 App，它就又在了。<b>真正的权限开关在 Mac 上</b>：
+        每部手机一个「让它按快捷键」，关掉之后 Mac 拒收这部手机的所有快捷键指令。
+        界面上必须把这句写出来，否则藏起来会被当成关掉。
+        <span class="pill no">Mac 上那个开关本身也还没做</span>
+      </div>
+
+      <h4>同步之后新出现的操作：默认显示，排在末尾</h4>
+      <p>反过来会很糟：用户在 Mac 上加好一个操作、在手机上点「同步一下」、然后<b>找不到它</b>——
+        他会以为同步失败，而屏幕上没有任何东西能纠正他。
+        默认显示的代价只是多一个他可以马上藏掉的按钮，
+        默认隐藏的代价是一次看起来像故障的成功。</p>
+
+      <h4>Mac 上删掉的操作：偏好按字节存，不按序号</h4>
+      <p>偏好里存的是 <code>cmd</code> 字节（以及一个字节的排列），<b>不是目录里的第几个</b>。
+        序号会因为 Mac 上删掉一个操作而整体挪位，那样"藏起来的第 3 个"会变成另一个操作——
+        <b>和 §9 里指令字节不用序号是同一个理由</b>。</p>
+      <p>渲染时，目录里没有的字节直接忽略。<b>而且要在同步成功之后把它们从偏好里删掉</b>，
+        不是留着：被释放的字节要等其它 240 个都用完才会复用，一旦复用，
+        留下的旧记录会让一个全新的操作一出生就是隐藏的。</p>
+
+      <h4>偏好存哪：和目录分开的一份本地存储</h4>
+      <p>手机本地 SharedPreferences，<b>另起一份</b>，不写进目录那一份。
+        目录是收到的事实，每次同步整份覆写；偏好是这部手机的选择，同步不该碰它。
+        混在一起，下一次同步就会把用户的排序连同目录一起冲掉——
+        而那看起来会像"排序没保存住"，一个很难被报告清楚的 bug。</p>
+
+      <h4>多台 Mac：一台一份，不共用</h4>
+      <p><b>建议每台 Mac 各一份目录、各一份显示偏好。</b>
+        两台 Mac 的操作根本不是同一批东西，而且 <code>cmd</code> 字节由每台 Mac 各自分配——
+        共用一份偏好，会让"在 A 上藏起来的 17 号"在 B 上藏掉一个毫不相干的操作。
+        存储键用<b>目录验签时匹配上的那个 keyId</b>（配对 v3 之后每台 Mac 在手机上占一个槽）。</p>
+      <div class="callout attn" style="font-size:13.5px">
+        <b>今天做不到，欠的是同一笔账。</b>目录本身不带 Mac 身份，
+        验签时逐把钥匙试过去、只回答"验过了"，把"是哪一把"丢掉了；
+        手机上因此只存得下一份目录。和 §6.1「状态信标不带 Mac 身份」是同一个洞。
+        在补上之前，显示偏好只能是"这部手机的一份"。
+        <span class="pill no">未实现</span>
+      </div>
+      <p>App 的顺序还缺一个稳定标识：目录里的 App 今天只有名字。
+        Mac 的配置里已经有 bundleId，<b>随目录发出来即可</b>（加一个字段，旧解析器会忽略它，不动协议）。
+        在那之前 App 的顺序只能按名字存，Mac 上改个名等于回到默认——可以接受，要写在这里。</p>
+
+      <h4>编辑态的形状</h4>
+      <p>同一份内容换一种排布：<b>网格变成行</b>，因为一个拖动把手加一个开关需要一整行的宽度。
+        两段，App 在上、当前 App 的操作在下，都能拖。
+        <b>编辑态里不执行任何操作</b>——拖到哪都不会有一个字节发出去。</p>
+      <p>「恢复成 Mac 上的顺序」是必须有的：<b>一个能把自己清空的偏好。</b>
+        没有它，藏错之后用户唯一的出路是记得自己藏过什么。</p>
+    </div>
   </div>
 </section>
 
@@ -561,6 +701,17 @@ state-advertise  广播 Mac 状态 ←──  permit-bridge     判近/远，写
         <td>指令码点 <code>2</code> 已保留</td></tr>
     <tr><td>快捷控制 tab</td><td><span class="pill no">未实现</span></td>
         <td>另一分支有原型</td></tr>
+    <tr><td>控制面板：先点 App 标签再出按钮</td><td><span class="pill no">未实现</span></td>
+        <td>原型里是一份平铺列表，按 App 分节但不分屏。改的是排布，不碰协议</td></tr>
+    <tr><td>手机上的显示偏好（挑选 · 排序）</td><td><span class="pill no">未实现</span></td>
+        <td>纯本地，不回传、不改目录、不改 <code>cmd</code> 字节。
+            差的是一份和目录分开的本地存储 + 编辑态（§6.5）</td></tr>
+    <tr><td>每部手机的「让它按快捷键」开关</td><td><span class="pill no">未实现</span></td>
+        <td><b>它是快捷键那一侧真正的权限边界</b>，手机上的隐藏不是。
+            配对 v3 已经给每部手机自己的 keyId，Mac 分得出是谁在发，这条不再被阻塞</td></tr>
+    <tr><td>手机上按 Mac 分别存目录与偏好</td><td><span class="pill no">未实现</span></td>
+        <td>目录不带 Mac 身份，验签只回答"验过了"、不回答"哪一把钥匙"。
+            与上面「按 Mac 区分状态」同源</td></tr>
     <tr><td>远程停用</td><td><span class="pill no">未实现</span></td>
         <td>界面上直说了做不到</td></tr>
     <tr><td>距离校准</td><td><span class="pill no">未实现</span></td>
@@ -628,6 +779,8 @@ K    = HKDF-SHA256(ECDH_x, salt=记录, info="repose-pair-v2 presence-key")</cod
     <li><b>每一句状态文案都指得出它读的是哪个事实</b>。指不出来的删掉。</li>
     <li><b>任何一屏上，必定失败的按钮不存在</b>。</li>
     <li><b>每一屏都能找到「密码一直都能登录」</b>。</li>
+    <li><b>同步不冲掉选择</b>：在 Mac 上新加一个操作再同步，它必须出现在手机上（排在末尾），
+      而用户此前的排序和隐藏一条都不变。在 Mac 上删一个操作再同步，其余操作的顺序也不变。</li>
   </ol>
 </section>
 

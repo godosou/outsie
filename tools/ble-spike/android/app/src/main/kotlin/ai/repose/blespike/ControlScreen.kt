@@ -41,7 +41,11 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
     val root = screenScaffold(
         context, pal,
         title = "能按的键",
-        lead = "按钮是 Mac 上配的，改也要去 Mac 上改。",
+        // Said before the press, not after: activating the app is a visible
+        // thing that happens to the Mac's screen -- whatever was in front goes
+        // behind. Someone who finds that out by doing it has been surprised by
+        // their own tool.
+        lead = "按下去，Mac 会先把这个 App 切到最前面，再按那组键。按钮是 Mac 上配的，改也要去 Mac 上改。",
     ) { column ->
 
         // One line and one button, side by side. Syncing is something you do

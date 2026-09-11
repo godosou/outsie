@@ -182,7 +182,9 @@ export function ShortcutsPanel({ bridge, onToast }: {
         <div className="section-heading">
           <div>
             <h2>能按的操作</h2>
-            <p>{status.apps.length ? '按一下可以先在这里试，看看键落在哪。' : '还没有。'}</p>
+            {/* Activating the app is visible — whatever was in front goes
+                behind. Saying it before the press, not after. */}
+            <p>{status.apps.length ? '「试一次」会把那个 App 切到最前面再按键，和手机按下去时一样。' : '还没有。'}</p>
           </div>
         </div>
 
