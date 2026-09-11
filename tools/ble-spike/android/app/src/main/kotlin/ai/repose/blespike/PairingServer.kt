@@ -116,6 +116,7 @@ class PairingServer(
                 lastError = "配对消息被拒绝（顺序或内容不对）"
                 SpikeState.event(lastError!!)
             }
+            touchWindow()
             if (responseNeeded) {
                 gatt?.sendResponse(
                     device, requestId,
@@ -154,6 +155,7 @@ class PairingServer(
                 device, requestId, BluetoothGatt.GATT_SUCCESS, offset,
                 payload.copyOfRange(offset, payload.size),
             )
+            touchWindow()
             notify()
         }
 
@@ -162,9 +164,37 @@ class PairingServer(
         }
     }
 
+    /**
+     * Push the deadline back, because something happened.
+     *
+     * The window used to be a fixed three minutes from the moment somebody
+     * tapped 开始配对 -- and then they had to walk to the Mac, click 配对手机,
+     * wait for it to find the phone, compare six digits, click there, and type
+     * an administrator password. Three minutes is easy to exceed doing that.
+     * The phone's window closed mid-exchange and dropped its session, so the
+     * Mac derived a key and wrote it while the phone reported 配对没有完成.
+     * One side paired, the other not, and nothing on either screen explained it.
+     *
+     * The window is an IDLE timeout now: it means "nothing has happened for
+     * three minutes", which is what it was always meant to mean. Every protocol
+     * step pushes it back, and so does the digits appearing -- the human is the
+     * slowest step and must not be the one that runs out of time.
+     */
+    private fun touchWindow() {
+        handler.removeCallbacks(closeWindow)
+        handler.postDelayed(closeWindow, SpikeContract.PAIRING_WINDOW_SECONDS * 1000)
+    }
+
     private val closeWindow = Runnable {
         if (session?.stage != PairingSession.Stage.Done) {
-            lastError = "配对窗口超时，这次的临时密钥已作废"
+            // Says which kind of nothing happened. "Timed out" on a screen
+            // showing six digits reads as a bug; the user was mid-decision and
+            // deserves to know the clock was on them.
+            lastError = if (session?.digits != null) {
+                "太久没有确认，这次配对作废了。两边重新开始一次。"
+            } else {
+                "三分钟没等到 Mac，配对窗口已关闭。重新开始即可。"
+            }
             SpikeState.event(lastError!!)
         }
         stop()
@@ -272,7 +302,7 @@ class PairingServer(
         adapter.bluetoothLeAdvertiser?.startAdvertising(settings, data, scanResponse, advertiseCallback)
             ?: run { lastError = "这台设备不能做外围"; return false }
 
-        handler.postDelayed(closeWindow, SpikeContract.PAIRING_WINDOW_SECONDS * 1000)
+        touchWindow()
         return true
     }
 

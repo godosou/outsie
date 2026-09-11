@@ -553,13 +553,17 @@ function PairingSheet(
 
       {session.stage === 'compare' && (
         <>
-          <p className="modal-intro">手机上现在也应该显示这串数字。</p>
+          <p className="modal-intro">手机上现在也应该显示这串数字。两边都要点一下，先点哪边都行。</p>
           <p className="pk-pair-digits" aria-label={`配对数字 ${session.digits?.split('').join(' ')}`}>
             {session.digits}
           </p>
           <p className="pk-pair-hint">
             两边一样，就说明中间没有人冒充——这一眼是整个配对唯一的安全保障。
             不一样就按「不一样」，然后换个地方重新配一次。
+          </p>
+          <p className="pk-pair-hint">
+            为什么两台都要点：任何「对方已确认」的消息都要走无线，而中间人能把它拆开重发。
+            你的手指是两台设备之间唯一伪造不了的通道。
           </p>
           <div className="pk-modal-actions">
             <button className="button primary" onClick={onConfirm}>和手机上一样</button>
