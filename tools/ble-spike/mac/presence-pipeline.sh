@@ -141,7 +141,19 @@ esac
 # scanner is exactly that: a zombie the watcher reads as alive. The chain then
 # only came down when the backstop killed osascript, which is the abrupt path
 # that skips the bridge's handler. Presence of a file has no such ambiguity.
-RUNFLAG="${WORK}/running"
+# One flag per RUN, not one flag per install.
+#
+# It used to be the fixed path ${WORK}/running, shared by every pipeline that
+# ever ran here. On a restart that is a live hazard: the outgoing pipeline's
+# cleanup does `rm -f "${RUNFLAG}"` and then sleeps four seconds, while the
+# caller waited two before starting the replacement -- so the corpse deleted
+# the newcomer's flag, and the fresh bridge came up, found no flag, and exited
+# with "run flag gone" seconds after a successful pairing. Observed 2026-09-12
+# after re-pairing: rssi-scan alive, nothing verifying, nothing permitting.
+#
+# A name the caller chooses per run makes that impossible: an exiting pipeline
+# can only ever remove the flag it created.
+RUNFLAG="${REPOSE_RUNFLAG:-${WORK}/running}"
 RAW="${WORK}/raw.csv"
 VERIFIED="${WORK}/verified.csv"
 # Created by us, appended to by root. Readable so the bridge (still us) can tail

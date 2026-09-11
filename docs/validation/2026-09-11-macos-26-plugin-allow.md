@@ -43,10 +43,26 @@ macOS 26.5 被 SecurityAgentHelper 拒绝，解锁卡 17 分钟、login keychain
 
 - **规则里另有一个第三方插件**（`com.openai.sky.CUAService.AuthorizationPlugin.remote`）。
   `k-of-n=1` 意味着任意一个放行即可，两者的相互影响没有单独测过。
-- 这两次调用之间，没有测过"permit 不存在时是否正确拒绝"。
-  拒绝路径在 VM 上验过（e3），在这台机器上没有。
 - 不知道跨大版本升级后是否仍然成立。这正是本条记录存在的理由：
   **一条带版本号的事实，版本变了就不再是事实。**
+
+## 2026-09-12 补：拒绝路径也在这台机器上验过了
+
+上面列为"仍未确定"的第二条已经不再未确定。同一份日志，相隔十分钟的两次调用：
+
+```
+01:04:29.038 pid=8248  uid=0 MechanismInvoke result=Deny     # 在场管线死着，没有 permit
+01:15:03.336 pid=19518 uid=0 permit: /var/run/repose-spike/permit present, root-owned and fresh after 0ms
+01:15:03.336 pid=19518 uid=0 MechanismInvoke result=Allow
+```
+
+两次都是锁屏后在空密码框上按回车。第一次没进去，第二次进去了，区别只有
+`/var/run/repose-spike/permit` 在不在。**这条规则是真的在按 permit 决定放行，而不是
+碰巧一直放行。**
+
+`result=Deny` 那次不是特地构造的：配对后在场管线因为运行标记的竞态自己退出了
+（见 `docs/validation/2026-09-12-restart-race.md`），permit 被桥在退出时清掉。
+一个本来要修的 bug 顺手把拒绝路径证了。
 
 ## 复现
 

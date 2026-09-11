@@ -436,3 +436,50 @@
   line-height: 1.6;
   color: var(--amber-ink);
 }
+
+/* ---- pairing step bar ------------------------------------------------- */
+/* The last step is 锁屏验证, which is still ahead when the sheet says done --
+   so "done" here marks the pairing steps behind you, not the whole flow. */
+.pk-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 22px;
+  padding: 0;
+  list-style: none;
+}
+.pk-steps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.pk-steps li + li::before {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  margin-right: 1px;
+}
+.pk-step-dot {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pk-step-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pk-steps li.is-done .pk-step-dot { background: var(--sage); border-color: var(--sage); color: var(--green); }
+.pk-steps li.is-now .pk-step-dot { background: var(--green); border-color: var(--green); color: #fff; }
+.pk-steps li.is-now .pk-step-label { color: var(--text); font-weight: 600; }

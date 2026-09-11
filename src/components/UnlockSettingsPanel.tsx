@@ -476,6 +476,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           onClose={closePairing}
           onConfirm={() => void confirmPairing()}
           onRetry={() => void startPairing()}
+          onTryLock={() => { closePairing(); dispatchCommand('start-phone-drill') }}
         />
       )}
     </section>
@@ -678,11 +679,39 @@ function InstallDisclosure(
  * Deliberately absent: a "跳过核对" escape, and any auto-confirm after a
  * timeout. Both would turn the defence into a formality.
  */
+// Four steps, not five: the design's ④ 校准 is not built yet, and a step a
+// person cannot finish is worse than no steps at all (ui-conventions 6.3).
+// It slots in here the day it exists.
+const PAIR_STEPS: { key: PairingSession['stage']; label: string }[] = [
+  { key: 'scanning', label: '找到手机' },
+  { key: 'compare', label: '核对数字' },
+  { key: 'waiting-for-phone', label: '手机确认' },
+  { key: 'done', label: '锁屏验证' },
+]
+
+function PairSteps({ stage }: { stage: PairingSession['stage'] }) {
+  const at = PAIR_STEPS.findIndex(s => s.key === stage)
+  return (
+    <ol className="pk-steps" aria-label={`第 ${at + 1} 步，共 ${PAIR_STEPS.length} 步`}>
+      {PAIR_STEPS.map((s, i) => (
+        <li
+          key={s.key}
+          className={i < at ? 'is-done' : i === at ? 'is-now' : ''}
+          aria-current={i === at ? 'step' : undefined}
+        >
+          <span className="pk-step-dot">{i < at ? '✓' : i + 1}</span>
+          <span className="pk-step-label">{s.label}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 function PairingSheet(
-  { session, onClose, onConfirm, onRetry }:
-  { session: PairingSession; onClose: () => void; onConfirm: () => void; onRetry: () => void },
+  { session, onClose, onConfirm, onRetry, onTryLock }:
+  { session: PairingSession; onClose: () => void; onConfirm: () => void; onRetry: () => void; onTryLock: () => void },
 ) {
-  const title = session.stage === 'done' ? '配对完成'
+  const title = session.stage === 'done' ? '配好了，还差一次验证'
     : session.stage === 'failed' ? '配对没有完成'
     : session.stage === 'waiting-for-phone' ? '还差手机上那一下'
     : session.stage === 'compare' ? '核对这六位数字'
@@ -692,6 +721,11 @@ function PairingSheet(
     <ModalShell label={title} onClose={onClose} className="phone-key-modal pk-pair-modal">
       <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
       <h2>{title}</h2>
+      {/* Numbered because this really is a sequence, and it is the only
+          numbered thing in the panel (ui-conventions 6.3). It exists because
+          the flow makes you walk between two devices: without it there is no
+          way to tell whether you are one step from done or halfway. */}
+      {session.stage !== 'failed' && <PairSteps stage={session.stage} />}
 
       {session.stage === 'scanning' && (
         <>
@@ -752,8 +786,13 @@ function PairingSheet(
       {session.stage === 'done' && (
         <>
           <p className="modal-intro">{session.detail ?? '这台 Mac 已经认得你的手机了。'}</p>
+          {/* What pairing proved is that the two devices share a key. Whether
+              macOS actually honours it on the lock screen is a different fact,
+              and it has not been checked yet -- so this does not promise it.
+              The old copy said 「以后锁屏时…直接按回车就能进」 before anything had
+              tried. */}
           <p className="pk-pair-hint">
-            以后锁屏时，手机在身边，密码框留空、直接按回车就能进。
+            还剩一件事：锁一次屏，确认 macOS 真的会放行。没试过之前，别把密码忘了。
           </p>
           {/* The fingerprint used to sit here in large type labelled 配对编号,
               directly after a sheet whose entire point was comparing six other
@@ -772,7 +811,8 @@ function PairingSheet(
             </details>
           )}
           <div className="pk-modal-actions">
-            <button className="button primary" onClick={onClose}>好</button>
+            <button className="button light" onClick={onClose}>待会儿再试</button>
+            <button className="button primary" onClick={onTryLock}>现在锁屏试一次</button>
           </div>
         </>
       )}

@@ -1483,9 +1483,20 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
                 .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
             let _ = std::fs::create_dir_all(&work);
 
+    // Name this run's flag before spawning, so the outgoing pipeline -- which
+    // may still be inside its four-second teardown -- cannot delete it. See the
+    // comment on RUNFLAG in presence-pipeline.sh.
+    // The app's pid alone is not unique: two restarts inside one app session
+    // would share a name and reintroduce exactly the race this closes.
+    static RUN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = RUN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let runflag = work.join(format!("running.{}.{seq}", std::process::id()));
+    let _ = std::fs::remove_file(&runflag);
+
     let child = Command::new("/bin/bash")
         .arg(dir.join("presence-pipeline.sh"))
         .arg("0") // run until stopped
+        .env("REPOSE_RUNFLAG", &runflag)
         .env("REPOSE_STATUS_FILE", &status)
         .env("REPOSE_PIPELINE_DIR", &work)
         // We raise the authorization ourselves, below.
@@ -1500,7 +1511,6 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
     // Wait for the pipeline to lay out its files before root goes looking for
     // them. The run flag is the last thing it creates before it would have
     // asked for root itself.
-    let runflag = work.join("running");
     for _ in 0..40 {
         if runflag.exists() { break }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2521,6 +2531,33 @@ mod tests {
             .output()
             .expect("sh should run");
         assert_eq!(String::from_utf8_lossy(&out.stdout), nasty);
+    }
+
+    #[test]
+    fn the_pipeline_honours_the_run_flag_we_name() {
+        // start_pipeline picks a per-run flag name and passes it as
+        // REPOSE_RUNFLAG. If the script ignored it and kept its own fixed
+        // path, every restart would go back to racing the outgoing pipeline's
+        // teardown -- which is how a successful pairing ended with rssi-scan
+        // alive and nothing verifying (2026-09-12).
+        let sh = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tools/ble-spike/mac/presence-pipeline.sh"),
+        )
+        .expect("presence-pipeline.sh should be readable");
+        assert!(
+            sh.contains("RUNFLAG=\"${REPOSE_RUNFLAG:-"),
+            "presence-pipeline.sh ignores REPOSE_RUNFLAG, so naming it here does nothing",
+        );
+
+        let rs = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/unlock.rs"),
+        )
+        .expect("own source should be readable");
+        assert!(
+            rs.contains(".env(\"REPOSE_RUNFLAG\", &runflag)"),
+            "the pipeline is spawned without being told which flag to use",
+        );
     }
 
     #[test]
