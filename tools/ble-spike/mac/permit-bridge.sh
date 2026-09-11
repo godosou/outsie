@@ -139,6 +139,35 @@ last_sample=0
 last_refresh=0
 last_reject=""
 
+# Being killed is a normal way for this to end -- the app stops the pipeline, the
+# machine sleeps, someone quits. Dying quietly would leave two lies behind: a
+# permit that stays valid until the plugin's freshness window expires, and a
+# status file whose last word is `near` on a Mac where nothing is watching any
+# more. The timestamp means a reader eventually works that out, but eventually is
+# not the same as immediately, and the door should not be the thing that waits.
+on_signal() {
+    log "signalled; clearing the permit and standing down"
+    publish stopped
+    clear_permit
+    exit 0
+}
+# EXIT as well as the signals: a bridge that ends because its input closed should
+# close the door just as firmly as one that was signalled.
+#
+# WHAT THIS DOES NOT COVER, measured rather than assumed. Tearing the pipeline
+# down from outside does not reliably reach this handler -- the privileged half
+# runs under an authorization dialog's process group, and several attempts at
+# unwinding it in order (watch the scanner's pid, watch a flag file, flatten the
+# process tree, signal children before the group) each still left the chain being
+# killed from above instead of from within. So after a forced stop the permit can
+# survive until the plugin ages it out.
+#
+# That bound is the design's, not an accident: PERMIT_FRESHNESS_S is 15s and
+# permit-bridge-test.sh asserts the refresh interval stays under it, so an
+# abandoned permit is dead within fifteen seconds whether anyone tidied up or
+# not. Immediate teardown would be nicer. It is not what keeps the door shut.
+trap on_signal TERM INT HUP EXIT
+
 publish starting
 log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
 

@@ -267,6 +267,26 @@ else
     printf '  SKIP state words agree with the app -- unlock.rs not found\n'
 fi
 
+# 19. A killed bridge must close the door on its way out, not leave a live permit
+#     behind for the freshness window and a status file still saying `near`.
+: > "${ACTIONS}"; rm -f "${STATUS}"
+( while :; do printf '0,-60,aa,1,1,dead,VALID\n'; sleep 0.4; done ) \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=5 \
+    REPOSE_STATUS_FILE="${STATUS}" \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" 2> "${SANDBOX}/sig.log" &
+sig_pid=$!
+sleep 2
+kill -TERM "${sig_pid}" 2>/dev/null
+sleep 2
+{ [ "$(cut -d, -f1 "${STATUS}" 2>/dev/null | tail -1)" = stopped ] \
+  && grep -q '^OFF$' "${ACTIONS}"; } \
+    && ok "a killed bridge clears the permit and publishes stopped" \
+    || bad "kill leaves the door open" \
+           "status='$(cat "${STATUS}" 2>/dev/null)' actions='$(tr '\n' ' ' <"${ACTIONS}")'"
+kill -9 "${sig_pid}" 2>/dev/null
+
 echo
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]
