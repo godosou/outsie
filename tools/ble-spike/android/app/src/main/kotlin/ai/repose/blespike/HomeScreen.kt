@@ -183,28 +183,19 @@ fun buildHomeScreen(
                 },
                 Ui.lp(top = context.dp(16)),
             )
-            control.addView(
-                Ui.ghostButton(context, pal, "允许下一次解锁") {
-                    sendCommand(context, SpikeContract.CMD_ALLOW_UNLOCK)
-                },
-                Ui.lp(top = context.dp(10)),
-            )
-            // Said next to the button, not buried in a help page.
+            // 「允许下一次解锁」 used to sit here and has been removed.
             //
-            // 「允许下一次解锁」 cannot open the Mac and nothing can: macOS only
-            // consults our plugin when a person submits at the lock screen, and
-            // no process can submit on their behalf. A button labelled 解锁 that
-            // left the Mac sitting there would be the seventh time a screen in
-            // this project claimed something the code does not do.
-            control.addView(
-                Ui.infoNote(
-                    context,
-                    pal,
-                    "「允许下一次解锁」不会替你把 Mac 打开 —— 它只是放行接下来的那一次登录，" +
-                        "回车还是得你按。macOS 不允许任何程序代替人在锁屏上提交。",
-                ),
-                Ui.lp(top = context.dp(12)),
-            )
+            // It sent a command that made the Mac write an unlock permit. The
+            // trouble is that a phone which is near and switched on makes the
+            // Mac write that permit CONTINUOUSLY -- so the button described
+            // something already happening, and pressing it changed nothing you
+            // could see. A control with no observable effect teaches people
+            // that the app's buttons are decorative.
+            //
+            // It earns a place only alongside a stricter mode, where being near
+            // stops being enough and the tap becomes the only way in. That is a
+            // security change, not a convenience, so it ships with that mode or
+            // not at all. See docs/plans/2026-09-11-phone-commands.md.
             control.addView(
                 Ui.secondary(
                     context,

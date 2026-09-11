@@ -55,14 +55,17 @@ object SpikeContract {
     /** Lock this Mac now. */
     const val CMD_LOCK = 1
     /**
-     * Authorize the next unlock attempt.
+     * RESERVED. Nothing sends this, and the Mac does not act on it.
      *
-     * NOT "unlock the Mac" — nothing can be. `system.login.screensaver` runs
-     * only when a human submits at the lock screen, and synthetic events do not
-     * reach SecurityAgent's session. This command permits; the person still
-     * presses return. The UI has to say so.
+     * It was built and then withdrawn. The command made the Mac write an unlock
+     * permit -- which a near, switched-on phone already causes it to do several
+     * times a minute, so the button had no observable effect. The code point is
+     * kept rather than recycled so that a future strict mode ("being near is not
+     * enough; tap to allow") can take it back with its original meaning intact,
+     * instead of some later feature inheriting 2 and making old recordings mean
+     * something new.
      */
-    const val CMD_ALLOW_UNLOCK = 2
+    const val CMD_ALLOW_UNLOCK_RESERVED = 2
 
     /**
      * How long a command keeps going out before the beacon returns to CMD_NONE.

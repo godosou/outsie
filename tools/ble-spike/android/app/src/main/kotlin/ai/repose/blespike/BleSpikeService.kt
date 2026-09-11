@@ -93,7 +93,6 @@ class BleSpikeService : Service() {
             SpikeState.event(
                 when (cmd) {
                     SpikeContract.CMD_LOCK -> "已发出：锁定 Mac"
-                    SpikeContract.CMD_ALLOW_UNLOCK -> "已发出：允许下一次解锁"
                     else -> "已发出指令 $cmd"
                 },
             )

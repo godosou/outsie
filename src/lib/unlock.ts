@@ -667,3 +667,71 @@ export function normalizeUninstall(value: unknown): UninstallSummary {
       : [],
   }
 }
+
+// ---- Panel modes ----------------------------------------------------------
+
+/**
+ * Which of three jobs the panel is doing right now.
+ *
+ * The panel used to do all three at once, in one flat list at one weight:
+ * a setup sequence you run once, a status you glance at daily, and diagnostics
+ * you only want when something is broken. Rendering them together is what made
+ * it impossible to tell what you were supposed to look at — and it is the
+ * shared cause behind a button that could only fail, a state with no way out,
+ * and two controls for one decision.
+ */
+export type PanelMode = 'setup' | 'daily' | 'repair'
+
+export function panelMode(state: UnlockState): PanelMode {
+  switch (state) {
+    case 'ready':
+    case 'paused':
+      return 'daily'
+    case 'needs-repair':
+    // Removal is a system-changing operation, not part of getting set up, and
+    // its panel shows the same two things a repair does: what is happening to
+    // the machine, and what that means for getting in.
+    case 'uninstalling':
+      return 'repair'
+    default:
+      return 'setup'
+  }
+}
+
+/**
+ * Which step of the setup a state sits at, or null when setup is over.
+ *
+ * Setup is the only genuinely ordered part of this feature, which is why it is
+ * the only place in the panel that carries numbers. Numbering anything else
+ * would be decoration claiming to be structure.
+ */
+export function setupStep(state: UnlockState): 1 | 2 | 3 | null {
+  switch (state) {
+    case 'not-installed':
+    case 'installing':
+    case 'half-installed':
+      return 1
+    case 'awaiting-pairing':
+      return 2
+    case 'awaiting-password-drill':
+    case 'awaiting-calibration':
+    case 'awaiting-verification':
+      return 3
+    default:
+      return null
+  }
+}
+
+export const SETUP_STEPS = ['安装', '配对', '试一次'] as const
+
+/**
+ * Whether the switch should exist at all.
+ *
+ * A control for something that is not installed is a second way to start an
+ * installation, sitting next to the button that already does that. Both opened
+ * the same disclosure, so a reader had to stop and work out whether they
+ * differed. They did not.
+ */
+export function showsSwitch(state: UnlockState): boolean {
+  return state !== 'not-installed' && state !== 'installing'
+}

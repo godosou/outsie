@@ -316,18 +316,32 @@ echo
 #     in particular, not on the raw `cmd` the phone put on the air, which sits
 #     in an earlier column and is attacker-controlled until the verifier has
 #     ruled on it.
+#
+#     Command 2 was built and withdrawn, so it is checked the way any
+#     unrecognised command must be: ignored. A bridge that guessed at a code it
+#     does not implement would be inventing behaviour from a number.
 : > "${ACTIONS}"
 printf '%s\n' \
   '0,-60,aa,1,1,dead,1,7,auth=VALID,cmd=1' \
-  '0,-60,aa,1,1,dead,2,8,auth=VALID,cmd=2' \
   | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
     REPOSE_LOCK_CMD="printf 'LOCK\n' >> '${ACTIONS}'" \
     REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
     REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
     bash "${BRIDGE}" >/dev/null 2>&1
-{ grep -q '^LOCK$' "${ACTIONS}" && grep -q '^ON$' "${ACTIONS}"; } \
-  && ok "a verified lock command locks and a verified unlock command permits" \
-  || bad "verified commands did not act" "$(tr '\n' ' ' <"${ACTIONS}")"
+grep -q '^LOCK$' "${ACTIONS}" \
+  && ok "a verified lock command locks the screen" \
+  || bad "the lock command did not act" "$(tr '\n' ' ' <"${ACTIONS}")"
+
+: > "${ACTIONS}"
+printf '%s\n' '0,-95,aa,1,1,dead,2,8,auth=VALID,cmd=2' \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+    REPOSE_LOCK_CMD="printf 'LOCK\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" >/dev/null 2>&1
+grep -qE '^(LOCK|ON)$' "${ACTIONS}" \
+  && bad "a withdrawn command was acted on" "$(tr '\n' ' ' <"${ACTIONS}")" \
+  || ok "a command this bridge does not implement is ignored, not guessed at"
 
 # 22. The command the PHONE claimed is not the command that gets obeyed.
 #

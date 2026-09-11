@@ -164,15 +164,6 @@ run_command() {
             log "command lock -> starting the screensaver"
             eval "${LOCK_CMD}" >/dev/null 2>&1 || log "warn: lock command failed"
             ;;
-        allow-unlock)
-            # Deliberately the same write the proximity path makes, and it
-            # deliberately does not bypass the distance check: the Mac had to
-            # hear the advertisement to get here at all, and how far it can hear
-            # is the range. There is no separate proximity test to keep in sync.
-            log "command allow-unlock -> asserting permit"
-            assert_permit
-            last_refresh="$(now_s)"
-            ;;
     esac
 }
 clear_permit()  { eval "${PERMIT_OFF_CMD}" >/dev/null 2>&1 || log "warn: permit-off command failed"; }
@@ -278,9 +269,13 @@ while :; do
         # more to the point -- nowhere else that could decide differently. A
         # second opinion about whether a command is genuine is a second place to
         # get it wrong.
+        # Only 1. Command 2 (allow-unlock) was built and withdrawn: a near,
+        # switched-on phone already makes this bridge assert the permit several
+        # times a minute, so the command changed nothing observable. Nothing
+        # sends it now, so nothing here answers it -- an unreachable branch that
+        # still looks alive is the thing this project keeps deleting.
         case "${vcmd}" in
             1) run_command lock ;;
-            2) run_command allow-unlock ;;
         esac
 
         # An unverified row is not a weak signal, it is a device we cannot name.
