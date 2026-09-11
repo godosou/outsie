@@ -58,7 +58,7 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                 Ui.lp(top = context.dp(8)),
             )
             card.addView(
-                Ui.secondary(context, pal, "Mac 上执行 provision-dev-key.sh --show 会打印同一串。"),
+                Ui.secondary(context, pal, "配对完成时 Mac 上会打印同一串；也可以用 pair.sh 重新配一次核对。"),
                 Ui.lp(top = context.dp(10)),
             )
             column.addView(card, Ui.lp(top = context.dp(20)))
@@ -84,6 +84,15 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                 Ui.lp(top = context.dp(18)),
             )
 
+            // The only way back to the pairing screen once a key exists.
+            // MainActivity sends a paired phone straight to HOME and the bottom
+            // nav has no PAIRING tab, so without this the exchange is reachable
+            // exactly once -- and replacing a key would mean deleting it first
+            // and hoping.
+            column.addView(
+                Ui.primaryButton(context, pal, "重新配对") { nav.go(Screen.PAIRING) },
+                Ui.lp(top = context.dp(22)),
+            )
             column.addView(
                 Ui.ghostButton(context, pal, "删除密钥（立即失效）") {
                     AlertDialog.Builder(context, Ui.dialogTheme(context))
@@ -109,7 +118,7 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                     context,
                     pal,
                     "信标照常在广播，但标签是用一把随机数临时凑出来的，任何 Mac 都会拒绝。" +
-                        "在 Mac 上执行 tools/ble-spike/provision-dev-key.sh 下发一把密钥。",
+                        "去配对：两端各显示一串六位数字，核对一致就成。",
                 ),
                 Ui.lp(top = context.dp(20)),
             )

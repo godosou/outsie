@@ -87,8 +87,12 @@ run "permit bridge auth + proximity gates" tools/ble-spike/mac/permit-bridge-tes
 # Pairing arithmetic, both languages, each against vectors OpenSSL produced --
 # never against each other. Two implementations wrong the same way agree
 # perfectly; a third opinion is the only thing that catches it.
+# --self-test lives inside the tool that actually pairs, not beside it. A
+# separate copy of the maths would be the thing under test while a different
+# copy did the work -- exactly how the staleness timer passed every test and
+# never ran in production.
 run "pairing crypto, mac side (known-answer vectors)" \
-    tools/ble-spike/mac/pair-crypto --self-test
+    tools/ble-spike/mac/pair-with-phone --self-test
 run "pairing crypto, phone side (same vectors, JVM)" \
     env -C tools/ble-spike/android ./gradlew --no-daemon -q testGenuineDebugUnitTest
 

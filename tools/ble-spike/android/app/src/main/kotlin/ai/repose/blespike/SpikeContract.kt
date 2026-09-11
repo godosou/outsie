@@ -35,4 +35,34 @@ object SpikeContract {
 
     /** The only pairing slot the spike uses. Real pairing will allocate these. */
     const val PRESENCE_KEY_ID = 1
+
+    // --- repose-pair-v2 -------------------------------------------------------
+    //
+    // A separate 16-bit UUID from the presence beacon, and advertised
+    // CONNECTABLE, which the beacon deliberately is not. Pairing is a mode the
+    // user enters on purpose for a couple of minutes; presence is what runs for
+    // the rest of the time. Keeping them on different UUIDs means a scanner
+    // looking for one never has to reason about the other.
+    val PAIRING_SERVICE_UUID: UUID = UUID.fromString("0000FFF1-0000-1000-8000-00805F9B34FB")
+
+    /** Mac writes PK_M (65 bytes, SEC1 uncompressed). */
+    val PAIR_CHAR_PKM: UUID = UUID.fromString("0000FFF2-0000-1000-8000-00805F9B34FB")
+
+    /** Phone returns PK_P(65) ‖ Cp(32). Refused before PK_M has arrived. */
+    val PAIR_CHAR_PKP: UUID = UUID.fromString("0000FFF3-0000-1000-8000-00805F9B34FB")
+
+    /** Mac writes Nm (16 bytes). */
+    val PAIR_CHAR_NM: UUID = UUID.fromString("0000FFF4-0000-1000-8000-00805F9B34FB")
+
+    /**
+     * Phone returns Np (16 bytes) -- the reveal.
+     *
+     * Refused until Nm has been written. That ordering IS the protocol: a phone
+     * that hands over Np before it has seen Nm has given away its nonce for
+     * free, and the commitment it made stops being a commitment to anything.
+     */
+    val PAIR_CHAR_NP: UUID = UUID.fromString("0000FFF5-0000-1000-8000-00805F9B34FB")
+
+    /** How long a pairing window stays open. Ephemerals die with it. */
+    const val PAIRING_WINDOW_SECONDS = 180L
 }
