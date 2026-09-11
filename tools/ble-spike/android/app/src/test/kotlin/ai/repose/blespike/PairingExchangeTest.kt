@@ -23,6 +23,11 @@ import java.security.spec.ECPoint
  */
 class PairingExchangeTest {
 
+    /** What PairingSession uses when the caller does not choose. */
+    private val DEFAULT_KEY_ID = SpikeContract.PRESENCE_KEY_ID
+    private val DEFAULT_PHONE_ID = ByteArray(8)
+
+
     private fun hex(s: String) = ByteArray(s.length / 2) {
         s.substring(it * 2, it * 2 + 2).toInt(16).toByte()
     }
@@ -33,9 +38,12 @@ class PairingExchangeTest {
     private val pkP = hex("04bba0ac866c040dee63395dc7ea9cd2ae65df7475c35295da07264de36a85dcc78f30b930a1af3147ac63a0d902593e53a78f7c9ab8773670562f50afea4bf035")
     private val nm = hex("000102030405060708090a0b0c0d0e0f")
     private val np = hex("f0e0d0c0b0a090807060504030201000")
-    private val wantCommit = "7161008840f0d9173b7c81381c9e5d81216c004373e08bbd597bdea5fd7018d0"
-    private val wantDigits = "063529"
-    private val wantKey = "d4cdf8ede653c929321d134fea6e4382bcb1a02a37401392316d60a90ff532ee"
+    // v3: the commitment label moved, and the transcript now carries the key
+    // slot and the phone's identity -- for a default session those are 1 and
+    // eight zero bytes. Recomputed with Python's hashlib/hmac.
+    private val wantCommit = "952be98c1c4aa1d54d4c416d56b72c333277976c70db3e6306af6c4f2ec91c6c"
+    private val wantDigits = "630120"
+    private val wantKey = "ca39dcab91de82e1ba840bbbce9e003d9fc91347c70bf6802dfa59dc8ce4450d"
 
     /** The phone side pinned to the vector's ephemeral, so the wire bytes are fixed. */
     private fun fixedSession(): PairingSession {
@@ -102,7 +110,7 @@ class PairingExchangeTest {
         assertEquals(32, commitToMac.size)
 
         val macDigits = PairingCrypto.sasDigits(
-            PairingCrypto.sasHash(pkMacReal, pkAttackerToMac, nmReal, npAttacker),
+            PairingCrypto.sasHash(pkMacReal, pkAttackerToMac, nmReal, npAttacker, DEFAULT_KEY_ID, DEFAULT_PHONE_ID),
         )
         val phoneDigits = phone.digits!!
 
@@ -118,11 +126,11 @@ class PairingExchangeTest {
         // the relay still does not join up.
         val macSideKey = PairingCrypto.deriveKey(
             PairingCrypto.ecdhX(realMac.private, PairingCrypto.decodePublicKey(pkAttackerToMac)),
-            PairingCrypto.sasHash(pkMacReal, pkAttackerToMac, nmReal, npAttacker),
+            PairingCrypto.sasHash(pkMacReal, pkAttackerToMac, nmReal, npAttacker, DEFAULT_KEY_ID, DEFAULT_PHONE_ID),
         )
         val phoneSideKey = PairingCrypto.deriveKey(
             PairingCrypto.ecdhX(towardPhone.private, PairingCrypto.decodePublicKey(pkPhone)),
-            PairingCrypto.sasHash(pkAttackerToPhone, pkPhone, nmAttacker, npPhone),
+            PairingCrypto.sasHash(pkAttackerToPhone, pkPhone, nmAttacker, npPhone, DEFAULT_KEY_ID, DEFAULT_PHONE_ID),
         )
         assertNotEquals(hex(macSideKey), hex(phoneSideKey))
     }

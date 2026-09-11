@@ -55,7 +55,7 @@ fun buildHomeScreen(
     // presence key nothing is fine, so the hero goes muted and still -- an animation
     // that says calm during a broken state is the same lie as a wrong title, just
     // harder to notice. Read once here so onState can tell when it has gone stale.
-    val healthy = PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)
+    val healthy = PresenceKey.hasAny(context)
     lateinit var headline: TextView
     lateinit var subhead: TextView
     var suppress = false
@@ -273,7 +273,7 @@ fun buildHomeScreen(
         // that had one -- telling someone their pairing is gone because a toggle
         // is off. "Is there a key" and "is the beacon running" are different
         // questions and the screen now asks each of them separately.
-        val authentic = PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)
+        val authentic = PresenceKey.hasAny(context)
         suppress = true
         toggle.isChecked = running
         suppress = false
@@ -368,7 +368,7 @@ fun buildHomeScreen(
         // The hero's colour and stillness are decided at build time from whether a
         // key exists. If that changes underneath us the picture would keep saying
         // the old thing, so rebuild; otherwise just refresh the live text.
-        if (PresenceKey.has(SpikeContract.PRESENCE_KEY_ID) != healthy) nav.go(Screen.HOME) else refresh()
+        if (PresenceKey.hasAny(context) != healthy) nav.go(Screen.HOME) else refresh()
     })
 }
 

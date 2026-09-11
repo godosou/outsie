@@ -185,9 +185,44 @@ pub struct PairedDevice {
     /// over USB by a dev script can unlock this Mac too, so it belongs in the
     /// list; calling it a paired phone is what would be false.
     pub paired: bool,
+    /// False for a key installed before pairing recorded which phone it came
+    /// from. Such a key still works; what the Mac cannot do is recognise the
+    /// phone again, so re-pairing leaves this one behind instead of replacing
+    /// it. Guessing that it belongs to whoever pairs next would silently delete
+    /// a second phone's key on a Mac that has two.
+    pub identified: bool,
     /// Whether this device can unlock right now, and why not when it cannot.
     pub can_unlock: bool,
     pub blocked_reason: Option<String>,
+}
+
+/// Split the pairing tool's one line of stdout: `<keyId> <phoneIdHex> <keyHex>`.
+///
+/// Pure, and strict about every field. A malformed line has to fail the pairing
+/// rather than be half-read: a key id that silently became 0, or a key that
+/// silently became empty, would install something the verifier refuses while
+/// the panel reported 配对完成 -- which is precisely how the printf bug got as
+/// far as a lock screen.
+pub fn parse_pair_output(line: &str) -> Option<(u8, String, String)> {
+    let mut parts = line.trim().split_whitespace();
+    let key_id: u8 = parts.next()?.parse().ok()?;
+    if key_id == 0 {
+        return None;
+    }
+    let phone_id = parts.next()?.to_ascii_lowercase();
+    if phone_id.len() != 16 || !phone_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let key = parts.next()?.to_string();
+    if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    // Anything after the key is not something this version understands, and
+    // guessing at it is how a format change becomes a silent misinstall.
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((key_id, phone_id, key))
 }
 
 /// The shell that deletes one device's key. Pure so the quoting and the fact
@@ -207,6 +242,8 @@ pub struct KeySlot {
     /// The slot number in `presence-key.<id>`. Chosen by the phone from v3 on;
     /// every key written before that is in slot 1.
     pub id: u8,
+    /// Whether `.phone` records which phone this key came from.
+    pub identified: bool,
     pub state: PresenceKeyState,
     /// ISO time the file was written, i.e. when pairing finished.
     pub written_at: Option<String>,
@@ -248,7 +285,14 @@ pub fn paired_devices(
                 PresenceKeyState::Missing | PresenceKeyState::BadPermissions { .. } => return None,
                 PresenceKeyState::Ok { paired } => *paired,
             };
-            Some(device_row(slot.id, paired, name_for(slot.id), slot.written_at.clone(), watching))
+            Some(device_row(
+                slot.id,
+                paired,
+                slot.identified,
+                name_for(slot.id),
+                slot.written_at.clone(),
+                watching,
+            ))
         })
         .collect();
     // Stable order, so a list of phones does not reshuffle between two reads of
@@ -260,6 +304,7 @@ pub fn paired_devices(
 fn device_row(
     id: u8,
     paired: bool,
+    identified: bool,
     saved_name: Option<String>,
     paired_at: Option<String>,
     watching: bool,
@@ -275,43 +320,12 @@ fn device_row(
         platform: if paired { "Android" } else { "开发用" }.to_string(),
         paired_at: paired_at.unwrap_or_default(),
         paired,
+        identified,
         can_unlock: watching,
         blocked_reason: (!watching).then(|| "上面的开关关着，现在谁都解不了锁".to_string()),
     }
 }
 
-/// Build the row from the facts that exist. There is deliberately no
-/// "last seen" field: the bridge publishes its current verdict and keeps no
-/// history, so any timestamp here would be invented.
-pub fn paired_device(
-    key: &PresenceKeyState,
-    saved_name: Option<&str>,
-    paired_at: Option<String>,
-    watching: bool,
-) -> Option<PairedDevice> {
-    let paired = match key {
-        // No key, or a key the verifier would refuse: nothing can unlock, so
-        // the list is empty rather than showing a device that cannot work.
-        PresenceKeyState::Missing | PresenceKeyState::BadPermissions { .. } => return None,
-        PresenceKeyState::Ok { paired } => *paired,
-    };
-    let name = match (paired, saved_name.map(str::trim).filter(|n| !n.is_empty())) {
-        (true, Some(n)) => n.to_string(),
-        // Paired, but the cosmetic name was never written or was lost. The row
-        // still belongs here; only its label is unknown.
-        (true, None) => "已配对的手机".to_string(),
-        (false, _) => "USB 下发的开发密钥".to_string(),
-    };
-    Some(PairedDevice {
-        id: "1".to_string(),
-        name,
-        platform: if paired { "Android" } else { "开发用" }.to_string(),
-        paired_at: paired_at.unwrap_or_default(),
-        paired,
-        can_unlock: watching,
-        blocked_reason: (!watching).then(|| "上面的开关关着，现在谁都解不了锁".to_string()),
-    })
-}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1058,6 +1072,7 @@ impl HostMacBackend {
                 let id: u8 = name.strip_prefix("presence-key.")?.parse().ok()?;
                 Some(KeySlot {
                     id,
+                    identified: Self::slot_phone_id(id).is_some(),
                     state: Self::slot_state(id),
                     written_at: Self::key_written_at(id),
                 })
@@ -1065,6 +1080,16 @@ impl HostMacBackend {
             .collect();
         slots.sort_by_key(|s| s.id);
         slots
+    }
+
+    /// Which phone a slot belongs to, as written beside the key at pairing.
+    /// None for keys installed before v3, which is why a phone with no recorded
+    /// identity never matches and never causes a replacement.
+    fn slot_phone_id(id: u8) -> Option<String> {
+        std::fs::read_to_string(format!("{PRESENCE_KEY_DIR}/presence-key.{id}.phone"))
+            .ok()
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| s.len() == 16 && s.chars().all(|c| c.is_ascii_hexdigit()))
     }
 
     fn slot_state(id: u8) -> PresenceKeyState {
@@ -2501,9 +2526,15 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
         let _ = out.read_to_string(&mut key);
     }
     let code = live.child.wait().ok().and_then(|s| s.code());
-    let key = key.trim().to_string();
 
-    if code != Some(0) || key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+    // `<keyId> <phoneIdHex> <keyHex>`. The slot decides where the key goes; the
+    // identity decides which older key it replaces. Both were covered by the
+    // digits the human just compared, so trusting them here is trusting that
+    // comparison and nothing more.
+    let Some((key_id, phone_id, key)) = parse_pair_output(&key) else {
+        return Ok(PairingSession::failed(pairing_failure(code)));
+    };
+    if code != Some(0) {
         return Ok(PairingSession::failed(pairing_failure(code)));
     }
 
@@ -2536,11 +2567,27 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
         let _ = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600));
     }
     let staged_path = staged.display().to_string();
+    // Slots this same phone already owns. They are replaced, not added to:
+    // without this, every re-pair would leave behind a key in a slot the phone
+    // no longer advertises for, and the list would fill with rows for phones
+    // that are really all one phone.
+    let stale: Vec<u8> = HostMacBackend::key_slots()
+        .iter()
+        .map(|s| s.id)
+        .filter(|id| *id != key_id && HostMacBackend::slot_phone_id(*id).as_deref() == Some(phone_id.as_str()))
+        .collect();
+    let removals: String = stale
+        .iter()
+        .map(|id| format!(" && rm -f {KEY_DIR}/presence-key.{id} {KEY_DIR}/presence-key.{id}.* ", KEY_DIR = PRESENCE_KEY_DIR))
+        .collect();
+
     let script = format!(
         "do shell script \"mkdir -p {KEY_DIR} && chown root:wheel {KEY_DIR} && chmod 755 {KEY_DIR} \
-         && install -m 600 -o root -g wheel '{staged_path}' {KEY_DIR}/presence-key.1 \
-         && echo repose-pair-v2 > {KEY_DIR}/presence-key.1.provenance \
-         && chmod 644 {KEY_DIR}/presence-key.1.provenance\" with administrator privileges",
+         && install -m 600 -o root -g wheel '{staged_path}' {KEY_DIR}/presence-key.{key_id} \
+         && echo repose-pair-v3 > {KEY_DIR}/presence-key.{key_id}.provenance \
+         && echo {phone_id} > {KEY_DIR}/presence-key.{key_id}.phone \
+         && chmod 644 {KEY_DIR}/presence-key.{key_id}.provenance {KEY_DIR}/presence-key.{key_id}.phone\
+         {removals}\" with administrator privileges",
         KEY_DIR = PRESENCE_KEY_DIR,
     );
     let installed = run_privileged(&script);
@@ -2557,7 +2604,7 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     // is not 65 bytes is not a key the verifier will take.
     //
     // The directory is 755 on purpose, which is what makes this possible.
-    let key_path = format!("{PRESENCE_KEY_DIR}/presence-key.1");
+    let key_path = format!("{PRESENCE_KEY_DIR}/presence-key.{key_id}");
     let landed = std::fs::metadata(&key_path).map(|m| m.len()).unwrap_or(0);
     if landed != (key.len() + 1) as u64 && landed != key.len() as u64 {
         return Ok(PairingSession::failed(
@@ -2595,7 +2642,13 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     // pairing: a Mac that paired correctly but could not write a name is
     // paired.
     if let (Some(n), Ok(dir)) = (&peer_name, pairing_dir(&app)) {
-        let _ = std::fs::write(dir.join("peer-name.saved"), n);
+        // Against the slot it belongs to. The shared file was correct only
+        // while there was one slot; a second phone would have taken the first
+        // one's name.
+        let _ = std::fs::write(dir.join(format!("peer-name.{key_id}.saved")), n);
+        if key_id == 1 {
+            let _ = std::fs::write(dir.join("peer-name.saved"), n);
+        }
     }
 
     Ok(PairingSession {
@@ -3409,7 +3462,38 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
     }
 
     fn slot(id: u8, state: PresenceKeyState) -> KeySlot {
-        KeySlot { id, state, written_at: None }
+        KeySlot { id, identified: true, state, written_at: None }
+    }
+
+    #[test]
+    fn the_pairing_tools_line_is_parsed_strictly() {
+        let key = "a".repeat(64);
+        assert_eq!(
+            parse_pair_output(&format!("37 0badc0de0badc0de {key}\n")),
+            Some((37, "0badc0de0badc0de".to_string(), key.clone())),
+        );
+        // Uppercase from either side means the same phone.
+        assert_eq!(parse_pair_output(&format!("37 0BADC0DE0BADC0DE {key}")).unwrap().1, "0badc0de0badc0de");
+    }
+
+    #[test]
+    fn a_malformed_line_fails_the_pairing_rather_than_installing_half_of_it() {
+        // Every one of these, read loosely, installs something the verifier
+        // will refuse while the panel says 配对完成 -- which is exactly how the
+        // printf bug reached a lock screen.
+        let key = "a".repeat(64);
+        for bad in [
+            "".to_string(),
+            key.clone(),                                   // the old one-field format
+            format!("0 0badc0de0badc0de {key}"),           // slot 0 is not a slot
+            format!("37 0badc0de {key}"),                  // short identity
+            format!("37 0badc0de0badc0dez {key}"),         // not hex
+            format!("37 0badc0de0badc0de {}", "a".repeat(63)),
+            format!("37 0badc0de0badc0de {key} extra"),    // a field we do not understand
+            format!("999 0badc0de0badc0de {key}"),         // out of range
+        ] {
+            assert!(parse_pair_output(&bad).is_none(), "accepted: {bad:?}");
+        }
     }
 
     #[test]

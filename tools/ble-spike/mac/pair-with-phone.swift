@@ -32,10 +32,16 @@ let charNP = CBUUID(string: "FFF5")
 /// Cosmetic: nothing here is covered by the SAS transcript, so a name proves
 /// nothing about who is on the other end. See the note at exchangeNames().
 let charName = CBUUID(string: "FFF6")
+/// Who the phone is and which slot it wants: `keyId(1) ‖ phoneId(8)`.
+///
+/// Both go into the SAS transcript. Outside it, a man in the middle could
+/// rewrite the slot number and have this Mac overwrite a DIFFERENT phone's key
+/// without the six digits changing -- the one check a person actually performs.
+let charIdentity = CBUUID(string: "FFF8")
 
-let COMMIT_LABEL = "repose-pair-v2 commit"
-let SAS_LABEL = "repose-pair-v2 sas"
-let KDF_LABEL = "repose-pair-v2 presence-key"
+let COMMIT_LABEL = "repose-pair-v3 commit"
+let SAS_LABEL = "repose-pair-v3 sas"
+let KDF_LABEL = "repose-pair-v3 presence-key"
 
 /// Where to drop the six digits for a GUI caller. nil when a person is reading
 /// stderr instead. See the write site for why this is not stderr scraping.
@@ -78,8 +84,8 @@ func commitment(pkM: Data, pkP: Data, np: Data) -> Data {
     Data(SHA256.hash(data: ascii(COMMIT_LABEL) + pkM + pkP + np))
 }
 
-func sasHash(pkM: Data, pkP: Data, nm: Data, np: Data) -> Data {
-    Data(SHA256.hash(data: ascii(SAS_LABEL) + pkM + pkP + nm + np))
+func sasHash(pkM: Data, pkP: Data, nm: Data, np: Data, keyId: UInt8, phoneId: Data) -> Data {
+    Data(SHA256.hash(data: ascii(SAS_LABEL) + pkM + pkP + nm + np + Data([keyId]) + phoneId))
 }
 
 /// Six digits, zero padded. Short on purpose: a person has to read it off two
@@ -139,6 +145,11 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     private var pendingTranscript: Data?
     /// What the phone calls itself. Cosmetic — see charName.
     private var peerName: String?
+    /// Held between reading Np and reading the identity, because the transcript
+    /// needs both and they arrive in two callbacks.
+    private var pendingNp: Data?
+    private var keyId: UInt8 = 0
+    private var phoneId = Data()
 
     func start() { central = CBCentralManager(delegate: self, queue: nil) }
 
@@ -189,7 +200,7 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         guard let svc = p.services?.first(where: { $0.uuid == pairingService }) else {
             say("这台设备没有配对服务"); exit(3)
         }
-        p.discoverCharacteristics([charPKM, charPKP, charNM, charNP, charName], for: svc)
+        p.discoverCharacteristics([charPKM, charPKP, charNM, charNP, charName, charIdentity], for: svc)
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor svc: CBService, error: Error?) {
@@ -199,6 +210,13 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         guard chars[charPKP] != nil, chars[charNM] != nil, chars[charNP] != nil,
               let pkmChar = chars[charPKM] else {
             say("配对服务不完整（找到 \(chars.count) 个特征值）"); exit(3)
+        }
+        // Required, unlike the name. Without it this Mac does not know which
+        // slot the key belongs in, and guessing slot 1 is how a second phone
+        // would silently overwrite the first.
+        guard chars[charIdentity] != nil else {
+            say("这部手机上的 App 太旧了，它还不会说自己用哪个钥匙编号。先在手机上更新 Outsie。")
+            exit(3)
         }
         // A 65-byte write has to fit. Truncation here would be silent and would
         // surface later as a curve-validation failure on the phone, which reads
@@ -247,10 +265,25 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
             p.writeValue(nm, for: chars[charNM]!, type: .withResponse)
 
         } else if ch.uuid == charNP {
-            guard value.count == 16, let pkP, let theirCommitment = phoneCommitment else {
+            guard value.count == 16, pkP != nil, phoneCommitment != nil else {
                 say("P2 长度不对或状态错乱"); exit(4)
             }
-            let np = Data(value)
+            pendingNp = Data(value)
+            say("P3：读取手机的编号")
+            p.readValue(for: chars[charIdentity]!)
+
+        } else if ch.uuid == charIdentity {
+            guard value.count == 9 else {
+                say("P3 长度不对：\(value.count) 字节，应为 9"); exit(4)
+            }
+            guard let pkP, let theirCommitment = phoneCommitment, let np = pendingNp else {
+                say("状态错乱"); exit(4)
+            }
+            keyId = value[value.startIndex]
+            phoneId = Data(value.suffix(8))
+            guard keyId != 0 else {
+                say("手机报了编号 0，那不是一个有效的钥匙位"); exit(4)
+            }
 
             // The check the whole protocol rests on. If this fails, somebody
             // chose their nonce after seeing ours.
@@ -262,7 +295,7 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
                 exit(5)
             }
 
-            let transcript = sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np)
+            let transcript = sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np, keyId: keyId, phoneId: phoneId)
             pendingTranscript = transcript
 
             // Trade names before showing the digits, finish after.
@@ -330,7 +363,13 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
                 with: P256.KeyAgreement.PublicKey(x963Representation: pkP))
             let x = shared.withUnsafeBytes { Data($0) }
             // stdout, alone, so the caller can redirect it into a file.
-            print(hex(deriveKey(ecdhX: x, salt: transcript)))
+            //
+            // Three fields now: the slot the phone asked for, who the phone
+            // says it is, and the key. The caller needs all three -- the slot
+            // decides where the key is installed and the identity decides which
+            // older key, if any, this one replaces. Both were covered by the
+            // digits the human just compared.
+            print("\(keyId) \(hex(phoneId)) \(hex(deriveKey(ecdhX: x, salt: transcript)))")
             say("配对成功。\(peerName.map { "对方设备：\($0)" } ?? "")")
             exit(0)
         } catch {
@@ -352,10 +391,15 @@ enum Vec {
     static let pkP = "04bba0ac866c040dee63395dc7ea9cd2ae65df7475c35295da07264de36a85dcc78f30b930a1af3147ac63a0d902593e53a78f7c9ab8773670562f50afea4bf035"
     static let nm = "000102030405060708090a0b0c0d0e0f"
     static let np = "f0e0d0c0b0a090807060504030201000"
-    static let commit = "7161008840f0d9173b7c81381c9e5d81216c004373e08bbd597bdea5fd7018d0"
-    static let digits = "063529"
+    /// v3 folds the slot number and the phone's identity into the transcript,
+    /// so every value below changed. Recomputed with Python's hashlib/hmac, not
+    /// read out of this binary.
+    static let keyId: UInt8 = 37
+    static let phoneId = "0badc0de0badc0de"
+    static let commit = "952be98c1c4aa1d54d4c416d56b72c333277976c70db3e6306af6c4f2ec91c6c"
+    static let digits = "336549"
     static let ecdhX = "8264224d7eb11f8f5240fe1b94a14c7202a9c493cdfc5fd406f6a46d681f6f94"
-    static let key = "d4cdf8ede653c929321d134fea6e4382bcb1a02a37401392316d60a90ff532ee"
+    static let key = "1c58d63ba975bb90784b4bc442d79b6841ccf58c5a446b2a679f015502f4edcb"
 }
 
 func selfTest() -> Int32 {
@@ -368,7 +412,7 @@ func selfTest() -> Int32 {
     let nm = hexDecode(Vec.nm)!, np = hexDecode(Vec.np)!
 
     check("commitment", hex(commitment(pkM: pkM, pkP: pkP, np: np)), Vec.commit)
-    let t = sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np)
+    let t = sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np, keyId: Vec.keyId, phoneId: hexDecode(Vec.phoneId)!)
     check("six digits", sasDigits(t), Vec.digits)
 
     do {
@@ -395,10 +439,28 @@ func selfTest() -> Int32 {
     // keys it exists to authenticate.
     var other = pkP
     other[other.startIndex + 1] ^= 0x01
-    if sasDigits(sasHash(pkM: pkM, pkP: other, nm: nm, np: np)) == Vec.digits {
+    let pid = hexDecode(Vec.phoneId)!
+    if sasDigits(sasHash(pkM: pkM, pkP: other, nm: nm, np: np, keyId: Vec.keyId, phoneId: pid)) == Vec.digits {
         say("  FAIL a substituted public key left the digits unchanged"); f += 1
     } else {
         say("  ok   a substituted public key changes the digits")
+    }
+
+    // The whole reason the slot number is in the transcript. A man in the middle
+    // who could change it unnoticed would have this Mac install a key into
+    // another phone's slot, replacing that phone's key with one he chose.
+    if sasDigits(sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np, keyId: Vec.keyId ^ 1, phoneId: pid)) == Vec.digits {
+        say("  FAIL a rewritten key slot left the digits unchanged"); f += 1
+    } else {
+        say("  ok   a rewritten key slot changes the digits")
+    }
+
+    var otherPhone = pid
+    otherPhone[otherPhone.startIndex] ^= 0x01
+    if sasDigits(sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np, keyId: Vec.keyId, phoneId: otherPhone)) == Vec.digits {
+        say("  FAIL a rewritten phone identity left the digits unchanged"); f += 1
+    } else {
+        say("  ok   a rewritten phone identity changes the digits")
     }
 
     // Points off the curve are refused before any secret touches them.

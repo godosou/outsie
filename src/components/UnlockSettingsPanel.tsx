@@ -562,9 +562,11 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
     {!degraded && loaded && snapshot.state !== 'not-installed' && (
       <PhoneList
         devices={snapshot.devices}
-        // The panel above already offers 配对手机 as its primary action while
-        // there is no key. Two buttons for one decision made the reader stop
-        // and work out whether they were the same thing (ui-conventions 2.5).
+        // Null only when the panel above is ALREADY offering 配对手机 as its
+        // primary action, which happens when there is no key at all. Two
+        // buttons for one decision is 2.5; with a phone already paired the
+        // panel offers the drill instead, and this one is the only way to add a
+        // second.
         onPair={view.primaryAction?.command === 'begin-pairing' ? null : () => dispatchCommand('begin-pairing')}
         busy={busy}
         armed={armedRevoke}
@@ -823,6 +825,17 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
                 ? `在这台 Mac 上配对${formatPairedAt(device.pairedAt)}`
                 : '不是配对来的，是开发时用 USB 装进去的一把钥匙。它一样能开这台 Mac。'}
             </p>
+            {/* A key from before pairing recorded whose phone it was. It works;
+                what the Mac cannot do is recognise that phone again, so a
+                re-pair leaves this row behind instead of replacing it. Guessing
+                it belongs to whoever pairs next would silently delete a second
+                phone's key on a Mac that has two. */}
+            {device.paired && !device.identified && (
+              <p className="pk-device-meta">
+                这是更新之前配的，那时还没记下是哪部手机。它照常能用；重新配对时会多出一行，
+                确认新的那部能解锁之后，把这一行删掉就好。
+              </p>
+            )}
           </div>
           {/* Two steps, because it cannot be undone without the phone in hand
               and a second pairing. The armed step says what is about to go. */}
@@ -852,11 +865,20 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
       ))}
 
       {devices.length > 0 && (
-        <p className="security-limit" style={{ marginTop: 16 }}>
-          {/* Honest about what is and is not built: the Mac can hold several
-              keys now, but nothing yet gives a second phone its own. */}
-          给每部手机单独开关，还没做。再配一部手机要等配对协议的下一版。
-        </p>
+        <>
+          {/* There was no way to pair a second phone without first deleting the
+              first one's key -- which, on a Mac that already works, means
+              breaking it to extend it. The Mac holds a set of keys now, so this
+              adds rather than replaces. */}
+          {onPair && (
+            <button className="button outline full-width" disabled={busy} onClick={onPair} style={{ marginTop: 16 }}>
+              再配一部手机
+            </button>
+          )}
+          <p className="security-limit" style={{ marginTop: 14 }}>
+            给每部手机单独的开关，还没做——现在上面那个开关管的是全部。
+          </p>
+        </>
       )}
     </section>
   )

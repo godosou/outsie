@@ -42,9 +42,9 @@ import javax.crypto.spec.SecretKeySpec
  */
 object PairingCrypto {
 
-    const val COMMIT_LABEL = "repose-pair-v2 commit"
-    const val SAS_LABEL = "repose-pair-v2 sas"
-    const val KDF_LABEL = "repose-pair-v2 presence-key"
+    const val COMMIT_LABEL = "repose-pair-v3 commit"
+    const val SAS_LABEL = "repose-pair-v3 sas"
+    const val KDF_LABEL = "repose-pair-v3 presence-key"
 
     private const val CURVE = "secp256r1"
     private const val FIELD_LEN = 32
@@ -75,11 +75,35 @@ object PairingCrypto {
     // ---- the protocol's four values ---------------------------------------
 
     /** `SHA256(COMMIT ‖ PK_M ‖ PK_P ‖ Np)`. Binds the phone's nonce AND the Mac it is for. */
+    fun hexToBytes(hex: String): ByteArray {
+        val clean = hex.trim()
+        if (clean.length % 2 != 0) return ByteArray(0)
+        return ByteArray(clean.length / 2) {
+            ((Character.digit(clean[it * 2], 16) shl 4) or Character.digit(clean[it * 2 + 1], 16)).toByte()
+        }
+    }
+
     fun commitment(pkM: ByteArray, pkP: ByteArray, np: ByteArray): ByteArray =
         sha256(ascii(COMMIT_LABEL), pkM, pkP, np)
 
-    fun sasHash(pkM: ByteArray, pkP: ByteArray, nm: ByteArray, np: ByteArray): ByteArray =
-        sha256(ascii(SAS_LABEL), pkM, pkP, nm, np)
+    /**
+     * The transcript both screens' digits come from.
+     *
+     * `keyId` and `phoneId` are in it, and that is load-bearing rather than
+     * tidy: they decide WHICH slot on the Mac this key lands in and WHOSE key it
+     * replaces. Outside the transcript, a man in the middle could rewrite either
+     * and have the Mac overwrite a different phone's key without the digits
+     * changing. The label is v3 because a v2 transcript must not verify as one.
+     */
+    fun sasHash(
+        pkM: ByteArray,
+        pkP: ByteArray,
+        nm: ByteArray,
+        np: ByteArray,
+        keyId: Int,
+        phoneId: ByteArray,
+    ): ByteArray =
+        sha256(ascii(SAS_LABEL), pkM, pkP, nm, np, byteArrayOf(keyId.toByte()), phoneId)
 
     /**
      * Six digits, zero padded. Short on purpose: a person has to read it off two

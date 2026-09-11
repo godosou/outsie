@@ -30,7 +30,7 @@ import java.security.SecureRandom
  * never got on the air -- a test that cannot fail for the right reason cannot pass for
  * it either. [authentic] says which case this is, and the UI shows it.
  */
-class PresenceBeacon(private val keyId: Int) {
+class PresenceBeacon(val keyId: Int) {
 
     private val decoyKey: ByteArray by lazy { ByteArray(32).also { SecureRandom().nextBytes(it) } }
 

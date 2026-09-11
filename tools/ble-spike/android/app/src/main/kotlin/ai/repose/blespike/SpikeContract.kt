@@ -135,6 +135,21 @@ object SpikeContract {
      */
     val PAIR_CHAR_NAME: UUID = UUID.fromString("0000FFF6-0000-1000-8000-00805F9B34FB")
 
+    /**
+     * Who this phone is, and which key slot it wants: `keyId(1) ‖ phoneId(8)`.
+     *
+     * Both are folded into the SAS transcript, and that is the whole point. A
+     * man in the middle who could change the key id would make the Mac install
+     * a key into a slot belonging to somebody else's phone -- silently
+     * replacing it. Inside the transcript, changing either changes the six
+     * digits, and the person comparing them is the check.
+     *
+     * Neither is a secret. phoneId exists only so a Mac can tell 「this phone
+     * again」 from 「a second phone」: without it, every re-pair would leave the
+     * previous key behind as a slot nothing advertises for.
+     */
+    val PAIR_CHAR_IDENTITY: UUID = UUID.fromString("0000FFF8-0000-1000-8000-00805F9B34FB")
+
     // --- the Mac's own beacon (repose-macstate-v2) ----------------------------
     //
     // The other direction. The presence beacon is one-way, so the phone could

@@ -39,6 +39,51 @@ class AppStore(context: Context) {
         get() = prefs.getBoolean(KEY_ADVERTISE, false)
         set(value) { prefs.edit().putBoolean(KEY_ADVERTISE, value).apply() }
 
+    /**
+     * Eight random bytes naming this phone, generated once and kept.
+     *
+     * Not a secret and not a credential -- it never authenticates anything. It
+     * exists so a Mac can tell 「this phone again」 from 「a second phone」. Without
+     * it, re-pairing would leave the previous key sitting in another slot,
+     * advertised by nobody, and the Mac's list would fill with ghosts.
+     */
+    val phoneId: String
+        get() = prefs.getString(KEY_PHONE_ID, null) ?: run {
+            val bytes = ByteArray(8).also { java.security.SecureRandom().nextBytes(it) }
+            val hex = bytes.joinToString("") { "%02x".format(it) }
+            prefs.edit().putString(KEY_PHONE_ID, hex).apply()
+            hex
+        }
+
+    /**
+     * The key slot this phone uses on the Mac it is pairing with next.
+     *
+     * One per Mac, because each Mac derives its own key -- the phone's key never
+     * leaves its secure element, so there is nothing to copy from one Mac to
+     * another. Ids are drawn from 1..255 and must not repeat within this phone,
+     * or the phone could not tell its own keys apart.
+     */
+    var keyIds: List<Int>
+        get() = prefs.getString(KEY_KEY_IDS, null)
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.filter { it in 1..255 }
+            ?: emptyList()
+        set(value) {
+            prefs.edit().putString(KEY_KEY_IDS, value.distinct().joinToString(",")).apply()
+        }
+
+    /** An id this phone is not already using, or null when all 255 are taken. */
+    fun nextKeyId(): Int? {
+        val used = keyIds.toSet()
+        // Random rather than lowest-free: two phones pairing with one Mac pick
+        // independently, and always starting at 1 would make them collide every
+        // time instead of once in 255.
+        val free = (1..255).filterNot { it in used }
+        if (free.isEmpty()) return null
+        return free[java.security.SecureRandom().nextInt(free.size)]
+    }
+
     var paired: Boolean
         get() = prefs.getBoolean(KEY_PAIRED, false)
         set(value) { prefs.edit().putBoolean(KEY_PAIRED, value).apply() }
@@ -153,6 +198,8 @@ class AppStore(context: Context) {
 
     private companion object {
         const val KEY_PAIRED = "paired"
+        const val KEY_PHONE_ID = "phone_id"
+        const val KEY_KEY_IDS = "key_ids"
         const val KEY_ADVERTISE = "advertise_wanted"
         const val KEY_MAC_NAME = "paired_mac_name"
         const val KEY_CMD_SEQ = "command_seq"

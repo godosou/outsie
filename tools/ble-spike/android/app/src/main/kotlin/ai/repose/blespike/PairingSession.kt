@@ -24,6 +24,10 @@ import java.security.KeyPair
 class PairingSession(
     private val keyPair: KeyPair = PairingCrypto.newEphemeralKeyPair(),
     private val np: ByteArray = PairingCrypto.randomBytes(16),
+    /** Which slot on the Mac this key will occupy. Chosen by the phone. */
+    val keyId: Int = SpikeContract.PRESENCE_KEY_ID,
+    /** Who this phone is, so a Mac can tell a re-pair from a second phone. */
+    val phoneId: ByteArray = ByteArray(8),
 ) {
 
     enum class Stage { WaitingForMacKey, WaitingForMacNonce, AwaitingHuman, Done, Failed }
@@ -69,12 +73,21 @@ class PairingSession(
         if (stage != Stage.WaitingForMacNonce || bytes.size != 16) return false
         val mac = pkM ?: return false
         nm = bytes.copyOf()
-        val hash = PairingCrypto.sasHash(mac, publicKey, bytes, np)
+        val hash = PairingCrypto.sasHash(mac, publicKey, bytes, np, keyId, phoneId)
         sasHash = hash
         digits = PairingCrypto.sasDigits(hash)
         stage = Stage.AwaitingHuman
         return true
     }
+
+    /**
+     * P3: who we are and which slot we want.
+     *
+     * Readable from the start, unlike the nonce: it is not a secret and it has
+     * to reach the Mac BEFORE the Mac can compute the transcript. Withholding
+     * it would just deadlock the exchange.
+     */
+    fun identity(): ByteArray = byteArrayOf(keyId.toByte()) + phoneId
 
     /** P2: the reveal. Only after M2. */
     fun revealNonce(): ByteArray? =

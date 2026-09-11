@@ -110,6 +110,12 @@ export type PairedDevice = {
   pairedAt: string
   /** False for a key pushed over USB by a dev script. It can still unlock. */
   paired: boolean
+  /**
+   * False for a key installed before pairing recorded which phone it came from.
+   * It still works; the Mac simply cannot recognise that phone again, so
+   * re-pairing adds a row instead of replacing this one.
+   */
+  identified: boolean
   canUnlock: boolean
   blockedReason: string | null
 }
@@ -249,6 +255,7 @@ export function normalizeUnlockSnapshot(
       platform,
       pairedAt: str(d.pairedAt) ?? '',
       paired: d.paired === true,
+      identified: d.identified === true,
       canUnlock: d.canUnlock === true,
       blockedReason: str(d.blockedReason),
     }]

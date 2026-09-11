@@ -42,6 +42,9 @@ class BleSpikeService : Service() {
 
     companion object {
         const val TAG = "BleSpike"
+
+        /** Sent after a successful pairing, which lands the key in a new slot. */
+        const val ACTION_REBUILD_BEACON = "ai.repose.blespike.REBUILD_BEACON"
         private const val CHANNEL_ID = "ble_spike"
         private const val NOTIFICATION_ID = 41
         private const val HEARTBEAT_MS = 30_000L
@@ -204,7 +207,13 @@ class BleSpikeService : Service() {
         PresenceKey.ingestProvisionedKey(this, SpikeContract.PRESENCE_KEY_ID)
             ?.let { SpikeState.event(it) }
 
-        beacon = PresenceBeacon(SpikeContract.PRESENCE_KEY_ID)
+        // One advertiser, under the first slot this phone holds.
+        //
+        // The design is one advertiser per paired Mac, which Android supports
+        // via several advertising sets. That is NOT built: with one Mac there
+        // is one slot, and a second advertiser is untestable here. Until it
+        // exists, a phone paired with two Macs would be seen by the first only.
+        beacon = PresenceBeacon(PresenceKey.activeIds(this).firstOrNull() ?: SpikeContract.PRESENCE_KEY_ID)
         SpikeState.authentic = beacon.authentic
         SpikeState.fingerprint = PresenceKey.fingerprint(this)
         if (!beacon.authentic) {
@@ -271,7 +280,34 @@ class BleSpikeService : Service() {
         SpikeState.authentic = beacon.authentic
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Pairing writes a key into a NEW slot, and the beacon object was built
+        // in onCreate against whichever slot existed then. Android delivers this
+        // to onStartCommand, not onCreate, for a service that is already
+        // running -- so without this, a phone that had just paired went on
+        // advertising under its previous key id, and the Mac it had just been
+        // introduced to heard nothing it could verify.
+        if (intent?.action == ACTION_REBUILD_BEACON) rebuildBeacon()
+        return START_STICKY
+    }
+
+    /** Point the beacon at the slot this phone now holds. */
+    private fun rebuildBeacon() {
+        val id = PresenceKey.activeIds(this).firstOrNull() ?: return
+        if (::beacon.isInitialized && beacon.keyId == id) return
+        beacon = PresenceBeacon(id)
+        SpikeState.authentic = beacon.authentic
+        SpikeState.fingerprint = PresenceKey.fingerprint(this)
+        SpikeState.event("改用钥匙编号 $id 广播")
+        // Straight away, rather than at the next rotation: the window between
+        // pairing and the first beacon is exactly when someone is standing at
+        // the Mac waiting to see it work.
+        handler.removeCallbacks(rotate)
+        handler.post(rotate)
+        if (beacon.authentic && macStateScanner == null) {
+            macStateScanner = MacStateScanner(this).also { it.start() }
+        }
+    }
 
     override fun onDestroy() {
         handler.removeCallbacks(heartbeat)

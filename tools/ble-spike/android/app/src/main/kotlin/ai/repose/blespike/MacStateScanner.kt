@@ -56,7 +56,10 @@ class MacStateScanner(private val context: Context) {
             if (payload[0].toInt() and 0xFF != SpikeContract.MAC_STATE_VERSION) return
 
             val keyId = payload[1].toInt() and 0xFF
-            if (keyId != SpikeContract.PRESENCE_KEY_ID) return
+            // Any slot this phone holds: a Mac paired into slot 37 broadcasts
+            // its state under 37, and demanding slot 1 would make that Mac
+            // read as permanently unknown.
+            if (!PresenceKey.activeIds(context).contains(keyId)) return
             val macId = ((payload[2].toInt() and 0xFF) shl 8) or (payload[3].toInt() and 0xFF)
             val locked = (payload[4].toInt() and 0xFF) == 1
             val tag = payload.copyOfRange(5, PAYLOAD_LEN)

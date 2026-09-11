@@ -139,6 +139,7 @@ class PairingServer(
                 s == null -> null
                 ch.uuid == SpikeContract.PAIR_CHAR_PKP -> s.keyAndCommitment()
                 ch.uuid == SpikeContract.PAIR_CHAR_NP -> s.revealNonce()
+                ch.uuid == SpikeContract.PAIR_CHAR_IDENTITY -> s.identity()
                 else -> null
             }
             if (payload == null) {
@@ -227,7 +228,19 @@ class PairingServer(
             lastError = "蓝牙没有打开"
             return false
         }
-        session = PairingSession()
+        // A slot this phone is not already using, and who this phone is. Both
+        // go into the transcript, so the Mac cannot be redirected into another
+        // phone's slot without the six digits changing.
+        val store = AppStore(context)
+        val id = store.nextKeyId()
+        if (id == null) {
+            lastError = "这部手机的钥匙编号用完了（255 个），先删掉几台不用的 Mac"
+            return false
+        }
+        session = PairingSession(
+            keyId = id,
+            phoneId = PairingCrypto.hexToBytes(store.phoneId),
+        )
 
         // Even with permission granted, the stack can refuse. Nothing the radio
         // does should be able to close the app while someone is halfway through
@@ -276,6 +289,13 @@ class PairingServer(
         )
         service.addCharacteristic(
             BluetoothGattCharacteristic(
+                SpikeContract.PAIR_CHAR_IDENTITY,
+                BluetoothGattCharacteristic.PROPERTY_READ,
+                BluetoothGattCharacteristic.PERMISSION_READ,
+            ),
+        )
+        service.addCharacteristic(
+            BluetoothGattCharacteristic(
                 SpikeContract.PAIR_CHAR_NAME,
                 BluetoothGattCharacteristic.PROPERTY_READ or
                     BluetoothGattCharacteristic.PROPERTY_WRITE,
@@ -316,8 +336,14 @@ class PairingServer(
     fun confirmMatch(): Boolean {
         val k = session?.deriveKey() ?: return false
         return runCatching {
-            PresenceKey.importKey(context, SpikeContract.PRESENCE_KEY_ID, k)
+            val id = session?.keyId ?: SpikeContract.PRESENCE_KEY_ID
+            PresenceKey.importKey(context, id, k)
             k.fill(0)
+            // Recorded only now, for the same reason the name is: an id kept
+            // from a session the human rejected would have this phone
+            // advertising under a slot it never actually paired into.
+            val store = AppStore(context)
+            store.keyIds = store.keyIds + id
             // Only kept once the digits matched. A name captured from a session
             // the human rejected would be the attacker's name, sitting on the
             // screen next to the words 已配对.
@@ -331,7 +357,12 @@ class PairingServer(
             // 已关闭 -- which reads as the pairing having failed.
             runCatching {
                 context.startForegroundService(
-                    android.content.Intent(context, BleSpikeService::class.java),
+                    android.content.Intent(context, BleSpikeService::class.java)
+                        // The key just landed in a slot the running service knows
+                        // nothing about. Without this it keeps advertising under
+                        // the old one and the Mac it was just introduced to hears
+                        // nothing it can verify.
+                        .setAction(BleSpikeService.ACTION_REBUILD_BEACON),
                 )
             }
             true

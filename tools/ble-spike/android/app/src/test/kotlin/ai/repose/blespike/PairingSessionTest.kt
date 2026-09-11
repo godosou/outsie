@@ -15,6 +15,11 @@ import org.junit.Test
  */
 class PairingSessionTest {
 
+    /** What PairingSession uses when the caller does not choose. */
+    private val DEFAULT_KEY_ID = SpikeContract.PRESENCE_KEY_ID
+    private val DEFAULT_PHONE_ID = ByteArray(8)
+
+
     private fun macSide(): Triple<ByteArray, ByteArray, java.security.KeyPair> {
         val kp = PairingCrypto.newEphemeralKeyPair()
         return Triple(PairingCrypto.encodePublicKey(kp.public), PairingCrypto.randomBytes(16), kp)
@@ -37,12 +42,12 @@ class PairingSessionTest {
             "the commitment must match the revealed nonce",
             PairingCrypto.commitment(pkM, pkP, np), commit,
         )
-        val macDigits = PairingCrypto.sasDigits(PairingCrypto.sasHash(pkM, pkP, nm, np))
+        val macDigits = PairingCrypto.sasDigits(PairingCrypto.sasHash(pkM, pkP, nm, np, DEFAULT_KEY_ID, DEFAULT_PHONE_ID))
         assertEquals("both sides must show the same six digits", macDigits, phone.digits)
 
         val macKey = PairingCrypto.deriveKey(
             PairingCrypto.ecdhX(macKeys.private, PairingCrypto.decodePublicKey(pkP)),
-            PairingCrypto.sasHash(pkM, pkP, nm, np),
+            PairingCrypto.sasHash(pkM, pkP, nm, np, DEFAULT_KEY_ID, DEFAULT_PHONE_ID),
         )
         assertArrayEquals("both sides must derive the same key", macKey, phone.deriveKey())
     }

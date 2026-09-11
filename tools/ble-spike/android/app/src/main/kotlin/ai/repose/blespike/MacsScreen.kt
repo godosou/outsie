@@ -29,7 +29,7 @@ import android.widget.Toast
  */
 fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val pal = ReposeTheme.of(context)
-    val provisioned = PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)
+    val provisioned = PresenceKey.hasAny(context)
     val fingerprint = PresenceKey.fingerprint(context)
 
     val root = screenScaffold(
@@ -73,9 +73,13 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                 Ui.secondary(
                     context,
                     pal,
+                    // 「共用同一把钥匙」 stopped being true with pair-v3: each Mac
+                    // derives its own, and the phone's keys never leave its
+                    // secure element. 「取消配对」 still takes them all, because
+                    // it deletes every one.
                     "这台手机听得到附近每一台配对过的 Mac，各自报一个编号，所以分得出是哪几台。" +
-                        "它们共用同一把钥匙——删掉钥匙，所有 Mac 一起失效。" +
-                        "编号对应的是哪台电脑，看那台 Mac 上「技术细节」里的同一串。",
+                        "每台 Mac 用的是各自的一把钥匙，互不相干——「取消配对」会把它们全部删掉，" +
+                        "所有 Mac 一起失效。编号对应的是哪台电脑，看那台 Mac 上「技术细节」里的同一串。",
                 ),
                 Ui.lp(top = context.dp(12)),
             )
@@ -116,7 +120,11 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                                 "想再用，重新配对一次就行。",
                         )
                         .setPositiveButton("取消配对") { _, _ ->
-                            PresenceKey.delete(context, SpikeContract.PRESENCE_KEY_ID)
+                            // Every slot, not just the first: with two Macs paired, deleting one
+                            // key would leave the phone still opening the other while the
+                            // screen says the pairing is gone.
+                            PresenceKey.activeIds(context).forEach { PresenceKey.delete(context, it) }
+                            AppStore(context).keyIds = emptyList()
                             store.paired = false
                             // The name outliving the key would leave the screen
                             // naming a Mac this phone can no longer open.

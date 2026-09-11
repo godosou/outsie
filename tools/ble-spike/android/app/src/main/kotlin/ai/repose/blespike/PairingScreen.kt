@@ -36,7 +36,7 @@ import android.widget.Toast
  */
 fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val pal = ReposeTheme.of(context)
-    val provisioned = PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)
+    val provisioned = PresenceKey.hasAny(context)
     val fingerprint = PresenceKey.fingerprint(context)
     val windowOpen = Pairing.isOpen || Pairing.digits != null
 
@@ -84,7 +84,7 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
     return ScreenView(root, onState = {
         val stillOpen = Pairing.isOpen || Pairing.digits != null
         if (stillOpen != windowOpen ||
-            PresenceKey.has(SpikeContract.PRESENCE_KEY_ID) != provisioned
+            PresenceKey.hasAny(context) != provisioned
         ) {
             nav.go(Screen.PAIRING)
         }

@@ -48,6 +48,23 @@ object PresenceKey {
 
     private fun store(): KeyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
 
+    /**
+     * Every slot this phone actually holds a key in.
+     *
+     * From v3 the phone picks a slot per Mac, because each Mac derives its own
+     * key -- the phone's key never leaves its secure element, so there is
+     * nothing to copy between them. Before v3 every pairing landed in slot 1
+     * and recorded no id, which is the fallback: a Mac paired last night must
+     * keep working after this update.
+     */
+    fun activeIds(context: Context): List<Int> {
+        val stored = AppStore(context).keyIds.filter { has(it) }
+        if (stored.isNotEmpty()) return stored
+        return if (has(SpikeContract.PRESENCE_KEY_ID)) listOf(SpikeContract.PRESENCE_KEY_ID) else emptyList()
+    }
+
+    fun hasAny(context: Context): Boolean = activeIds(context).isNotEmpty()
+
     fun has(keyId: Int): Boolean =
         runCatching { store().containsAlias(alias(keyId)) }.getOrDefault(false)
 
