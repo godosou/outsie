@@ -107,9 +107,24 @@ class BleSpikeService : Service() {
     private var advertiser: BluetoothLeAdvertiser? = null
     /** Listens for the Mac's own beacon. Silent without a key or the permission. */
     private var macStateScanner: MacStateScanner? = null
-    private lateinit var beacon: PresenceBeacon
-    private var advertisedCounter = Long.MIN_VALUE
-    private var advertisedCmd = SpikeContract.CMD_NONE
+    /**
+     * One advertiser per paired Mac.
+     *
+     * Each Mac derives its own key (pair-v3), so a phone paired with two of them
+     * holds two keys and has to prove itself to both. Android allows several
+     * concurrent advertising instances, so they run side by side rather than
+     * taking turns -- alternating would multiply every Mac's time-to-notice by
+     * the number of Macs, and the presence decision already has a hard enough
+     * time with the scan-window tail (see the note on `rotate`).
+     *
+     * With one Mac this is exactly what it was: one beacon, one callback.
+     */
+    private class Slot(val beacon: PresenceBeacon, val callback: AdvertiseCallback) {
+        var advertisedCounter = Long.MIN_VALUE
+        var advertisedCmd = SpikeContract.CMD_NONE
+    }
+
+    private var slots: List<Slot> = emptyList()
 
     private val heartbeat = object : Runnable {
         override fun run() {
@@ -149,12 +164,15 @@ class BleSpikeService : Service() {
      */
     private val rotate = object : Runnable {
         override fun run() {
-            val c = beacon.currentCounter()
+            val first = slots.firstOrNull() ?: return
+            val c = first.beacon.currentCounter()
             // A command has to go out now, not at the next 30s window boundary,
             // and it has to stop going out when it expires. Both are changes to
             // what the payload should say, so both force a refresh.
             val cmdNow = liveCommand()
-            if (c != advertisedCounter || cmdNow != advertisedCmd) refreshBeacon(c)
+            // Any slot out of date refreshes them all: they share a window and
+            // a command, so they are never legitimately out of step.
+            if (slots.any { it.advertisedCounter != c || it.advertisedCmd != cmdNow }) refreshBeacon(c)
             // Poll faster while something is pending, so the press-to-air delay
             // is not itself mistaken for the radio being slow.
             val pending = pendingCmd != SpikeContract.CMD_NONE &&
@@ -173,21 +191,31 @@ class BleSpikeService : Service() {
             SpikeContract.CMD_NONE
         }
 
-    private val advertiseCallback = object : AdvertiseCallback() {
+    /**
+     * One per slot, because stopAdvertising takes the callback as its handle --
+     * sharing one across instances would make it impossible to stop a single
+     * advertiser.
+     */
+    private fun callbackFor(keyId: Int) = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             SpikeState.advertising = true
             SpikeState.beaconsSent++
             SpikeState.event(
-                "beacon on air, window ${SpikeState.beaconCounter}" +
-                    if (SpikeState.authentic) "" else " (UNPROVISIONED — tag is worthless)",
+                "钥匙 $keyId 的信标上天了，窗口 ${SpikeState.beaconCounter}" +
+                    if (SpikeState.authentic) "" else "（还没配对 —— 这个 tag 没有意义）",
             )
-            Log.i(TAG, "advertising started: $settingsInEffect")
+            Log.i(TAG, "advertising started for keyId=$keyId: $settingsInEffect")
         }
 
         override fun onStartFailure(errorCode: Int) {
-            SpikeState.advertising = false
-            SpikeState.event("advertising FAILED code=$errorCode")
-            Log.e(TAG, "advertising failed, code=$errorCode")
+            // Not a global "advertising off": another slot may be fine, and
+            // saying the phone is silent when one of two Macs can still see it
+            // would be the screen reporting something that is not true.
+            SpikeState.event("钥匙 $keyId 的信标发不出去，错误码 $errorCode")
+            Log.e(TAG, "advertising failed for keyId=$keyId, code=$errorCode")
+            if (slots.none { it.advertisedCounter != Long.MIN_VALUE }) {
+                SpikeState.advertising = false
+            }
         }
     }
 
@@ -207,16 +235,9 @@ class BleSpikeService : Service() {
         PresenceKey.ingestProvisionedKey(this, SpikeContract.PRESENCE_KEY_ID)
             ?.let { SpikeState.event(it) }
 
-        // One advertiser, under the first slot this phone holds.
-        //
-        // The design is one advertiser per paired Mac, which Android supports
-        // via several advertising sets. That is NOT built: with one Mac there
-        // is one slot, and a second advertiser is untestable here. Until it
-        // exists, a phone paired with two Macs would be seen by the first only.
-        beacon = PresenceBeacon(PresenceKey.activeIds(this).firstOrNull() ?: SpikeContract.PRESENCE_KEY_ID)
-        SpikeState.authentic = beacon.authentic
+        buildSlots()
         SpikeState.fingerprint = PresenceKey.fingerprint(this)
-        if (!beacon.authentic) {
+        if (slots.none { it.beacon.authentic }) {
             SpikeState.event(
                 "还没有配对：Mac 会看见这台手机，但认不出是你的。",
             )
@@ -233,7 +254,7 @@ class BleSpikeService : Service() {
         // Only worth listening once there is a key: an unverifiable beacon
         // tells this phone nothing, and scanning for it would be battery spent
         // on a sentence that could never be shown.
-        if (beacon.authentic) {
+        if (slots.any { it.beacon.authentic }) {
             macStateScanner = MacStateScanner(this).also { it.start() }
         }
 
@@ -242,21 +263,40 @@ class BleSpikeService : Service() {
         SpikeState.notifyListeners()
     }
 
+    /** Re-mint and re-advertise every slot. */
     private fun refreshBeacon(counter: Long) {
         val le = advertiser ?: return
         val cmd = liveCommand()
-        val payload = runCatching { beacon.payloadFor(counter, cmd, pendingSeq) }.getOrElse { e ->
+        var any = false
+        for (slot in slots) {
+            if (refreshSlot(le, slot, counter, cmd)) any = true
+        }
+        // The screen's one-line answer. It is about the phone, not about a
+        // particular Mac: with two paired and one advertiser failing, the phone
+        // IS being seen, and saying otherwise would be worse than saying less.
+        SpikeState.advertising = any
+        SpikeState.beaconCounter = counter
+        SpikeState.authentic = slots.all { it.beacon.authentic } && slots.isNotEmpty()
+    }
+
+    private fun refreshSlot(
+        le: BluetoothLeAdvertiser,
+        slot: Slot,
+        counter: Long,
+        cmd: Int,
+    ): Boolean {
+        val payload = runCatching { slot.beacon.payloadFor(counter, cmd, pendingSeq) }.getOrElse { e ->
             // A Keystore that will not sign is a phone that cannot prove who it is.
             // Falling back to an unsigned packet here would quietly turn the imposter
             // and the real phone back into the same thing, so it goes silent instead.
-            SpikeState.advertising = false
-            runCatching { le.stopAdvertising(advertiseCallback) }
-            SpikeState.event("cannot mint a tag (${e.message}); stopped advertising")
-            Log.e(TAG, "beacon mint failed", e)
-            return
+            runCatching { le.stopAdvertising(slot.callback) }
+            slot.advertisedCounter = Long.MIN_VALUE
+            SpikeState.event("钥匙 ${slot.beacon.keyId} 签不出 tag（${e.message}），这一路停了")
+            Log.e(TAG, "beacon mint failed for keyId=${slot.beacon.keyId}", e)
+            return false
         }
 
-        runCatching { le.stopAdvertising(advertiseCallback) }
+        runCatching { le.stopAdvertising(slot.callback) }
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
@@ -272,12 +312,11 @@ class BleSpikeService : Service() {
             .addServiceUuid(ParcelUuid(SpikeContract.PRESENCE_SERVICE_UUID))
             .addServiceData(ParcelUuid(SpikeContract.PRESENCE_SERVICE_UUID), payload)
             .build()
-        le.startAdvertising(settings, data, advertiseCallback)
+        le.startAdvertising(settings, data, slot.callback)
 
-        advertisedCounter = counter
-        advertisedCmd = cmd
-        SpikeState.beaconCounter = counter
-        SpikeState.authentic = beacon.authentic
+        slot.advertisedCounter = counter
+        slot.advertisedCmd = cmd
+        return true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -291,20 +330,36 @@ class BleSpikeService : Service() {
         return START_STICKY
     }
 
-    /** Point the beacon at the slot this phone now holds. */
-    private fun rebuildBeacon() {
-        val id = PresenceKey.activeIds(this).firstOrNull() ?: return
-        if (::beacon.isInitialized && beacon.keyId == id) return
-        beacon = PresenceBeacon(id)
-        SpikeState.authentic = beacon.authentic
+    /**
+     * One advertiser per key this phone holds, replacing whatever was running.
+     *
+     * Called at startup and after pairing, which adds a slot. Stopping the old
+     * ones first matters: an advertiser left running under a revoked key would
+     * keep telling a Mac the phone is there, using a key the Mac no longer has
+     * -- harmless on the air, but it burns an advertising instance and the
+     * phone would eventually run out of them.
+     */
+    private fun buildSlots() {
+        val ids = PresenceKey.activeIds(this)
+        if (ids.map { it } == slots.map { it.beacon.keyId }) return
+        advertiser?.let { le -> slots.forEach { runCatching { le.stopAdvertising(it.callback) } } }
+        slots = ids.map { Slot(PresenceBeacon(it), callbackFor(it)) }
+        SpikeState.authentic = slots.isNotEmpty() && slots.all { it.beacon.authentic }
         SpikeState.fingerprint = PresenceKey.fingerprint(this)
-        SpikeState.event("改用钥匙编号 $id 广播")
+        if (slots.isNotEmpty()) {
+            SpikeState.event("广播用的钥匙编号：${ids.joinToString("、")}")
+        }
+    }
+
+    /** Point the beacons at the slots this phone now holds. */
+    private fun rebuildBeacon() {
+        buildSlots()
         // Straight away, rather than at the next rotation: the window between
         // pairing and the first beacon is exactly when someone is standing at
         // the Mac waiting to see it work.
         handler.removeCallbacks(rotate)
         handler.post(rotate)
-        if (beacon.authentic && macStateScanner == null) {
+        if (slots.any { it.beacon.authentic } && macStateScanner == null) {
             macStateScanner = MacStateScanner(this).also { it.start() }
         }
     }
@@ -312,7 +367,8 @@ class BleSpikeService : Service() {
     override fun onDestroy() {
         handler.removeCallbacks(heartbeat)
         handler.removeCallbacks(rotate)
-        runCatching { advertiser?.stopAdvertising(advertiseCallback) }
+        advertiser?.let { le -> slots.forEach { runCatching { le.stopAdvertising(it.callback) } } }
+        slots = emptyList()
         advertiser = null
         macStateScanner?.stop()
         macStateScanner = null

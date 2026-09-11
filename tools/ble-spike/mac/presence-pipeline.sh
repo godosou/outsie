@@ -78,8 +78,30 @@ MODE="local"
 
 say() { printf 'pipeline: %s\n' "$*" >&2; }
 
-[ -e "${KEY_DIR}/presence-key.${KEY_ID}" ] \
-  || { say "no presence key at ${KEY_DIR}/presence-key.${KEY_ID} -- run provision-dev-key.sh"; exit 2; }
+# ANY slot, not slot 1.
+#
+# From pair-v3 the phone picks its own slot, so there is no id this script can
+# know in advance. It checked presence-key.1 -- and the moment a Mac's only key
+# lived in slot 15, starting the monitor failed with "no presence key", while
+# the panel had just been told to start it and sat there with the switch off and
+# no administrator prompt. Nothing said why.
+#
+# The verifier loads keys by the id in each beacon; this check exists only to
+# fail early and loudly when there is no key at all.
+set -- "${KEY_DIR}"/presence-key.[0-9]*
+case "$1" in
+    *'presence-key.[0-9]*') set -- ;;    # the glob matched nothing
+esac
+# Names ending in .provenance/.phone are siblings, not keys.
+have_key=0
+for k in "$@"; do
+    case "${k}" in
+        *.provenance|*.phone) continue ;;
+    esac
+    [ -e "${k}" ] && have_key=1
+done
+[ "${have_key}" = 1 ] \
+  || { say "no presence key in ${KEY_DIR} -- pair a phone, or run provision-dev-key.sh"; exit 2; }
 
 # state-advertise was missing from this list, and that is not a cosmetic gap:
 # it is one half of a two-implementation protocol. Editing the beacon's layout

@@ -97,8 +97,11 @@ struct Tags {
 final class Advertiser: NSObject, CBPeripheralManagerDelegate {
     private var manager: CBPeripheralManager!
     private var ready = false
-    private var tags: Tags?
-    private var onAir: (Int64, Bool)?   // (counter, locked) currently advertised
+    /// One set of tags per paired phone's key. Only one can be on the air at a
+    /// time, so `current` says which, and `rotateKey` moves it along.
+    private var tagsByKey: [UInt8: Tags] = [:]
+    private var current: UInt8?
+    private var onAir: (UInt8, Int64, Bool)?   // (keyId, counter, locked) on air
 
     func start() { manager = CBPeripheralManager(delegate: self, queue: nil) }
 
@@ -136,8 +139,28 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
     }
 
     func accept(_ t: Tags) {
-        tags = t
+        // Keyed, because a Mac paired with two phones holds two keys and has to
+        // be verifiable by both. Only one payload can be on the air at a time,
+        // so they take turns -- see `rotateKey`.
+        tagsByKey[t.keyId] = t
+        if current == nil { current = t.keyId }
         refresh()
+    }
+
+    /// Move to the next key, if there is more than one.
+    ///
+    /// A phone forgets the Mac's state after 20 seconds
+    /// (SpikeContract.MAC_STATE_STALE_MS), so every key has to come round well
+    /// inside that. At one turn every three seconds, six paired phones is still
+    /// eighteen. With one key this never fires.
+    func rotateKey() {
+        guard tagsByKey.count > 1 else { return }
+        let ids = tagsByKey.keys.sorted()
+        let next = ids.first { $0 > (current ?? 0) } ?? ids.first
+        if next != current {
+            current = next
+            refresh()
+        }
     }
 
     /// Put the right payload on the air, and only when it changes.
@@ -145,9 +168,9 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
     /// Restarting advertising churns the private address and costs a gap, so it
     /// happens on a state change or a window roll, not on a timer.
     func refresh() {
-        guard ready, let t = tags else { return }
+        guard ready, let id = current, let t = tagsByKey[id] else { return }
         let locked = screenIsLocked()
-        if let cur = onAir, cur == (t.counter, locked) { return }
+        if let cur = onAir, cur == (t.keyId, t.counter, locked) { return }
 
         let tag = locked ? t.locked : t.unlocked
         var payload = Data([
@@ -179,8 +202,8 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
             // security-relevant: the tag covers the bytes, not their spelling.
             CBAdvertisementDataLocalNameKey: base64url(payload),
         ])
-        onAir = (t.counter, locked)
-        log("advertising state=\(locked ? "locked" : "unlocked") window=\(t.counter)")
+        onAir = (t.keyId, t.counter, locked)
+        log("advertising state=\(locked ? "locked" : "unlocked") window=\(t.counter) key=\(t.keyId)")
     }
 }
 
@@ -205,9 +228,17 @@ DispatchQueue.global().async {
 // second is well inside the time it takes someone to walk to their desk, and
 // costs one IORegistry read.
 DispatchQueue.global().async {
+    var tick = 0
     while true {
         Thread.sleep(forTimeInterval: 1)
-        DispatchQueue.main.async { advertiser.refresh() }
+        tick += 1
+        DispatchQueue.main.async {
+            // Every three seconds, hand the air to the next paired phone's key.
+            // A phone forgets this Mac after twenty, so every key has to come
+            // round inside that. With one key this does nothing at all.
+            if tick % 3 == 0 { advertiser.rotateKey() }
+            advertiser.refresh()
+        }
     }
 }
 

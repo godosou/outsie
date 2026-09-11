@@ -591,6 +591,13 @@ if let flag = runFlag {
 
 let keys = KeyStore(dir: keyDir)
 let seqGuard = SeqGuard()
+/// Which (window, keyId) pairs have already had their state tags published.
+///
+/// Per KEY, not just per window. With two phones paired, emitting once a window
+/// for whichever key happened to arrive first meant each phone heard the Mac's
+/// state every other window -- 60 seconds apart, against a 20-second staleness
+/// limit on the phone. Both would have sat on 「不知道」 almost all the time.
+var statePublished: Set<String> = []
 var lastStateWindow: Int64 = .min
 setlinebuf(stdout)
 log("verifying against \(keyDir), window \(windowSeconds)s, tag \(tagLen) bytes")
@@ -657,8 +664,17 @@ while let line = readLine(strippingNewline: true) {
     // No timer, no second process: rows arrive several times a second while the
     // phone is anywhere near, and when they stop there is nobody to tell.
     let window = now / windowSeconds
-    if window != lastStateWindow, let keyId = UInt8(f[4]) {
+    if window != lastStateWindow {
+        // A new window invalidates every previous publication at once, which is
+        // also what keeps this set from growing.
         lastStateWindow = window
-        emitMacStateTags(keys: keys, keyId: keyId, now: now)
+        statePublished.removeAll(keepingCapacity: true)
+    }
+    if let keyId = UInt8(f[4]) {
+        let mark = "\(window):\(keyId)"
+        if !statePublished.contains(mark) {
+            statePublished.insert(mark)
+            emitMacStateTags(keys: keys, keyId: keyId, now: now)
+        }
     }
 }

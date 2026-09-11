@@ -2116,6 +2116,13 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         // local root-owned file and the whole privileged half is one
         // prompt. REPOSE_SSH being absent is what selects that.
         .env_remove("REPOSE_SSH")
+        // Its own log, so a refusal has somewhere to be read from. Inherited
+        // stderr goes to the app's, which is nowhere.
+        .stderr(
+            std::fs::File::create(work.join("pipeline.log"))
+                .map(std::process::Stdio::from)
+                .unwrap_or_else(|_| std::process::Stdio::null()),
+        )
         .spawn()
         .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
 
@@ -2125,6 +2132,25 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
     for _ in 0..40 {
         if runflag.exists() { break }
         std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // No flag means the unprivileged half exited, and asking for an
+    // administrator password to start a root chain that has nothing to attach
+    // to is worse than useless.
+    //
+    // This was silent: the pipeline refused to start (its own check still
+    // required key slot 1, which pair-v3 made wrong), the switch flicked back
+    // to off, and nothing on screen said a word. The reason was in the script's
+    // stderr, which went to the app's, which nobody reads.
+    if !runflag.exists() {
+        let why = std::fs::read_to_string(work.join("pipeline.log"))
+            .ok()
+            .and_then(|s| s.lines().rev().find(|l| !l.trim().is_empty()).map(str::to_string))
+            .unwrap_or_else(|| "监测程序没有说明原因".to_string());
+        return Err(UnlockError::new(
+            UnlockErrorCode::Unsupported,
+            format!("监测没能启动，所以没有向你要密码。{why}"),
+        ));
     }
 
     // Raise the administrator prompt HERE, so it says Outsie.
@@ -3175,6 +3201,27 @@ mod tests {
             .output()
             .expect("sh should run");
         assert_eq!(String::from_utf8_lossy(&out.stdout), nasty);
+    }
+
+    #[test]
+    fn the_pipeline_does_not_require_slot_one() {
+        // It checked presence-key.1 and nothing else. With pair-v3 the phone
+        // picks its own slot, so a Mac whose only key was in slot 15 failed to
+        // start the monitor -- switch off, no administrator prompt, no reason
+        // on screen. Found by deleting the pre-v3 key after re-pairing.
+        let sh = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tools/ble-spike/mac/presence-pipeline.sh"),
+        )
+        .expect("presence-pipeline.sh should be readable");
+        assert!(
+            !sh.contains("presence-key.${KEY_ID}"),
+            "the pipeline still gates on one hardcoded slot",
+        );
+        assert!(
+            sh.contains("presence-key.[0-9]*"),
+            "the pipeline should accept a key in any slot",
+        );
     }
 
     #[test]
