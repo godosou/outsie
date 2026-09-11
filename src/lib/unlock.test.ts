@@ -5,6 +5,7 @@ import {
   deriveUnlockView,
   deriveGlobalBanner,
   healthClass,
+  normalizePreflight,
   beginRequest,
   finishRequest,
   failRequest,
@@ -283,4 +284,26 @@ test('every class healthClass can emit has a rule in phone-key.css', async () =>
 test('broken and ok do not share a class', () => {
   assert.notEqual(healthClass('broken'), healthClass('ok'))
   assert.notEqual(healthClass('degraded'), healthClass('ok'))
+})
+
+// ---- preflight -----------------------------------------------------------
+
+test('preflight normalizes to "cannot install" for anything odd', () => {
+  for (const bad of [null, undefined, 42, 'ok', []]) {
+    assert.equal(normalizePreflight(bad).canInstall, false)
+  }
+})
+
+test('a third-party mechanism survives normalization so the sheet can show it', () => {
+  const p = normalizePreflight({
+    variant: 'A', canInstall: true, ruleNow: '[]',
+    foreign: ['com.openai.sky.CUAService.AuthorizationPlugin.remote'],
+  })
+  assert.equal(p.canInstall, true)
+  assert.deepEqual(p.foreign, ['com.openai.sky.CUAService.AuthorizationPlugin.remote'])
+})
+
+test('a foreign list that is not strings, or absurdly long, cannot wedge the sheet', () => {
+  assert.deepEqual(normalizePreflight({ foreign: [1, 2, 3] }).foreign, [])
+  assert.equal(normalizePreflight({ foreign: Array(500).fill('x') }).foreign.length, 12)
 })

@@ -209,6 +209,11 @@ pub struct PreflightReport {
     pub variant: Option<RuleVariant>,
     pub can_install: bool,
     pub rule_now: String,
+    /// Third-party mechanisms already in the lock-screen rule. Empty on an
+    /// untouched Mac. Not a blocker -- a disclosure: with k-of-n = 1 each of
+    /// these can already grant an unlock on its own, and adding ours makes one
+    /// more. The install sheet must show these before anyone agrees.
+    pub foreign: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -290,6 +295,40 @@ pub fn decide_variant(rule_json: &str) -> Option<RuleVariant> {
     } else {
         None
     }
+}
+
+/// Entries in the screensaver rule that are neither Apple's nor ours.
+///
+/// Found on a real machine: this Mac's rule already read
+///
+///   ["com.openai.sky.CUAService.AuthorizationPlugin.remote", "use-login-window-ui"]
+///
+/// with k-of-n = 1, installed by a computer-use agent. decide_variant said
+/// Some(A) -- it keys on the Apple mechanism being present, not on the rule being
+/// untouched -- so preflight would have approved, and the installer would have
+/// added a third entry to a lock screen a stranger had already reconfigured.
+///
+/// k-of-n = 1 means ANY one entry can grant the unlock. Stacking onto that is not
+/// automatically wrong, but it is a decision about someone's lock screen, and it
+/// was being made for them silently. This names what is already there so the
+/// install sheet can say it out loud.
+///
+/// The list is of things we recognise, not of things we distrust: an unknown
+/// entry is unknown, which is the whole point. `ai.repose.spike` counts as known
+/// because finding ourselves means a previous install, not a stranger.
+pub fn foreign_mechanisms(rule_json: &str) -> Vec<String> {
+    const KNOWN: [&str; 5] = [
+        "use-login-window-ui",
+        "authenticate-session-owner-or-admin",
+        "authenticate-session-owner",
+        "authenticate",
+        SUBRULE_NAME,
+    ];
+    serde_json::from_str::<Vec<String>>(rule_json)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| !KNOWN.contains(&e.as_str()))
+        .collect()
 }
 
 fn variant_str(v: Option<RuleVariant>) -> Option<&'static str> {
@@ -704,7 +743,10 @@ impl UnlockBackend for HostMacBackend {
     fn preflight(&self) -> Result<PreflightReport, UnlockError> {
         let rule_now = Self::read_rule().unwrap_or_default();
         match decide_variant(&rule_now) {
-            Some(variant) => Ok(PreflightReport { variant: Some(variant), can_install: true, rule_now }),
+            Some(variant) => {
+                let foreign = foreign_mechanisms(&rule_now);
+                Ok(PreflightReport { variant: Some(variant), can_install: true, rule_now, foreign })
+            }
             None => Err(UnlockError::new(
                 UnlockErrorCode::PreflightRuleShape,
                 "这台 Mac 的锁屏规则和预期不同，Repose 不改它",
@@ -1155,6 +1197,46 @@ mod tests {
     }
 
     // ---- presence ---------------------------------------------------------
+
+    // ---- foreign mechanisms in the lock-screen rule -----------------------
+
+    #[test]
+    fn an_untouched_mac_reports_no_foreign_mechanisms() {
+        assert!(foreign_mechanisms(r#"["use-login-window-ui"]"#).is_empty());
+        assert!(foreign_mechanisms(r#"["authenticate-session-owner-or-admin"]"#).is_empty());
+    }
+
+    #[test]
+    fn finding_ourselves_is_not_foreign() {
+        // A second install must not describe the first one as a stranger.
+        assert!(foreign_mechanisms(r#"["ai.repose.spike","use-login-window-ui"]"#).is_empty());
+    }
+
+    #[test]
+    fn a_third_party_plugin_is_named() {
+        // The exact rule found on the development Mac on 2026-09-11, put here so
+        // the case stays represented after that machine changes.
+        let found = foreign_mechanisms(
+            r#"["com.openai.sky.CUAService.AuthorizationPlugin.remote","use-login-window-ui"]"#,
+        );
+        assert_eq!(found, vec!["com.openai.sky.CUAService.AuthorizationPlugin.remote"]);
+    }
+
+    #[test]
+    fn decide_variant_alone_would_have_approved_that_machine() {
+        // Why the check above had to exist. decide_variant keys on the Apple
+        // mechanism still being present, which it was, so preflight said yes to
+        // a lock screen a stranger had already reconfigured.
+        assert_eq!(
+            decide_variant(r#"["com.openai.sky.CUAService.AuthorizationPlugin.remote","use-login-window-ui"]"#),
+            Some(RuleVariant::A),
+        );
+    }
+
+    #[test]
+    fn an_unparseable_rule_reports_nothing_rather_than_guessing() {
+        assert!(foreign_mechanisms("not json").is_empty());
+    }
 
     #[test]
     fn each_component_appears_at_most_once() {

@@ -13,9 +13,10 @@ import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } 
 import { KeyRound, Smartphone, ShieldCheck, X, Monitor } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
-  beginRequest, finishRequest, failRequest, canIssue, healthClass,
+  beginRequest, finishRequest, failRequest, canIssue, healthClass, normalizePreflight,
   INITIAL_REQUEST_STATE,
   type UnlockSnapshot, type UnlockError, type PanelCommand, type RequestState,
+  type PreflightReport,
   type UnlockDesktopBridge,
 } from '../lib/unlock'
 
@@ -34,6 +35,10 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   )
   const [request, setRequest] = useState<RequestState>(INITIAL_REQUEST_STATE)
   const [showInstall, setShowInstall] = useState(false)
+  // Read before the sheet opens, not after the user agrees: the sheet's job is
+  // to say what will happen on THIS Mac, and on some Macs that includes "a third
+  // party's authorization plugin is already in the unlock path".
+  const [pre, setPre] = useState<PreflightReport | null>(null)
   const [showManifest, setShowManifest] = useState(false)
   const [armedRevoke, setArmedRevoke] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -145,7 +150,12 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
           onClick={() => {
             if (degraded) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
             if (enabled) { void run('resume', () => bridge!.setEnabled({ enabled: false })) }
-            else { setShowInstall(true) } // never flip green on click; install first
+            else {
+              // Never flip green on click; disclose, then install.
+              setPre(null)
+              setShowInstall(true)
+              void bridge!.preflight().then(r => setPre(normalizePreflight(r))).catch(() => setPre(null))
+            }
           }}
         ><span /></button>
       </div>
@@ -233,7 +243,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
         </div>
       )}
 
-      {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} />}
+      {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} pre={pre} />}
       {showManifest && <RemoveConfirm onClose={() => setShowManifest(false)} onConfirm={() => { setShowManifest(false); dispatchCommand('uninstall') }} />}
     </section>
   )
@@ -241,7 +251,11 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
 // ---- install disclosure (§5.3) -------------------------------------------
 
-function InstallDisclosure({ onClose, onConfirm, variant }: { onClose: () => void; onConfirm: () => void; variant: 'A' | 'B' | null }) {
+function InstallDisclosure(
+  { onClose, onConfirm, variant, pre }:
+  { onClose: () => void; onConfirm: () => void; variant: 'A' | 'B' | null; pre: PreflightReport | null },
+) {
+  const foreign = pre?.foreign ?? []
   return (
     <ModalShell label="开始前，先说清楚会发生什么" onClose={onClose} className="phone-key-modal">
       <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
@@ -255,6 +269,17 @@ function InstallDisclosure({ onClose, onConfirm, variant }: { onClose: () => voi
         <li><b>还原的路一直在。</b>备份、还原脚本、一份纯文本说明都落在 <code>/var/db/repose-unlock/</code>，删掉 Repose 也不影响。</li>
         {variant === 'B' && <li className="pk-variant-b"><b>锁屏界面会换一个程序来画。</b>为了让手机钥匙工作，锁屏会改由系统的 SecurityAgent 绘制——同样是 macOS 自己的界面，但排版可能和现在略有不同。一分钟后的演练里你就会看到它。</li>}
       </ol>
+      {foreign.length > 0 && (
+        <div className="pk-foreign">
+          <strong>这台 Mac 的锁屏里已经有别的解锁组件</strong>
+          <ul>{foreign.map(f => <li key={f}><code>{f}</code></li>)}</ul>
+          <p>
+            不是 Repose 装的，也不一定有问题——但你该知道它在。锁屏规则现在是
+            <b>「任一条通过即可进入」</b>，所以上面每一条都能单独放行；装上 Repose 是
+            <b>再加一条</b>，不是加一道锁。移除 Repose 只会还原我们改动的部分，不会动它。
+          </p>
+        </div>
+      )}
       <div className="pk-cant">
         <strong><ShieldCheck size={15} /> 它挡不住什么</strong>
         <ul>

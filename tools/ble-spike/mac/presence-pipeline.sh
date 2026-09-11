@@ -24,9 +24,19 @@
 # verifier detached with nohup sometimes survived and sometimes vanished. Plain
 # files have no ordering to get wrong.
 #
-# The bridge deliberately stays as the invoking user. It reaches the target over
-# ssh, and root has different ssh keys -- running it privileged turns a working
-# permit write into a silent authentication failure.
+# TWO SHAPES, BECAUSE THE TARGET DIFFERS
+#
+#   remote (the spike VM)  scanner | [root: verify] | bridge
+#   local  (the product)   scanner | [root: verify | bridge]
+#
+# The only reason the bridge is kept unprivileged in the remote shape is that it
+# reaches the VM over ssh with the invoking user's keys; run it as root and a
+# working permit write becomes a silent authentication failure. Locally there is
+# no ssh and the permit is a root-owned file on this machine, so the bridge
+# belongs inside the privileged half -- which is also simpler, since it means one
+# authorization prompt covers the whole chain.
+#
+# REPOSE_SSH being set is what selects remote. Nothing guesses.
 #
 # In the product the verifier becomes a launchd job holding the key and none of
 # this is user-visible. This is the same shape, assembled by hand.
@@ -44,6 +54,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DURATION="${1:-0}"          # 0 = until interrupted
 KEY_DIR="${REPOSE_KEY_DIR:-/var/db/repose-unlock}"
 KEY_ID="${REPOSE_KEY_ID:-1}"
+PERMIT_DIR="${REPOSE_PERMIT_DIR:-/var/run/repose-spike}"
+STATUS_FILE_ARG="${REPOSE_STATUS_FILE:-}"
+# Remote when a VM connection was handed to us; local otherwise. Explicit, so
+# nobody has to infer which half the bridge is running in.
+MODE="local"
+[ -n "${REPOSE_SSH:-}" ] && MODE="remote"
 
 say() { printf 'pipeline: %s\n' "$*" >&2; }
 
@@ -93,13 +109,30 @@ SCAN_PID=$!
 # 2. Verifier: root, because the presence key is root-owned 0600 -- anyone who can
 #    read K can mint beacons and unlock this Mac. Held in the foreground of its own
 #    osascript, which is what keeps it alive.
-say "starting the verifier as root (one authorization prompt)"
-run_root "tail -n +1 -f '${RAW}' | '${HERE}/presence-verify' --key-dir '${KEY_DIR}' \
-  >> '${VERIFIED}' 2>> '${WORK}/verify.log'" &
+say "starting the privileged half as root (one authorization prompt, ${MODE} target)"
+if [ "${MODE}" = remote ]; then
+  run_root "tail -n +1 -f '${RAW}' | '${HERE}/presence-verify' --key-dir '${KEY_DIR}' \
+    >> '${VERIFIED}' 2>> '${WORK}/verify.log'" &
+else
+  # Local: root verifies AND decides AND writes the permit, so the permit
+  # commands need no sudo and no ssh. The status file stays where the app can
+  # read it, which is why it is chmod'd back afterwards -- root created it.
+  run_root "REPOSE_PERMIT_ON_CMD=\"mkdir -p ${PERMIT_DIR} && chmod 755 ${PERMIT_DIR} && touch ${PERMIT_DIR}/permit\" \
+    REPOSE_PERMIT_OFF_CMD=\"rm -f ${PERMIT_DIR}/permit\" \
+    REPOSE_STATUS_FILE='${STATUS_FILE_ARG}' \
+    sh -c \"tail -n +1 -f '${RAW}' | '${HERE}/presence-verify' --key-dir '${KEY_DIR}' 2>> '${WORK}/verify.log' | bash '${HERE}/permit-bridge.sh' 2>> '${WORK}/bridge.log'\"" &
+fi
 ROOT_PID=$!
 sleep 3
+# root may have created the status file; the app reads it unprivileged.
+[ -n "${STATUS_FILE_ARG}" ] && run_root "chmod 644 '${STATUS_FILE_ARG}'" >/dev/null 2>&1
 
-# 3. Bridge: us again. Holds no key and no radio; only decides near/far. It is the
-#    foreground process, so the run ends when it does.
+# 3. Bridge. Remote: us, so ssh uses our keys. Local: already inside the root
+#    half above, so there is nothing left to start here.
 say "scanner ${SCAN_PID}, logs in ${WORK}"
-tail -n +1 -f "${VERIFIED}" | bash "${HERE}/permit-bridge.sh"
+if [ "${MODE}" = remote ]; then
+  tail -n +1 -f "${VERIFIED}" | bash "${HERE}/permit-bridge.sh"
+else
+  # The privileged half owns the whole chain; wait on the scanner instead.
+  wait "${SCAN_PID}" 2>/dev/null
+fi

@@ -529,3 +529,39 @@ export function remediationLabel(remediation: Remediation): string | null {
 export function healthClass(health: string): string {
   return health === 'ok' ? 'good' : health === 'broken' ? 'bad' : health === 'degraded' ? 'warn' : ''
 }
+
+
+// ---- preflight -----------------------------------------------------------
+
+export type PreflightReport = {
+  variant: RuleVariant
+  canInstall: boolean
+  ruleNow: string
+  /**
+   * Third-party mechanisms already in this Mac's lock-screen rule.
+   *
+   * Empty on an untouched machine. Non-empty means someone else's authorization
+   * plugin is already in the unlock path -- with k-of-n = 1, each entry can grant
+   * an unlock on its own, so adding ours adds one more door rather than a second
+   * lock. That is a fact about the user's Mac, not about Repose, and the install
+   * sheet has to say it before they agree to anything.
+   */
+  foreign: string[]
+}
+
+/** Untrusted like everything else from the backend: anything odd becomes "cannot install". */
+export function normalizePreflight(value: unknown): PreflightReport {
+  const safe: PreflightReport = { variant: null, canInstall: false, ruleNow: '', foreign: [] }
+  if (!value || typeof value !== 'object') return safe
+  const p = value as Record<string, unknown>
+  return {
+    variant: oneOf<Exclude<RuleVariant, null>>(p.variant, ['A', 'B'] as const) ?? null,
+    canInstall: p.canInstall === true,
+    ruleNow: str(p.ruleNow) ?? '',
+    // Cap the list: it is rendered, and a backend returning thousands of entries
+    // should not become an unclosable modal.
+    foreign: Array.isArray(p.foreign)
+      ? p.foreign.filter((e): e is string => typeof e === 'string' && e.length <= 200).slice(0, 12)
+      : [],
+  }
+}
