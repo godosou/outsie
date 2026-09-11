@@ -219,7 +219,12 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
   const view = deriveUnlockView(snapshot)
   const busy = !canIssue(request)
-  const enabled = snapshot.state === 'ready' || snapshot.state === 'awaiting-verification'
+  // The switch shows whether anything is watching for the phone -- the one
+  // thing it can actually change. It used to be derived from `state`, which
+  // stays AwaitingVerification whether the monitor runs or not: the switch
+  // rendered ON permanently, only its turn-OFF branch was ever reachable, and
+  // clicking it did nothing visible. Forever.
+  const enabled = snapshot.presenceRunning
 
   return (
     <section className={`panel preferences-panel phone-key-panel${degraded ? ' is-degraded' : ''}`}>
@@ -231,7 +236,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
       <div className="preference-row">
         <span className="preference-icon"><KeyRound size={21} /></span>
         <div>
-          <h3>回车解锁</h3>
+          <h3>{enabled ? '正在等你的手机' : '没有在等手机'}</h3>
           <p>
             解锁 Mac 时，如果配对的手机在身边，密码框留空、直接按一下回车就能进入。
             <b>它不会在你走近时自己打开</b>——密码框还是会出现，你只是不用输任何字符。
@@ -247,19 +252,16 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
           onClick={() => {
             if (degraded) { onToast?.('手机钥匙只能在 Outsie Mac App 中使用'); return }
             if (enabled) {
-              // Stop watching first, then record the preference. The other order
-              // leaves a scanner running for a feature the panel says is off.
-              void run('resume', async () => {
-                await bridge!.setPresenceRunning({ enabled: false }).catch(() => null)
-                return bridge!.setEnabled({ enabled: false })
-              })
+              void run('resume', () => bridge!.setPresenceRunning({ enabled: false }))
             } else if (snapshot.state !== 'not-installed') {
-              // Already installed: turning it back on is just resuming, no need
-              // to re-disclose an install that already happened.
-              void run('resume', async () => {
-                await bridge!.setEnabled({ enabled: true })
-                return bridge!.setPresenceRunning({ enabled: true })
-              })
+              // Already installed: turning it back on is just starting the
+              // monitor, with no install to re-disclose.
+              //
+              // setEnabled used to be called on both sides of this. It is a
+              // placeholder that changes nothing and re-reads, so it could only
+              // ever return the same snapshot the switch was already wrong
+              // about -- which is what made the OFF state unreachable.
+              void run('resume', () => bridge!.setPresenceRunning({ enabled: true }))
             } else {
               // Never flip green on click; disclose, then install.
               setPre(null)

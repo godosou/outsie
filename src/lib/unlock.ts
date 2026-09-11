@@ -106,6 +106,8 @@ export type UnlockSnapshot = {
   readAt: string
   state: UnlockState
   presence: Presence
+  /** Whether anything is watching for the phone. What the switch shows. */
+  presenceRunning: boolean
   variant: RuleVariant
   components: UnlockComponent[]
   componentInvocation: ComponentInvocation
@@ -124,6 +126,7 @@ export const UNSUPPORTED_SNAPSHOT: UnlockSnapshot = Object.freeze({
   readAt: '',
   state: 'not-installed',
   presence: 'transport-unavailable',
+  presenceRunning: false,
   variant: null,
   components: [],
   componentInvocation: { kind: 'never-observed' as const },
@@ -189,6 +192,10 @@ export function normalizeUnlockSnapshot(
   }
 
   const presence = oneOf<Presence>(s.presence, PRESENCES) ?? 'transport-unavailable'
+  // Absent reads as "not running", which is the safe direction: a switch shown
+  // OFF for a monitor that is on costs one redundant click; shown ON for one
+  // that is off is the state this panel was stuck in.
+  const presenceRunning = s.presenceRunning === true
   const variant = oneOf<Exclude<RuleVariant, null>>(s.variant, ['A', 'B'] as const) ?? null
 
   const components = Array.isArray(s.components)
@@ -229,7 +236,7 @@ export function normalizeUnlockSnapshot(
   }
 
   return {
-    readAt, state, presence, variant, components, componentInvocation, device,
+    readAt, state, presence, presenceRunning, variant, components, componentInvocation, device,
     stats, lastFailure,
     macosBuild: str(s.macosBuild) ?? '',
     componentVersion: str(s.componentVersion) ?? '',

@@ -23,6 +23,7 @@ function snapshot(overrides: Partial<UnlockSnapshot> = {}): UnlockSnapshot {
     readAt: '2026-09-09T14:03:22Z',
     state: 'ready',
     presence: 'near',
+    presenceRunning: true,
     variant: 'A',
     components: [
       { id: 'rule', health: 'ok', detail: '已就位' },

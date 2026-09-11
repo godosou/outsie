@@ -193,6 +193,9 @@ pub struct UnlockSnapshot {
     pub read_at: String,
     pub state: UnlockState,
     pub presence: Presence,
+    /// Whether anything is watching for the phone. This is what the panel's
+    /// switch shows and what it changes -- see [presence_running].
+    pub presence_running: bool,
     pub variant: Option<RuleVariant>,
     pub components: Vec<UnlockComponent>,
     pub component_invocation: ComponentInvocation,
@@ -554,9 +557,30 @@ pub struct HostFacts {
     pub presence: PresenceReport,
 }
 
+/// Is anything actually watching for the phone right now?
+///
+/// This is what the panel's switch means, and the switch has to be derived from
+/// something it can change. It used to be derived from `state`, which it could
+/// not: an installed, paired Mac reports AwaitingVerification whether or not
+/// the monitor is running, so the switch rendered ON permanently, only ever ran
+/// its turn-OFF branch, and the turn-ON branch was unreachable. Clicking it did
+/// nothing visible, forever.
+///
+/// NoAuthorization counts as running on purpose. Something IS running -- the
+/// scanner -- and calling that "off" would offer the user a switch to turn on
+/// a thing that is already on. The transport row is where the breakage gets
+/// explained.
+pub fn presence_running(report: &PresenceReport) -> bool {
+    match report {
+        PresenceReport::Fresh { .. } | PresenceReport::NoAuthorization => true,
+        PresenceReport::NeverRan | PresenceReport::NotRunning | PresenceReport::Unreadable => false,
+    }
+}
+
 pub struct Assessment {
     pub state: UnlockState,
     pub presence: Presence,
+    pub presence_running: bool,
     pub components: Vec<UnlockComponent>,
 }
 
@@ -752,7 +776,7 @@ pub fn assess(f: &HostFacts) -> Assessment {
         UnlockState::NotInstalled
     };
 
-    Assessment { state, presence, components }
+    Assessment { state, presence, presence_running: presence_running(&f.presence), components }
 }
 
 // ---- backend trait + host implementation ---------------------------------
@@ -903,6 +927,7 @@ impl UnlockBackend for HostMacBackend {
             read_at,
             state: assessment.state,
             presence: assessment.presence,
+            presence_running: assessment.presence_running,
             variant,
             components: assessment.components,
             component_invocation: ComponentInvocation::NeverObserved,
@@ -1815,6 +1840,7 @@ mod tests {
             read_at: "t".into(),
             state: UnlockState::NotInstalled,
             presence: Presence::TransportUnavailable,
+            presence_running: false,
             variant: None,
             components: vec![],
             component_invocation: ComponentInvocation::NeverObserved,
@@ -2008,6 +2034,24 @@ mod tests {
         assert!(lock_readiness(None).is_err());
         assert!(lock_readiness(Some("")).is_err());
         assert!(lock_readiness(Some("some future wording")).is_err());
+    }
+
+    #[test]
+    fn the_switch_reflects_something_it_can_change() {
+        // It used to read `state`, which stays AwaitingVerification whether or
+        // not the monitor runs -- so the switch was permanently ON, only its
+        // turn-OFF branch was reachable, and clicking it did nothing visible.
+        let mut f = facts();
+        f.presence = PresenceReport::NotRunning;
+        assert!(!assess(&f).presence_running, "a stopped monitor must read as off");
+        f.presence = PresenceReport::NeverRan;
+        assert!(!assess(&f).presence_running);
+        f.presence = PresenceReport::Fresh { state: "away".into(), rssi: None };
+        assert!(assess(&f).presence_running, "running and not seeing the phone is still running");
+        // Something IS running here -- the scanner. Calling it off would offer
+        // a switch to start a thing that is already started.
+        f.presence = PresenceReport::NoAuthorization;
+        assert!(assess(&f).presence_running);
     }
 
     #[test]
