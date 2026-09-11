@@ -135,8 +135,16 @@ while let flag = args.first {
 // The pipeline reaps this process in its exit handler, but an exit handler that
 // does not run -- a force-quit app, a SIGKILL, a crash -- leaves a scanner
 // holding the Bluetooth session and draining battery for a feature nobody is
-// using any more. Three of them had accumulated by the time anyone looked, and
-// nothing on screen would ever have mentioned it.
+// using any more.
+//
+// What was actually observed: after several rounds of starting and stopping
+// pipelines by hand, three rssi-scan processes were still running, listing
+// parent pids that no longer existed. Whether they were truly orphaned or the
+// parents were mid-teardown was never established -- they were gone a minute
+// later. So this guard is written for the failure it prevents rather than as
+// the fix for a diagnosis nobody finished, and the honest summary is that
+// nothing on any screen would have mentioned a scanner outliving its pipeline
+// either way.
 //
 // getppid() becomes 1 when the parent goes, so the check is one syscall.
 let parentAtStart = getppid()
