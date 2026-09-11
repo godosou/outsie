@@ -504,6 +504,7 @@ export type UnlockDesktopBridge = {
   calibrateSample: (value: { kind: 'near' | 'far' }) => Promise<unknown>
   startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<unknown>
   openBluetoothSettings: () => Promise<void>
+  openLockScreenSettings: () => Promise<void>
   onSnapshot: (cb: (snapshot: unknown) => void) => () => void
   onPresence: (cb: (presence: unknown) => void) => () => void
 }

@@ -899,6 +899,7 @@ pub fn run() {
             unlock::unlock_calibrate_sample,
             unlock::unlock_drill_start,
             unlock::unlock_open_bluetooth_settings,
+            unlock::unlock_open_lock_screen_settings,
             unlock::unlock_copy_diagnostics,
             unlock::unlock_export_manifest
         ])

@@ -1004,6 +1004,22 @@ impl UnlockBackend for HostMacBackend {
 
 // ---- process helpers -----------------------------------------------------
 
+/// Capture stdout AND stderr.
+///
+/// `sysadminctl` writes its answer to stderr, in the os_log format with a
+/// timestamp and pid in front of it. Reading stdout got an empty string, which
+/// matched none of the expected wordings, so lock_readiness fell through to
+/// "your Mac has a lock delay" -- on a Mac whose delay is immediate. The error
+/// was confidently wrong, which is worse than no error, and it was reported to
+/// the user as something to go and fix.
+fn run_capture_all(bin: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new(bin).args(args).output().ok()?;
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    let text = text.trim().to_string();
+    text.is_empty().then_some(()).map_or(Some(text), |_| None)
+}
+
 fn run_capture(bin: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(bin).args(args).output().ok()?;
     if !out.status.success() {
@@ -1675,12 +1691,18 @@ pub fn lock_readiness(screen_lock_status: Option<&str>) -> Result<(), &'static s
     if text.contains("immediate") {
         return Ok(());
     }
+    // Both messages name the exact place. An error that states a problem and
+    // leaves the reader to find the setting is half an error -- and this panel
+    // has already shipped one link that pointed at the page the user was
+    // standing on.
     if text.contains("is off") || text.contains("screenLock is off") {
-        Err("这台 Mac 没有开启「需要密码」，锁屏不会要密码，演练没有意义。\
-             先在系统设置里把它打开。")
+        Err("这台 Mac 锁屏后不要求密码，所以「回车解锁」没有意义。\
+             打开「系统设置 → 锁定屏幕 → 在屏幕保护程序开始或关闭显示器后要求输入密码」，\
+             选「立即」。")
     } else {
-        Err("这台 Mac 的锁屏密码有延迟，屏幕变黑之后还有一段时间不锁。\
-             把它设成「立即」，手机钥匙才谈得上。")
+        Err("这台 Mac 锁屏后不是立刻要密码，中间有一段时间谁都能直接用。\
+             打开「系统设置 → 锁定屏幕 → 在屏幕保护程序开始或关闭显示器后要求输入密码」，\
+             把它改成「立即」。")
     }
 }
 
@@ -1709,7 +1731,8 @@ pub fn lock_readiness(screen_lock_status: Option<&str>) -> Result<(), &'static s
 #[tauri::command]
 pub fn unlock_drill_start(value: DrillArgs) -> Result<(), UnlockError> {
     let _ = value.kind;
-    let status = run_capture("/usr/sbin/sysadminctl", &["-screenLock", "status"]);
+    // stderr, not stdout -- see run_capture_all.
+    let status = run_capture_all("/usr/sbin/sysadminctl", &["-screenLock", "status"]);
     lock_readiness(status.as_deref())
         .map_err(|m| UnlockError::new(UnlockErrorCode::Unsupported, m))?;
 
@@ -1720,6 +1743,16 @@ pub fn unlock_drill_start(value: DrillArgs) -> Result<(), UnlockError> {
             "没有锁上屏幕。这一步不需要任何权限，失败通常意味着系统拒绝了请求。",
         )),
     }
+}
+
+/// Open the pane the lock-readiness error names.
+///
+/// Naming the path is better than not naming it; opening it is better still.
+/// The panel already shipped one 「前往设置」 that led to the page the reader
+/// was standing on, so a link here has to actually land somewhere.
+#[tauri::command]
+pub fn unlock_open_lock_screen_settings() {
+    open_url("x-apple.systempreferences:com.apple.Lock-Screen-Settings.extension");
 }
 
 #[tauri::command]

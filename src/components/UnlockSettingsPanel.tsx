@@ -48,6 +48,10 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   // summarised: "已移除" is a claim, a list of what is and is not still there
   // is a reading.
   const [removal, setRemoval] = useState<UninstallSummary | null>(null)
+  // An error that names a setting should be able to open it. The panel has
+  // already shipped one 「前往设置」 that led to the page the reader was
+  // standing on, so this one has to land somewhere real.
+  const [fixHint, setFixHint] = useState<string | null>(null)
   const requestRef = useRef(request)
   requestRef.current = request
   // Keep a ref so the presence listener can patch just the presence axis without
@@ -95,6 +99,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
     } catch (e) {
       const err = asUnlockError(e)
       setRequest(r => failRequest(r, started.sequence, err))
+      setFixHint(err.detail?.includes('锁定屏幕') ? err.detail : null)
       onToast?.(err.detail || '这一步没有成功')
     }
   }, [bridge, onToast])
@@ -356,6 +361,24 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
       {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} pre={pre} />}
       {showManifest && <RemoveConfirm onClose={() => setShowManifest(false)} onConfirm={() => { setShowManifest(false); dispatchCommand('uninstall') }} />}
+      {/* An error the user can act on, with the control that acts on it. */}
+      {fixHint && (
+        <div className="pk-removal" role="status">
+          <div className="pk-removal-head">
+            <b>还差一步</b>
+            <button className="pk-removal-close" aria-label="关闭" onClick={() => setFixHint(null)}>
+              <X size={16} />
+            </button>
+          </div>
+          <p className="pk-removal-note" style={{ marginTop: 8 }}>{fixHint}</p>
+          <button
+            className="button outline full-width"
+            style={{ marginTop: 12 }}
+            onClick={() => { void bridge?.openLockScreenSettings() }}
+          >打开「锁定屏幕」设置</button>
+        </div>
+      )}
+
       {/* What the removal actually read back, not a claim that it worked.
           Clicking 移除 used to leave the panel completely unchanged after a
           successful uninstall and an administrator password -- indistinguishable
