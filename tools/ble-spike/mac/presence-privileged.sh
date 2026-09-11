@@ -54,9 +54,26 @@ esac
 [ -x "${REPOSE_BIN}/presence-verify" ] || fail "no presence-verify in ${REPOSE_BIN}"
 [ -r "${REPOSE_BIN}/permit-bridge.sh" ] || fail "no permit-bridge.sh in ${REPOSE_BIN}"
 
+# The status file is written here, as root, and read by the app, as the user.
+#
+# It used to be made readable by a SECOND run_root -- a second authorization
+# dialog, for a chmod, raised through osascript so it was titled "osascript"
+# right after the one titled Outsie. Two password boxes with different names for
+# one action is worse than either alone: it reads as something having gone
+# wrong, or as something else having slipped in.
+#
+# We are already root here. umask covers everything written from now on; the
+# chmod covers a file an earlier run left behind at 0600.
+umask 022
+[ -e "${REPOSE_STATUS_FILE}" ] && chmod 644 "${REPOSE_STATUS_FILE}" 2>/dev/null
+
 export REPOSE_PERMIT_ON_CMD="mkdir -p ${REPOSE_PERMIT_DIR} && chmod 755 ${REPOSE_PERMIT_DIR} && touch ${REPOSE_PERMIT_DIR}/permit"
 export REPOSE_PERMIT_OFF_CMD="rm -f ${REPOSE_PERMIT_DIR}/permit"
 export REPOSE_STATUS_FILE="${REPOSE_STATUS_FILE}"
+# Both root stages watch the same flag the loop below watches, so none of them
+# depends on its parent still being there -- which in a backgrounded pipeline is
+# not a safe thing to depend on.
+export REPOSE_RUNFLAG="${REPOSE_RUNFLAG}"
 
 # The stages are DIRECT children of this script, not wrapped in an inner
 # `sh -c`. pkill -P reaches children, not grandchildren, so a wrapper meant the
@@ -67,6 +84,7 @@ export REPOSE_STATUS_FILE="${REPOSE_STATUS_FILE}"
 if [ "${REPOSE_MODE}" = remote ]; then
     tail -n +1 -f "${REPOSE_RAW}" \
         | "${REPOSE_BIN}/presence-verify" --key-dir "${REPOSE_KEY_DIR}" \
+            --run-flag "${REPOSE_RUNFLAG}" \
         >> "${REPOSE_VERIFIED}" 2>> "${REPOSE_LOG_DIR}/verify.log" &
 else
     # tee, so the verified stream reaches TWO readers.
@@ -82,7 +100,7 @@ else
     # pipeline deadlocked on FIFO open ordering, and a file has no ordering.
     tail -n +1 -f "${REPOSE_RAW}" \
         | "${REPOSE_BIN}/presence-verify" --key-dir "${REPOSE_KEY_DIR}" \
-            2>> "${REPOSE_LOG_DIR}/verify.log" \
+            --run-flag "${REPOSE_RUNFLAG}" 2>> "${REPOSE_LOG_DIR}/verify.log" \
         | tee -a "${REPOSE_VERIFIED}" \
         | bash "${REPOSE_BIN}/permit-bridge.sh" 2>> "${REPOSE_LOG_DIR}/bridge.log" &
 fi

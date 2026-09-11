@@ -444,6 +444,8 @@ func selfTest() -> Int32 {
 
 var keyDir = defaultKeyDir
 var fixedNow: Int64? = nil
+/// A file that exists for as long as this run should last. See the watcher.
+var runFlag: String? = nil
 var runSelfTest = false
 var argv = Array(CommandLine.arguments.dropFirst())
 while let flag = argv.first {
@@ -455,12 +457,16 @@ while let flag = argv.first {
         guard let v = argv.first else { log("--key-dir needs a path"); exit(64) }
         keyDir = v
         argv.removeFirst()
+    case "--run-flag":
+        guard let v = argv.first else { log("--run-flag needs a path"); exit(64) }
+        runFlag = v
+        argv.removeFirst()
     case "--fixed-now":
         guard let v = argv.first.flatMap({ Int64($0) }) else { log("--fixed-now needs seconds"); exit(64) }
         fixedNow = v
         argv.removeFirst()
     default:
-        log("usage: presence-verify [--self-test] [--key-dir DIR] [--fixed-now UNIX_SECONDS]")
+        log("usage: presence-verify [--self-test] [--key-dir DIR] [--run-flag PATH] [--fixed-now UNIX_SECONDS]")
         exit(64)
     }
 }
@@ -473,26 +479,31 @@ if let f = fixedNow {
     log("TEST MODE: clock pinned to \(f). Replay protection is disabled in this run.")
 }
 
-// Die with whoever started us.
+// Stop when the run is over.
 //
-// rssi-scan has had this guard for a while; the privileged half did not, and it
-// is the half where an orphan actually matters. Observed: the watcher that owns
-// this stage died, and presence-verify and permit-bridge were reparented to
-// launchd -- two ROOT processes, holding a pipe open, verifying against a key
-// directory that had just been deleted, and unkillable by the app that started
-// them (it runs as the user). Uninstall could not reap them. Nothing could,
-// short of a reboot or a password.
+// This watched getppid() and exited when it changed. That is right for a direct
+// child and WRONG here: in `tail | presence-verify | tee | bridge &` the shell
+// forks a subshell that starts the members and then goes away, so the parent
+// legitimately changes within milliseconds of starting. The guard fired on
+// every healthy run -- the bridge logged "parent went away" and exited seconds
+// after coming up, which took the permit with it. Presence stopped working and
+// the lock command had nothing left to reach.
 //
-// EOF on stdin is the ordinary way this exits and still is. This is for the
-// case where the writer is gone but the pipe is not, which is exactly what
-// reparenting produces.
-let parentAtStart = getppid()
-DispatchQueue.global().async {
-    while true {
-        Thread.sleep(forTimeInterval: 5)
-        if getppid() != parentAtStart {
-            log("parent went away, exiting rather than verifying for nobody")
-            exit(0)
+// The run flag has no such ambiguity: it is a file the unprivileged half
+// creates before starting anything and removes when the run ends, and it is
+// already what the privileged script watches. Same fact, one source.
+//
+// EOF on stdin is still the ordinary exit. This covers the case the parent
+// check was aimed at: the supervisor dying without reaping us, leaving a root
+// process nobody can signal.
+if let flag = runFlag {
+    DispatchQueue.global().async {
+        while true {
+            Thread.sleep(forTimeInterval: 2)
+            if !FileManager.default.fileExists(atPath: flag) {
+                log("run flag gone, exiting rather than verifying for nobody")
+                exit(0)
+            }
         }
     }
 }

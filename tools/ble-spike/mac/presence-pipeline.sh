@@ -284,7 +284,9 @@ if [ ! -e "${WORK}/verify.log" ]; then
   exit 3
 fi
 # root may have created the status file; the app reads it unprivileged.
-[ -n "${STATUS_FILE_ARG}" ] && run_root "chmod 644 '${STATUS_FILE_ARG}'" >/dev/null 2>&1
+# The status file's permissions are handled inside presence-privileged.sh,
+# which is already root. Doing it here cost a SECOND authorization dialog --
+# titled "osascript", immediately after the one titled Outsie.
 
 # 3. Bridge. Remote: us, so ssh uses our keys. Local: already inside the root
 #    half above, so there is nothing left to start here.

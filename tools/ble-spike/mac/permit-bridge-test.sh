@@ -426,5 +426,53 @@ else
   bad "no away heartbeat" "early='${early_state},${early}' late='${late}'"
 fi
 
+# 29. Run it the way PRODUCTION runs it: a member of a backgrounded pipeline.
+#
+#     Every test above starts the bridge as a direct child of this script, and a
+#     guard that exits when the parent changes never fires in that shape. In
+#     presence-privileged.sh it is `tail | verify | tee | bash permit-bridge.sh &`
+#     -- the shell forks a subshell that starts the members and goes away, so the
+#     parent changes within milliseconds of starting. A version of this script
+#     shipped with exactly that guard: it logged "parent went away" and exited
+#     seconds into every healthy run, taking the permit with it, and 28 green
+#     tests said nothing because none of them had the right shape.
+#
+#     The lesson is the same one already recorded about sh-vs-bash: a test that
+#     does not run the code the way the product runs it can be green while the
+#     product is broken.
+: > "${ACTIONS}"; rm -f "${STATUS}"
+runflag="${SANDBOX}/runflag"; : > "${runflag}"
+(
+  ( while :; do printf '0,-60,aa,1,1,dead,0,0,auth=VALID,cmd=0\n'; sleep 0.5; done ) \
+    | cat \
+    | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+      REPOSE_RUNFLAG="${runflag}" REPOSE_STATUS_FILE="${STATUS}" \
+      REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+      REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+      bash "${BRIDGE}" 2>> "${SANDBOX}/pipeline.log"
+) &
+pipe_pid=$!
+sleep 4
+# grep -q, not grep -c: `grep -c` prints 0 AND exits 1 when there are no
+# matches, so `|| echo 0` fires too and the variable becomes two lines. This
+# test failed on its own arithmetic before it ever judged the bridge.
+if grep -q '^ON$' "${ACTIONS}" 2>/dev/null; then still_on=yes; else still_on=no; fi
+if grep -q 'parent went away' "${SANDBOX}/pipeline.log" 2>/dev/null; then gone=yes; else gone=no; fi
+rm -f "${runflag}"
+sleep 3
+stopped_after="$(cut -d, -f1 "${STATUS}" 2>/dev/null)"
+kill -9 "${pipe_pid}" 2>/dev/null; wait "${pipe_pid}" 2>/dev/null
+pkill -f "permit-bridge.sh" >/dev/null 2>&1
+
+if [ "${gone}" = yes ]; then
+  bad "the bridge killed itself inside a normal pipeline" "logged 'parent went away'"
+elif [ "${still_on}" = no ]; then
+  bad "the bridge never asserted a permit inside a pipeline" "actions='$(tr '\n' ' ' <"${ACTIONS}")'"
+elif [ "${stopped_after}" != stopped ]; then
+  bad "removing the run flag did not stop the bridge" "status='$(cat "${STATUS}" 2>/dev/null)'"
+else
+  ok "inside a real pipeline it keeps running, and the run flag is what stops it"
+fi
+
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]

@@ -225,7 +225,10 @@ on_signal() {
 # not. Immediate teardown would be nicer. It is not what keeps the door shut.
 trap on_signal TERM INT HUP EXIT
 
-PARENT_AT_START="$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')"
+# Empty when nobody passed one: a bridge run by hand or by the test harness has
+# no run to be part of, and must not exit because a file it was never told
+# about does not exist.
+RUN_FLAG="${REPOSE_RUNFLAG:-}"
 
 publish starting
 log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
@@ -249,19 +252,25 @@ while :; do
 
     now="$(now_s)"
 
-    # Die with whoever started us.
+    # Stop when the run is over.
     #
-    # This runs as root, and when its parent died it was reparented to launchd:
-    # a root process holding the permit logic open, which the app -- running as
-    # the user -- cannot signal. Uninstall could not reap it. EOF on stdin is
-    # still the ordinary exit; this covers the case where the writer is gone but
-    # the pipe is not, which is what reparenting produces.
+    # This compared $PPID and exited when it changed. That is right for a direct
+    # child and WRONG here: in `tail | verify | tee | bash permit-bridge.sh &`
+    # the shell forks a subshell that starts the members and then goes away, so
+    # the parent legitimately changes within milliseconds. The guard fired on
+    # every healthy run -- "parent went away", seconds after starting -- taking
+    # the permit with it. Presence stopped working entirely, and the phone's
+    # lock command had nothing left to reach.
     #
-    # Checked here rather than on a timer because the loop already wakes every
-    # REFRESH_S, and going through the normal exit path matters: the handler
-    # clears the permit on the way out.
-    if [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != "${PARENT_AT_START}" ]; then
-        log "parent went away; clearing permit and exiting"
+    # The run flag has no such ambiguity: the unprivileged half creates it
+    # before starting anything and removes it when the run ends, and it is
+    # already what the privileged script watches. One fact, one source.
+    #
+    # EOF on stdin remains the ordinary exit. This covers what the parent check
+    # was aimed at: a supervisor dying without reaping us, leaving a root
+    # process the app cannot signal.
+    if [ -n "${RUN_FLAG}" ] && [ ! -e "${RUN_FLAG}" ]; then
+        log "run flag gone; clearing permit and exiting"
         publish stopped
         [ "${present}" = 1 ] && clear_permit
         exit 0
