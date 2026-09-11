@@ -1577,6 +1577,10 @@ mod tests {
             // rule pointing at a bundle that was never shipped -- the fail-open
             // state, created by our own installer.
             "ReposeSpike.bundle",
+            // presence-pipeline.sh sources this. In the repo it is two levels up;
+            // in the bundle it is one. Shipping it at all is the part a resource
+            // map can silently drop.
+            "run-root.sh",
         ] {
             assert!(conf.contains(needed), "tauri.conf.json bundles no {needed}");
         }

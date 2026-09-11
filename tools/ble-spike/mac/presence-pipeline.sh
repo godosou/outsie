@@ -49,7 +49,22 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-. "$(cd "${HERE}/../../lib" && pwd)/run-root.sh"
+# Two layouts, because this file runs from two places.
+#
+#   repo    tools/ble-spike/mac/  ->  ../../lib/run-root.sh
+#   bundle  Resources/scripts/    ->  ../lib/run-root.sh
+#
+# The repo path was the only one, so in the packaged app the source failed, the
+# shell carried on -- `.` on a missing file is not fatal under `set -u` -- and
+# the first call to run_root died with "command not found" a hundred lines later.
+# A missing helper should not be discovered by the function it defines going
+# absent; it is checked here, once, and said plainly.
+RUN_ROOT=""
+for candidate in "${HERE}/../../lib/run-root.sh" "${HERE}/../lib/run-root.sh"; do
+  [ -f "${candidate}" ] && { RUN_ROOT="${candidate}"; break; }
+done
+[ -n "${RUN_ROOT}" ] || { echo "pipeline: cannot find run-root.sh next to ${HERE}" >&2; exit 2; }
+. "${RUN_ROOT}"
 
 DURATION="${1:-0}"          # 0 = until interrupted
 KEY_DIR="${REPOSE_KEY_DIR:-/var/db/repose-unlock}"
