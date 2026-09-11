@@ -298,6 +298,99 @@ pub fn console_request_trust() -> bool {
     trusted(true)
 }
 
+/// One app, as macOS describes it. The icon is a data: URI so the panel needs
+/// no file access of its own.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickedApp {
+    pub name: String,
+    pub bundle_id: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn repose_console_pick_app() -> *mut std::ffi::c_char;
+    fn repose_console_free_json(value: *mut std::ffi::c_char);
+}
+
+/// Open macOS's own application chooser.
+///
+/// Discovery never launches anything and never loads code out of a bundle --
+/// it reads Info.plist and the icon. Picking an app is not running it.
+#[tauri::command]
+pub async fn console_pick_app() -> Result<Option<PickedApp>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        #[derive(Deserialize)]
+        struct Selection {
+            #[serde(default)]
+            app: Option<PickedApp>,
+            #[serde(default)]
+            error: Option<String>,
+        }
+        // The panel is modal on the main thread; the native side already hops
+        // there, so this must NOT be spawn_blocking or the two deadlock.
+        let raw = unsafe { repose_console_pick_app() };
+        if raw.is_null() {
+            return Err("没能打开选择窗口".into());
+        }
+        let parsed: Result<Selection, _> =
+            unsafe { serde_json::from_slice(std::ffi::CStr::from_ptr(raw).to_bytes()) };
+        unsafe { repose_console_free_json(raw) };
+        let sel = parsed.map_err(|_| "选择窗口返回了读不懂的东西".to_string())?;
+        if let Some(e) = sel.error {
+            return Err(e);
+        }
+        Ok(sel.app)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("只有 Mac 桌面版能选 App。".into())
+    }
+}
+
+#[derive(Deserialize)]
+pub struct SaveArgs {
+    pub config: ConsoleConfig,
+}
+
+/// Write the configuration back.
+///
+/// The revision is bumped here rather than trusted from the caller: it is what
+/// the phone will use to tell a stale catalogue from a current one, and a
+/// number the UI could forget to change is a number that will eventually make
+/// a phone press the wrong key.
+#[tauri::command]
+pub fn console_save(app: AppHandle, value: SaveArgs) -> Result<ConsoleConfig, String> {
+    let mut config = value.config;
+    config.revision = load_config(&app).revision.wrapping_add(1);
+    // Fill in `kind` only when it is genuinely absent, and by shape.
+    //
+    // The first version of this stamped "sequence" on everything with an empty
+    // kind -- which, combined with the panel not carrying the field at all,
+    // rewrote every "hotkey" in the user's file. Nothing here reads `kind`, and
+    // that is exactly why it must be preserved rather than normalised: a field
+    // we do not use is a field we cannot judge.
+    for a in &mut config.apps {
+        for action in &mut a.actions {
+            if action.kind.trim().is_empty() {
+                action.kind = if action.steps.len() > 1 { "sequence" } else { "hotkey" }.into();
+            }
+        }
+    }
+    let path = config_path(&app).ok_or("找不到可写的应用数据目录")?;
+    let body = serde_json::to_string_pretty(&config).map_err(|_| "配置存不成 JSON")?;
+    // Write beside and rename, so an interrupted save cannot leave a truncated
+    // file where the configuration used to be.
+    let tmp = path.with_extension("json.writing");
+    std::fs::write(&tmp, body).map_err(|e| format!("写不进去：{e}"))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("存不下来：{e}"))?;
+    Ok(config)
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunArgs {
@@ -330,6 +423,79 @@ mod tests {
             modifiers: mods.iter().map(|s| s.to_string()).collect(),
             delay_ms: 0,
         }
+    }
+
+    /// The same fill-in console_save does, so the rule is testable without a
+    /// Tauri handle.
+    fn fill_kind(cfg: &mut ConsoleConfig) {
+        for a in &mut cfg.apps {
+            for action in &mut a.actions {
+                if action.kind.trim().is_empty() {
+                    action.kind = if action.steps.len() > 1 { "sequence" } else { "hotkey" }.into();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_kind_that_is_already_there_is_never_rewritten() {
+        // The bug this pins: the panel dropped `kind` on the way through and a
+        // save then flattened every "hotkey" in the file to "sequence". Nothing
+        // reads the field, which is the reason to leave it alone, not a reason
+        // to normalise it.
+        let mut cfg = ConsoleConfig {
+            revision: 1,
+            apps: vec![ConsoleApp {
+                id: "a".into(), name: "A".into(), bundle_id: "com.a".into(), app_path: None,
+                actions: vec![ConsoleAction {
+                    id: "x".into(), name: "X".into(), kind: "hotkey".into(),
+                    steps: vec![step("b", &["ctrl"]), step("%", &[])], ..Default::default()
+                }],
+            }],
+        };
+        fill_kind(&mut cfg);
+        assert_eq!(cfg.apps[0].actions[0].kind, "hotkey", "an existing kind must survive a save");
+    }
+
+    #[test]
+    fn a_missing_kind_is_filled_in_from_the_shape_of_the_action() {
+        let mut cfg = ConsoleConfig {
+            revision: 1,
+            apps: vec![ConsoleApp {
+                id: "a".into(), name: "A".into(), bundle_id: "com.a".into(), app_path: None,
+                actions: vec![
+                    ConsoleAction { id: "one".into(), name: "One".into(), steps: vec![step("k", &["cmd"])], ..Default::default() },
+                    ConsoleAction { id: "many".into(), name: "Many".into(), steps: vec![step("b", &["ctrl"]), step("%", &[])], ..Default::default() },
+                ],
+            }],
+        };
+        fill_kind(&mut cfg);
+        assert_eq!(cfg.apps[0].actions[0].kind, "hotkey");
+        assert_eq!(cfg.apps[0].actions[1].kind, "sequence");
+    }
+
+    #[test]
+    fn a_saved_action_gets_the_same_kind_the_hand_written_ones_have() {
+        // Not cosmetic: a file with both "sequence" and "" is a file whose
+        // convention the next reader has to guess at.
+        let mut cfg = ConsoleConfig {
+            revision: 1,
+            apps: vec![ConsoleApp {
+                id: "a".into(),
+                name: "A".into(),
+                bundle_id: "com.a".into(),
+                app_path: None,
+                actions: vec![ConsoleAction { id: "x".into(), name: "X".into(), ..Default::default() }],
+            }],
+        };
+        for a in &mut cfg.apps {
+            for action in &mut a.actions {
+                if action.kind.trim().is_empty() {
+                    action.kind = "sequence".into();
+                }
+            }
+        }
+        assert_eq!(cfg.apps[0].actions[0].kind, "sequence");
     }
 
     #[test]

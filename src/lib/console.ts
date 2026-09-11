@@ -15,6 +15,16 @@ export type ConsoleAction = {
   id: string
   name: string
   icon: string | null
+  /**
+   * Carried, not interpreted.
+   *
+   * The config distinguishes "hotkey" (one keystroke) from "sequence" (several).
+   * Nothing here reads it -- run_action just performs the steps -- but dropping
+   * it from this type meant every action the panel round-tripped came back
+   * without it, and a save then flattened the whole file to one value. The
+   * user's data is not ours to simplify because we happen not to use a field.
+   */
+  kind: string | null
   steps: ConsoleStep[]
 }
 
@@ -32,10 +42,77 @@ export type ConsoleStatus = {
   apps: ConsoleApp[]
 }
 
+export type PickedApp = { name: string; bundleId: string; path: string; icon: string | null }
+
 export type ConsoleDesktopBridge = {
   status: () => Promise<unknown>
   requestTrust: () => Promise<boolean>
   run: (value: { appId: string; actionId: string }) => Promise<void>
+  pickApp: () => Promise<unknown>
+  save: (value: { config: unknown }) => Promise<unknown>
+}
+
+/**
+ * A keystroke as the browser reports it, turned into the shape the Mac presses.
+ *
+ * Recorded rather than typed. Asking someone to write "b" and then tick three
+ * checkboxes is asking them to transcribe something they could simply do, and
+ * transcription is where ⌃ becomes ⌘.
+ *
+ * Shift is deliberately NOT recorded for a printable character. The browser
+ * already reports the shifted character -- ⇧5 arrives as "%" -- and
+ * work_console.m derives the shift it needs from the character itself. Storing
+ * both would press shift twice and show the pill as ⇧%. That is also exactly
+ * how the config already on disk spells it: {"key": "%", "modifiers": []}.
+ */
+export function stepFromKeyboardEvent(e: {
+  key: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+}): ConsoleStep | null {
+  // A bare modifier is not a keystroke; the recorder keeps waiting.
+  if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock'].includes(e.key)) return null
+
+  const named: Record<string, string> = {
+    Enter: 'return', Escape: 'escape', Tab: 'tab', ' ': 'space', Backspace: 'delete',
+    ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+    Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown',
+  }
+  const modifiers: string[] = []
+  if (e.metaKey) modifiers.push('cmd')
+  if (e.ctrlKey) modifiers.push('ctrl')
+  if (e.altKey) modifiers.push('alt')
+
+  const name = named[e.key]
+  if (name) {
+    // Named keys have no shifted spelling, so shift has to be carried.
+    if (e.shiftKey) modifiers.push('shift')
+    return { key: name, modifiers, delayMs: 0 }
+  }
+  if (e.key.length !== 1) return null
+  return { key: e.key, modifiers, delayMs: 0 }
+}
+
+/**
+ * Stable enough for a config file, and readable when someone opens one.
+ *
+ * Letters and digits of any script, not just a-z: stripping non-ASCII turned
+ * every Chinese action name into the same id, so 左右分屏 and 上下分屏 became
+ * "x" and "x-2" — and find_action looks actions up by id, so a file anyone
+ * hand-edits would be a file where the names and the ids say different things.
+ */
+export function slug(name: string, taken: string[]): string {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '') || 'x'
+  let id = base
+  let n = 2
+  while (taken.includes(id)) id = `${base}-${n++}`
+  return id
 }
 
 export const EMPTY_CONSOLE: ConsoleStatus = { trusted: false, apps: [] }
@@ -85,7 +162,7 @@ export function normalizeConsoleStatus(raw: unknown): ConsoleStatus {
           const aid = str(c.id)
           const aname = str(c.name)
           if (!aid || !aname) return []
-          return [{ id: aid, name: aname, icon: str(c.icon), steps: steps(c.steps) }]
+          return [{ id: aid, name: aname, icon: str(c.icon), kind: str(c.kind), steps: steps(c.steps) }]
         }),
       }]
     }),

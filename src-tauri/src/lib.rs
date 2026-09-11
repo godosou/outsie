@@ -901,6 +901,8 @@ pub fn run() {
             console::console_status,
             console::console_request_trust,
             console::console_run,
+            console::console_pick_app,
+            console::console_save,
             unlock::unlock_calibrate_start,
             unlock::unlock_calibrate_sample,
             unlock::unlock_calibrate_finish,

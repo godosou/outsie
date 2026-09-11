@@ -169,6 +169,8 @@ export async function initializeDesktopBridge() {
     status: () => invoke<unknown>('console_status'),
     requestTrust: () => invoke<boolean>('console_request_trust'),
     run: value => invoke<void>('console_run', { value }),
+    pickApp: () => invoke<unknown>('console_pick_app'),
+    save: value => invoke<unknown>('console_save', { value }),
   }
 
   window.repose = {

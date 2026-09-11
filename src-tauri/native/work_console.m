@@ -207,8 +207,8 @@ char *repose_console_pick_app(void) {
   __block NSDictionary *selection = @{@"app":NSNull.null};
   onMainSync(^{
     NSOpenPanel *panel = [NSOpenPanel openPanel];
-    panel.title = @"选择要配置的 App";
-    panel.message = @"选择 Mac 上的应用程序，Repose 会自动识别它。";
+    panel.title = @"选一个 App";
+    panel.message = @"选择 Mac 上的应用程序，Outsie 会自动认出它的名字和图标。";
     panel.prompt = @"选择 App";
     panel.directoryURL = [NSURL fileURLWithPath:@"/Applications"];
     panel.allowedContentTypes = @[UTTypeApplicationBundle];

@@ -599,3 +599,72 @@
    block; it belongs beside the heading it labels. */
 .ks-permission { align-items: flex-start; }
 .ks-permission .preference-icon { margin-top: 2px; }
+
+/* ---- editing the shortcuts -------------------------------------------- */
+.ks-app-head { position: relative; }
+.ks-app-remove {
+  margin-left: auto;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.ks-icon-button {
+  flex: none;
+  padding: 4px;
+  color: var(--muted);
+  display: inline-flex;
+}
+.ks-icon-button:hover { color: var(--text); }
+.ks-add-action {
+  margin-top: 4px;
+  align-self: start;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ks-recorder { text-align: left; }
+.ks-recorded {
+  margin: 18px 0 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--sage-faint, #f4f7f1);
+}
+.ks-recorded kbd,
+.modal-intro kbd {
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: #fff;
+  color: var(--text);
+}
+.ks-recorded-empty { font-size: 12px; color: var(--muted); }
+
+.ks-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 4px;
+  font-size: 12.5px;
+  color: var(--subtle);
+}
+.ks-name input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+}
