@@ -805,23 +805,29 @@ impl UnlockBackend for HostMacBackend {
             "do shell script \"ASSUME_YES=1 {} \" with administrator privileges",
             shell_quote(&script.to_string_lossy()),
         );
+        // Stop watching before removing what it watches for. Left running, the
+        // scanner keeps writing permits into a machine with no plugin to read
+        // them -- harmless, but it also leaves the panel reporting a live
+        // monitor for a feature that has just been uninstalled.
+        let _ = set_presence_running(&self.app, false);
+
         run_privileged(&cmd)?;
-        let rule_now = Self::read_rule().unwrap_or_default();
-        let still_referenced = rule_now.contains(SUBRULE_NAME);
-        Ok(UninstallReport {
-            read_at: Self::now_iso(),
-            rule_now,
-            backup_used: true,
-            diff_against_backup: vec![],
-            right_removed: !still_referenced,
-            bundle_removed: true,
-            keys_removed: true,
-            residual: if still_referenced {
-                vec![format!("规则仍引用 {SUBRULE_NAME}")]
-            } else {
-                vec![]
-            },
-        })
+
+        // Read, do not assume. Every field below used to be a literal.
+        let facts = RemovalFacts {
+            rule_now: Self::read_rule().unwrap_or_default(),
+            bundle_present: std::path::Path::new(BUNDLE_PATH).exists(),
+            key_present: std::fs::metadata(
+                format!("{PRESENCE_KEY_DIR}/presence-key.1"),
+            )
+            .is_ok(),
+            permit_dir_present: std::path::Path::new("/var/run/repose-spike").exists(),
+            support_dir_present: std::path::Path::new(
+                "/Library/Application Support/ReposeSpike",
+            )
+            .exists(),
+        };
+        Ok(uninstall_report(Self::now_iso(), &facts))
     }
 
     fn set_enabled(&self, _enabled: bool) -> Result<UnlockSnapshot, UnlockError> {
@@ -913,6 +919,55 @@ fn shell_quote(s: &str) -> String {
 
 /// Find the directory holding install.sh etc. — the bundle's resource dir in a
 /// packaged app, or a repo-relative dev fallback.
+/// What removal actually left behind, as read from disk afterwards.
+///
+/// Separated from the doing so the report can be tested, and because the
+/// previous version did not read anything at all: `bundle_removed` and
+/// `keys_removed` were the literal `true`. The removal screen told the user
+/// their presence key had been deleted while it sat in /var/db/repose-unlock,
+/// because nobody looked. A report is a claim about the world; this one is now
+/// derived from the world.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemovalFacts {
+    pub rule_now: String,
+    pub bundle_present: bool,
+    pub key_present: bool,
+    pub permit_dir_present: bool,
+    pub support_dir_present: bool,
+}
+
+pub fn uninstall_report(now_iso: String, f: &RemovalFacts) -> UninstallReport {
+    let still_referenced = f.rule_now.contains(SUBRULE_NAME);
+    let mut residual = Vec::new();
+    if still_referenced {
+        residual.push(format!("锁屏规则仍引用 {SUBRULE_NAME}"));
+    }
+    if f.bundle_present {
+        residual.push(format!("组件还在 {BUNDLE_PATH}"));
+    }
+    if f.key_present {
+        // Named first among the leftovers when it happens: the others are inert
+        // files, this one is a secret the phone still authenticates with.
+        residual.push(format!("配对密钥还在 {PRESENCE_KEY_DIR}"));
+    }
+    if f.permit_dir_present {
+        residual.push("permit 目录还在 /var/run/repose-spike".into());
+    }
+    if f.support_dir_present {
+        residual.push("支持目录还在 /Library/Application Support/ReposeSpike".into());
+    }
+    UninstallReport {
+        read_at: now_iso,
+        rule_now: f.rule_now.clone(),
+        backup_used: !still_referenced,
+        diff_against_backup: vec![],
+        right_removed: !still_referenced,
+        bundle_removed: !f.bundle_present,
+        keys_removed: !f.key_present,
+        residual,
+    }
+}
+
 /// Where the running pipeline's pid is recorded.
 ///
 /// A pidfile rather than a handle in memory, because the pipeline outlives any
@@ -1554,6 +1609,90 @@ mod tests {
             );
         }
         assert_eq!(read_presence(None, now), PresenceReport::NeverRan);
+    }
+
+    // ---- removal reports what it found --------------------------------
+
+    fn clean() -> RemovalFacts {
+        RemovalFacts {
+            rule_now: r#"["use-login-window-ui"]"#.into(),
+            bundle_present: false,
+            key_present: false,
+            permit_dir_present: false,
+            support_dir_present: false,
+        }
+    }
+
+    #[test]
+    fn a_clean_removal_reports_nothing_left() {
+        let r = uninstall_report("t".into(), &clean());
+        assert!(r.right_removed && r.bundle_removed && r.keys_removed);
+        assert!(r.residual.is_empty(), "{:?}", r.residual);
+    }
+
+    #[test]
+    fn a_key_left_behind_is_never_reported_as_removed() {
+        // The bug this function exists for. bundle_removed and keys_removed were
+        // the literal `true`, so the removal screen told the user their presence
+        // key was deleted while it sat in /var/db/repose-unlock. A shared secret
+        // surviving "remove everything" is the leftover that matters, so it is
+        // reported and named.
+        let r = uninstall_report("t".into(), &RemovalFacts { key_present: true, ..clean() });
+        assert!(!r.keys_removed);
+        assert!(r.residual.iter().any(|x| x.contains("配对密钥")), "{:?}", r.residual);
+    }
+
+    #[test]
+    fn a_surviving_bundle_is_reported() {
+        let r = uninstall_report("t".into(), &RemovalFacts { bundle_present: true, ..clean() });
+        assert!(!r.bundle_removed);
+        assert!(!r.residual.is_empty());
+    }
+
+    #[test]
+    fn a_rule_still_pointing_at_us_is_the_dangerous_leftover() {
+        // Rule present, bundle gone: the fail-open state, created by our own
+        // uninstaller. It must never read as a clean removal.
+        let r = uninstall_report(
+            "t".into(),
+            &RemovalFacts { rule_now: r#"["ai.repose.spike","use-login-window-ui"]"#.into(), ..clean() },
+        );
+        assert!(!r.right_removed);
+        assert!(!r.backup_used, "a restore that did not restore is not a restore");
+        assert!(r.residual.iter().any(|x| x.contains(SUBRULE_NAME)));
+    }
+
+    #[test]
+    fn leftovers_are_listed_all_at_once_not_one_at_a_time() {
+        // Reporting only the first would send someone round the loop repeatedly.
+        let r = uninstall_report(
+            "t".into(),
+            &RemovalFacts {
+                bundle_present: true,
+                key_present: true,
+                permit_dir_present: true,
+                support_dir_present: true,
+                ..clean()
+            },
+        );
+        assert_eq!(r.residual.len(), 4, "{:?}", r.residual);
+    }
+
+    #[test]
+    fn the_uninstaller_script_removes_the_presence_key() {
+        // It did not, for the whole time the app claimed it did. Asserted
+        // against the script because that is where the deletion has to happen --
+        // the Rust only reports what is left.
+        let script = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../native/macos/minimal-auth-plugin/uninstall.sh"),
+        )
+        .expect("uninstall.sh should be readable");
+        assert!(
+            script.contains("presence-key"),
+            "uninstall.sh does not remove the presence key",
+        );
+        assert!(script.contains(PRESENCE_KEY_DIR), "uninstall.sh does not touch {PRESENCE_KEY_DIR}");
     }
 
     #[test]

@@ -113,6 +113,22 @@ fi
 # that reads it is gone is harmless today and a trap the next time something
 # reads that path. Clear the hardened path and the old /tmp one.
 rm -f /var/run/repose-spike/permit /tmp/repose-permit
+rmdir /var/run/repose-spike 2>/dev/null || true
+
+# The presence key, which this script used to leave behind.
+#
+# It is the shared secret the phone authenticates with. Removing the component
+# and the rule while leaving the key on disk means "remove everything" left the
+# one thing that matters, and the app's removal screen said the key had been
+# deleted -- so the report was wrong in the direction that costs something.
+#
+# Deleted rather than kept for convenience: a key whose Mac no longer has the
+# software is a key nobody is watching. Re-pairing takes a minute.
+if [ -d /var/db/repose-unlock ]; then
+    echo "==> Removing presence keys from /var/db/repose-unlock"
+    rm -f /var/db/repose-unlock/presence-key.* 2>/dev/null || true
+    rmdir /var/db/repose-unlock 2>/dev/null || true
+fi
 echo "Diagnostics left at /tmp/repose-plugin.log (evidence; delete when done)."
 
 echo "Done. Current '${RIGHT}':"

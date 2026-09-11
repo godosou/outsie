@@ -130,6 +130,26 @@ while let flag = args.first {
     }
 }
 
+// Die with whoever started us.
+//
+// The pipeline reaps this process in its exit handler, but an exit handler that
+// does not run -- a force-quit app, a SIGKILL, a crash -- leaves a scanner
+// holding the Bluetooth session and draining battery for a feature nobody is
+// using any more. Three of them had accumulated by the time anyone looked, and
+// nothing on screen would ever have mentioned it.
+//
+// getppid() becomes 1 when the parent goes, so the check is one syscall.
+let parentAtStart = getppid()
+DispatchQueue.global().async {
+    while true {
+        Thread.sleep(forTimeInterval: 5)
+        if getppid() != parentAtStart {
+            log("parent went away, exiting rather than scanning for nobody")
+            exit(0)
+        }
+    }
+}
+
 if let d = duration {
     log("will exit after \(Int(d))s")
     DispatchQueue.main.asyncAfter(deadline: .now() + d) {
