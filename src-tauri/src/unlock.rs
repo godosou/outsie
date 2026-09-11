@@ -1112,8 +1112,18 @@ fn run_privileged(script: &str) -> Result<(), UnlockError> {
     use objc2_foundation::{NSAppleScript, NSString};
 
     let source = NSString::from_str(script);
-    // SAFETY: NSAppleScript must be used from the main thread, which every Tauri
-    // command runs on.
+    // SAFETY / THREADING: Apple documents NSAppleScript as not thread-safe.
+    // Install and pairing reach this from a synchronous Tauri command, which
+    // runs on the main thread. The presence pipeline reaches it from a thread
+    // of its own, deliberately -- `do shell script` does not return until the
+    // command does, and that one runs for as long as monitoring does, so
+    // blocking the main thread with it would freeze the window for the whole
+    // session rather than for the length of a dialog.
+    //
+    // One instance, one thread, never shared: that is the shape that is safe.
+    // It has been exercised on this Mac; if it ever misbehaves, the alternative
+    // is Authorization Services directly, which is more code and the same
+    // dialog.
     let result = unsafe {
         let apple_script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source)
             .ok_or_else(|| {
@@ -1532,10 +1542,35 @@ pub fn unlock_uninstall(app: AppHandle) -> Result<UninstallReport, UnlockError> 
 
 /// Start or stop presence monitoring. Wired to the panel's switch, because it
 /// raises an authorization prompt and a prompt must follow a deliberate action.
+///
+/// ASYNC, AND THAT IS NOT AN OPTIMISATION
+///
+/// Starting waits for the pipeline's first heartbeat before reporting success --
+/// otherwise the panel reads a status file nobody has written yet, the switch
+/// stays grey, and the user presses it a second time. That wait is up to
+/// twenty-five seconds, because it has to cover somebody typing an
+/// administrator password.
+///
+/// A synchronous Tauri command runs on the main thread, so that wait froze the
+/// whole window: the app appeared hung for the entire time it was doing exactly
+/// what it was asked. Declared async, Tauri runs it on its own runtime, and the
+/// panel's existing in-flight state shows the wait instead of the app dying.
 #[tauri::command]
-pub fn unlock_presence_set(app: AppHandle, value: EnabledArgs) -> Result<UnlockSnapshot, UnlockError> {
-    set_presence_running(&app, value.enabled)?;
-    HostMacBackend::new(&app).get_snapshot()
+pub async fn unlock_presence_set(
+    app: AppHandle,
+    value: EnabledArgs,
+) -> Result<UnlockSnapshot, UnlockError> {
+    let handle = app.clone();
+    let enabled = value.enabled;
+    // spawn_blocking, not plain async: everything inside is blocking I/O --
+    // spawning a process, sleeping, stat-ing a file -- and running that on an
+    // async worker would block the runtime instead of the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        set_presence_running(&handle, enabled)?;
+        HostMacBackend::new(&handle).get_snapshot()
+    })
+    .await
+    .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
 }
 
 #[tauri::command]
@@ -1833,8 +1868,16 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     //
     // The verifier no longer caches a missing key either; both halves are fixed
     // because either one alone leaves the other as a trap for the next change.
-    let _ = set_presence_running(&app, false);
-    let _ = set_presence_running(&app, true);
+    // Off-thread: this waits for the pipeline's first heartbeat, and the sheet
+    // has somewhere useful to be in the meantime -- it moves to
+    // 还差手机上那一下 and starts listening for the phone. Blocking here froze
+    // the window at the exact moment the user was being asked to go and tap
+    // something on their phone.
+    let restart = app.clone();
+    std::thread::spawn(move || {
+        let _ = set_presence_running(&restart, false);
+        let _ = set_presence_running(&restart, true);
+    });
 
     // The nickname is cosmetic, so saving it must never be able to fail the
     // pairing: a Mac that paired correctly but could not write a name is
