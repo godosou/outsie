@@ -5,6 +5,7 @@ import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -56,6 +57,10 @@ fun buildHomeScreen(
     // that says calm during a broken state is the same lie as a wrong title, just
     // harder to notice. Read once here so onState can tell when it has gone stale.
     val healthy = PresenceKey.hasAny(context)
+    // How many computer cards this build drew. A different number means the
+    // screen is describing a set that no longer exists, and refreshing the text
+    // would leave the wrong cards under it.
+    val builtCount = store.pairedMacs(context).size
     lateinit var headline: TextView
     lateinit var subhead: TextView
     var suppress = false
@@ -117,9 +122,14 @@ fun buildHomeScreen(
         }
         hero.addView(subhead, Ui.lp(top = context.dp(8)))
         column.addView(hero, Ui.lp(top = context.dp(6)))
-
-        // ---- The advertise toggle card ----
-        val toggleCard = sectionCard(context, pal, "📡", "让附近的 Mac 认出我")
+        // ---- Is this phone acting as a key ----
+        //
+        // One line, one switch. The hi-fi design puts nothing else at this
+        // level: everything the old screen stacked here -- the fingerprint, a
+        // paragraph about what the beacon is, a second card about controlling
+        // the Mac -- was either a per-computer fact (now on the cards) or
+        // something you read once (now on 这把钥匙).
+        val toggleCard = sectionCard(context, pal, "📡", "当你的钥匙")
         val toggleRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -143,26 +153,16 @@ fun buildHomeScreen(
         toggleRow.addView(toggle, Ui.lp(width = WRAP_CONTENT, left = context.dp(12)))
         toggleCard.addView(toggleRow, Ui.lp(top = context.dp(12)))
 
-        // Battery optimisation, and why this is on the main screen rather than
-        // in a settings page nobody opens.
-        //
-        // Measured on this phone 2026-09-12: the foreground service was killed
-        // about five minutes after the app went to the background, and nothing
-        // said so. The switch was not shown as off -- the app was gone. The Mac
-        // correctly reported not seeing the phone. So the feature does not look
-        // broken, it looks unreliable, and you walk to your Mac carrying a key
-        // you believe works.
-        //
-        // START_STICKY is supposed to bring it back; this OEM does not honour
-        // that, and there is no broadcast to a process that has been killed --
-        // so the only reliable fix is not being killed in the first place.
+        // Shown only while it is true, which is why it is allowed on this screen
+        // at all: it is a condition, not furniture. Measured on this phone --
+        // the service is killed a few minutes after the app goes to the
+        // background, and nothing says so.
         if (!isBatteryExempt(context)) {
             toggleCard.addView(
                 Ui.amberNote(
                     context,
                     pal,
-                    "这台手机会在后台把 Outsie 关掉，到时候 Mac 就认不出你了——而且不会有任何提示。" +
-                        "把它设成不受电池优化限制，这种情况就不会发生。",
+                    "这台手机会在后台把 Outsie 关掉，到时候 Mac 就认不出你了——而且不会有任何提示。",
                 ),
                 Ui.lp(top = context.dp(12)),
             )
@@ -173,232 +173,168 @@ fun buildHomeScreen(
         }
         column.addView(toggleCard, Ui.lp(top = context.dp(14)))
 
-        // ---- What this phone can actually see ----
+        // ---- One card per computer ----
         //
-        // Not a device list: there is no pairing store, and the previous
-        // version's list was seeded placeholders shown as though they were real.
-        val keyCard = sectionCard(context, pal, "🔑", "配对状态")
-        keyStatus = Ui.body(context, pal, "")
-        keyCard.addView(keyStatus, Ui.lp(top = context.dp(12)))
-        keyCard.addView(
-            Ui.secondary(
-                context,
-                pal,
-                // 「分不出是哪一台」 stopped being true when the beacon started
-                // carrying a mac id inside the authenticated message. Leaving
-                // it would be the screen apologising for a limitation that no
-                // longer exists -- and telling someone to walk to a Mac they
-                // could have identified from here.
-                "上面那张卡是配对过的 Mac 报来的。每台 Mac 报的编号不一样，所以附近有几台就分得出几台；" +
-                    "名字没有跟着报过来，要对上是哪一台，看那台 Mac 上「技术细节」里的同一串编号。",
-            ),
-            Ui.lp(top = context.dp(8)),
+        // This is the shape the design asked for and the shape the protocol
+        // could not support until the Mac's state beacon started carrying which
+        // Mac it is. It does now, so a card can say something about ITS machine
+        // instead of the screen summarising them all into one sentence -- and
+        // 「其中一台锁着」 is exactly the sentence that sends you to the wrong desk.
+        column.addView(
+            TextView(context).apply {
+                text = "我的电脑"
+                setTextColor(pal.textSecondary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+                letterSpacing = 0.1f
+                typeface = Typeface.MONOSPACE
+            },
+            Ui.lp(top = context.dp(20), left = context.dp(4)),
         )
-        column.addView(keyCard, Ui.lp(top = context.dp(14)))
-
-        // ---- What the Mac is doing, when the Mac has told us ----
-        //
-        // The one sentence this screen could never say before. Until the Mac
-        // got its own beacon the phone knew nothing about it -- every line here
-        // was either about this phone or an invention. Three states, and
-        // 「不知道」 is a real one: out of range, asleep, off, or simply not
-        // running Outsie. Picking either of the other two to stand in for it
-        // would send someone to a Mac that is fine, or keep them from one that
-        // is waiting.
-        if (healthy) {
-            val macCard = sectionCard(context, pal, "💻", "你的 Mac")
-            macStatus = Ui.body(context, pal, "")
-            macCard.addView(macStatus, Ui.lp(top = context.dp(12)))
-            macHint = Ui.secondary(context, pal, "")
-            macCard.addView(macHint, Ui.lp(top = context.dp(6)))
-            column.addView(macCard, Ui.lp(top = context.dp(14)))
-        }
-
-        // ---- Controlling the Mac from here ----
-        //
-        // Only shown once there is a key. Without one the Mac refuses every
-        // command, and a button that is guaranteed to do nothing is worse than
-        // no button: it teaches people the feature is flaky rather than that
-        // they have not finished setting it up.
-        if (healthy) {
-            val control = sectionCard(context, pal, "🖥", "从这里控制 Mac")
-            control.addView(
-                Ui.secondary(
+        val paired = store.pairedMacs(context)
+        if (paired.isEmpty()) {
+            column.addView(
+                Ui.infoNote(
                     context,
                     pal,
-                    "指令跟着信号一起发出，只在 Mac 就在附近时有用 —— " +
-                        "人不在电脑旁边，按了也不会生效。",
-                ),
-                Ui.lp(top = context.dp(12)),
-            )
-            control.addView(
-                Ui.primaryButton(context, pal, "锁定 Mac") {
-                    sendCommand(context, SpikeContract.CMD_LOCK)
-                },
-                Ui.lp(top = context.dp(16)),
-            )
-            // 「允许下一次解锁」 used to sit here and has been removed.
-            //
-            // It sent a command that made the Mac write an unlock permit. The
-            // trouble is that a phone which is near and switched on makes the
-            // Mac write that permit CONTINUOUSLY -- so the button described
-            // something already happening, and pressing it changed nothing you
-            // could see. A control with no observable effect teaches people
-            // that the app's buttons are decorative.
-            //
-            // It earns a place only alongside a stricter mode, where being near
-            // stops being enough and the tap becomes the only way in. That is a
-            // security change, not a convenience, so it ships with that mode or
-            // not at all. See docs/plans/2026-09-11-phone-commands.md.
-            control.addView(
-                Ui.secondary(
-                    context,
-                    pal,
-                    "锁上之后，上面那张「你的 Mac」会跟着变。",
+                    "还没有配过电脑。配对要两边同时在场——在 Mac 上打开 Outsie，" +
+                        "左边选「手机控制」，点「配对手机」。",
                 ),
                 Ui.lp(top = context.dp(10)),
             )
-            column.addView(control, Ui.lp(top = context.dp(14)))
+        } else {
+            for (m in paired) {
+                column.addView(computerCard(context, pal, nav, m), Ui.lp(top = context.dp(10)))
+            }
         }
-
-        // ---- Keep-alive entry ----
-        val keepAlive = sectionCard(context, pal, "🔋", "让 ${Brand.NAME} 一直醒着").apply {
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { nav.go(Screen.KEEPALIVE) }
-        }
-        val kaRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        kaRow.addView(
-            Ui.secondary(context, pal, "锁屏时也要能被 Mac 认出 · 后台设置"),
-            LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f),
+        column.addView(
+            Ui.ghostButton(context, pal, "＋ 添加电脑") { nav.go(Screen.PAIRING) },
+            Ui.lp(top = context.dp(12)),
         )
-        kaRow.addView(
-            TextView(context).apply {
-                text = "›"
-                setTextColor(pal.textSecondary)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            },
-            Ui.lp(width = WRAP_CONTENT),
-        )
-        keepAlive.addView(kaRow, Ui.lp(top = context.dp(12)))
-        column.addView(keepAlive, Ui.lp(top = context.dp(14)))
 
         column.addView(
-            Ui.secondary(context, pal, "锁屏时的提示都发到这台手机——Mac 那时锁着，你也看不到。"),
-            Ui.lp(top = context.dp(16), left = context.dp(4), right = context.dp(4)),
+            Ui.secondary(context, pal, "手机钥匙用不了的时候，Mac 密码照常登录。"),
+            Ui.lp(top = context.dp(18), left = context.dp(4), right = context.dp(4)),
         )
     }
 
     fun refresh() {
         val running = SpikeState.serviceRunning
         val advertising = SpikeState.advertising
-        // Ask the Keystore, not the service.
-        //
-        // SpikeState.authentic is only set when BleSpikeService starts, so with
-        // the beacon switched off this screen announced 没有配对密钥 on a phone
-        // that had one -- telling someone their pairing is gone because a toggle
-        // is off. "Is there a key" and "is the beacon running" are different
-        // questions and the screen now asks each of them separately.
         val authentic = PresenceKey.hasAny(context)
+        val count = store.pairedMacs(context).size
+
+        headline.text = when {
+            !authentic -> "还不是钥匙"
+            count == 0 -> "守着你的 Mac"
+            else -> "守着你的 $count 台 Mac"
+        }
+        subhead.text = when {
+            !authentic -> "还没配过电脑，所以还打不开任何一台。"
+            count <= 1 -> "只有配对过的 Mac 认得出这台手机"
+            else -> "$count 台 Mac 用的是这把钥匙"
+        }
+
         suppress = true
-        toggle.isChecked = running
+        toggle.isChecked = running && advertising
         suppress = false
-
-        // Two independent facts, and the headline must not collapse them. A phone
-        // broadcasting a worthless tag is on the air and is still useless, so
-        // "advertising" alone is not "working".
-        when {
-            !running -> {
-                headline.text = "已关闭"
-                subhead.text = "附近的 Mac 认不出这台手机"
-            }
-            advertising && authentic -> {
-                headline.text = "守着你的 Mac"
-                subhead.text = "只有和你配对过的 Mac 认得出这台手机"
-            }
-            advertising -> {
-                headline.text = "还没有配对"
-                subhead.text = "Mac 还认不出这台手机，先配对一次"
-            }
-            else -> {
-                headline.text = "开着，但蓝牙没能用起来"
-                subhead.text = "这台设备可能没有蓝牙"
-            }
+        toggleStatus.text = when {
+            !authentic -> "还没有配对，Mac 认不出这台手机。"
+            running && advertising -> "开着 · 附近的 Mac 认得出你"
+            running -> "正在启动…"
+            else -> "关着 · 现在谁都认不出这台手机"
         }
-
-        when {
-            !running -> {
-                toggleStatus.text = "已关闭 · Mac 认不出这台手机"
-                toggleStatus.setTextColor(pal.textSecondary)
-            }
-            advertising -> {
-                // Deliberately not "正在被认出": nothing tells this phone that.
-                toggleStatus.text = "● 已开启 · 正在让附近的 Mac 认出你"
-                toggleStatus.setTextColor(if (authentic) pal.accent else pal.amberText)
-            }
-            else -> {
-                toggleStatus.text = "已开启，但这台设备用不了蓝牙。"
-                toggleStatus.setTextColor(pal.amberText)
-            }
-        }
-
-        // Every Mac in range, each with its own answer.
-        //
-        // The single-state version was correct only while a phone could pair
-        // with one Mac. With two, the beacon that arrived last became the
-        // answer for both -- so a locked Mac in the next room could tell you
-        // the one in front of you was locked too.
-        val macs = MacState.sightings()
-        when {
-            macs.isEmpty() -> {
-                macStatus?.text = "不知道"
-                macStatus?.setTextColor(pal.textSecondary)
-                // Says which possibilities it cannot tell apart, rather than a
-                // bare 未知 that reads as a fault.
-                macHint?.text = "附近没找到你的 Mac。可能不在身边、睡着了，或者没开 Outsie。"
-            }
-            macs.size == 1 -> {
-                val only = macs[0]
-                macStatus?.text = if (only.state == MacLockState.LOCKED) "锁着" else "开着"
-                macStatus?.setTextColor(pal.textPrimary)
-                macHint?.text = if (only.state == MacLockState.LOCKED) {
-                    // The payoff sentence, and it is only allowed on screen
-                    // because a tag minted with the paired key said so.
-                    "走过去，密码框留空，按一下回车就能进。"
-                } else {
-                    "没锁，不用解锁。"
-                }
-            }
-            else -> {
-                // Listed, not summarised. Two Macs in different states have no
-                // single true answer, and 「其中一台锁着」 is exactly the sentence
-                // that sends someone to the wrong desk.
-                macStatus?.text = "附近有 ${macs.size} 台"
-                macStatus?.setTextColor(pal.textPrimary)
-                macHint?.text = macs.joinToString("，") {
-                    "${macLabel(it.macId)} ${if (it.state == MacLockState.LOCKED) "锁着" else "开着"}"
-                } + "。名字要去各自那台 Mac 上看。"
-            }
-        }
-
-        keyStatus.text = if (authentic) {
-            "已配对 · 编号 ${PresenceKey.fingerprint(context) ?: "?"}"
-        } else {
-            "还没有配对。Mac 会看见这台手机，但认不出它是你的，所以不会解锁。"
-        }
-        keyStatus.setTextColor(if (authentic) pal.textPrimary else pal.amberText)
+        toggleStatus.setTextColor(if (authentic) pal.textSecondary else pal.amberText)
     }
     refresh()
 
     return ScreenView(root, onState = {
-        // The hero's colour and stillness are decided at build time from whether a
-        // key exists. If that changes underneath us the picture would keep saying
-        // the old thing, so rebuild; otherwise just refresh the live text.
-        if (PresenceKey.hasAny(context) != healthy) nav.go(Screen.HOME) else refresh()
+        // The hero's colour and stillness are decided at build time from whether
+        // a key exists, and the cards from the list of Macs. Either changing
+        // means the screen is describing something that is no longer there.
+        if (PresenceKey.hasAny(context) != healthy || store.pairedMacs(context).size != builtCount) {
+            nav.go(Screen.HOME)
+        } else {
+            refresh()
+        }
     })
+}
+
+/**
+ * One computer: what it is, what it is doing, and the two things you can ask of
+ * it.
+ *
+ * FOUR STATES, AND 「不在附近」 IS THE HEADLINE ONE
+ *
+ * Out of range is overwhelmingly the common reason for silence, so it is the
+ * main line; asleep, off and 「没开 Outsie」 go underneath. Not 「未知」 -- that
+ * reads as a fault, and this is the ordinary case.
+ *
+ * 「走过去按回车就能进」 appears only when the Mac has said, signed with the
+ * paired key, that it is locked. Without the signature anyone with a radio
+ * could broadcast 「开着」 and keep you in your chair.
+ */
+private fun computerCard(context: Context, pal: Palette, nav: Nav, m: PairedMac): LinearLayout {
+    val seen = m.macId
+        ?.let { hex -> hex.toIntOrNull(16) }
+        ?.let { id -> MacState.sightings().firstOrNull { it.macId == id } }
+
+    val card = Ui.card(context, pal)
+    val top = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+    }
+    top.addView(
+        TextView(context).apply {
+            text = when (seen?.state) {
+                MacLockState.LOCKED -> "🔒"
+                MacLockState.UNLOCKED -> "💻"
+                else -> "🌫"
+            }
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            background = Ui.rounded(pal.surfaceMuted, context.dpF(11f))
+            layoutParams = LinearLayout.LayoutParams(context.dp(34), context.dp(34))
+        },
+    )
+    top.addView(
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(
+                TextView(context).apply {
+                    text = m.name
+                    setTextColor(pal.textPrimary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                },
+            )
+            addView(
+                Ui.secondary(
+                    context,
+                    pal,
+                    when (seen?.state) {
+                        MacLockState.LOCKED -> "锁着 · 走过去，密码框留空按回车就能进"
+                        MacLockState.UNLOCKED -> "开着 · 没锁，不用解锁"
+                        else -> "不在附近 · 也可能是它睡着了、关机了，或者没开 Outsie"
+                    },
+                ),
+                Ui.lp(top = context.dp(2)),
+            )
+        },
+        LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).also { it.leftMargin = context.dp(11) },
+    )
+    card.addView(top)
+
+    val actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+    actions.addView(
+        Ui.ghostButton(context, pal, "锁定") { sendCommand(context, SpikeContract.CMD_LOCK) },
+        LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f),
+    )
+    actions.addView(
+        Ui.ghostButton(context, pal, "控制") { nav.go(Screen.CONTROL) },
+        LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).also { it.leftMargin = context.dp(10) },
+    )
+    card.addView(actions, Ui.lp(top = context.dp(12)))
+    return card
 }
 
 /**

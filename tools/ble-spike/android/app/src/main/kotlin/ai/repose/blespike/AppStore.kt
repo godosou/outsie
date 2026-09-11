@@ -5,12 +5,27 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.random.Random
 
-/** One paired Mac. Tonight these are local placeholders — there is no real pairing store yet. */
-data class MacDevice(
-    val id: String,
+/**
+ * One Mac this phone has paired with.
+ *
+ * THIS LIST IS THE PHONE'S OWN RECORD, NOT THE MAC'S STATE.
+ *
+ * It says "I hold a key for this one", not "this one is switched on" or even
+ * "this one still trusts me". A Mac whose owner deleted the key from the Mac
+ * side has no way to tell this phone so, and this list will still show it --
+ * which is why the screen says as much rather than implying otherwise.
+ *
+ * [macId] is filled in the first time a state beacon verifies under this slot,
+ * so a freshly paired Mac has a name and no id until it is next heard from.
+ */
+data class PairedMac(
+    /** The key slot this Mac's key lives in, on both ends. */
+    val keyId: Int,
+    /** What the Mac called itself at pairing. Cosmetic and chosen by it. */
     val name: String,
-    val lastSeen: String,
-    val enabled: Boolean,
+    val pairedAt: String,
+    /** Four hex digits from the Mac's own beacon, once heard. */
+    val macId: String?,
 )
 
 /**
@@ -147,54 +162,97 @@ class AppStore(context: Context) {
     val unlocksToday: Int
         get() = prefs.getInt(KEY_UNLOCKS, 0)
 
-    fun macs(): List<MacDevice> {
-        val raw = prefs.getString(KEY_MACS, null) ?: return seedMacs().also { saveMacs(it) }
-        return runCatching {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                MacDevice(
-                    id = o.getString("id"),
-                    name = o.getString("name"),
-                    lastSeen = o.getString("lastSeen"),
-                    enabled = o.getBoolean("enabled"),
-                )
-            }
-        }.getOrElse { seedMacs().also { saveMacs(it) } }
+    /**
+     * Every Mac this phone holds a key for.
+     *
+     * Built from the KEYS, not from the records. A key whose record is missing --
+     * paired before this list existed, or written by a build that did not keep
+     * one -- is still a key this phone advertises under and still something the
+     * owner may want gone. Listing only the records would leave those invisible
+     * and unremovable, which is the worst combination: the phone goes on
+     * broadcasting for a Mac nobody can see and nobody can delete.
+     */
+    fun pairedMacs(context: Context): List<PairedMac> {
+        val records = storedRecords().associateBy { it.keyId }
+        return PresenceKey.activeIds(context).map { id ->
+            records[id] ?: PairedMac(
+                keyId = id,
+                name = "一台 Mac",
+                pairedAt = "",
+                macId = null,
+            )
+        }
     }
 
-    fun setEnabled(id: String, enabled: Boolean) {
-        saveMacs(macs().map { if (it.id == id) it.copy(enabled = enabled) else it })
+    private fun storedRecords(): List<PairedMac> = runCatching {
+        val arr = JSONArray(prefs.getString(KEY_MACS, null) ?: "[]")
+        (0 until arr.length()).mapNotNull { i ->
+            val o = arr.getJSONObject(i)
+            val id = o.optInt("keyId", 0)
+            if (id !in 1..255) return@mapNotNull null
+            PairedMac(
+                keyId = id,
+                name = o.optString("name", "").ifBlank { "一台 Mac" },
+                pairedAt = o.optString("pairedAt", ""),
+                macId = o.optString("macId", "").ifBlank { null },
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    /** Record a pairing. Replaces any entry already in that slot. */
+    fun rememberMac(keyId: Int, name: String?, pairedAt: String) {
+        val kept = storedRecords().filter { it.keyId != keyId }
+        saveMacs(
+            kept + PairedMac(
+                keyId = keyId,
+                name = name?.trim().orEmpty().ifBlank { "一台 Mac" },
+                pairedAt = pairedAt,
+                macId = null,
+            ),
+        )
     }
 
-    fun disableAll() {
-        saveMacs(macs().map { it.copy(enabled = false) })
+    /**
+     * Fill in the id of whichever Mac is broadcasting under this slot.
+     *
+     * Only ever the first time, and only from a beacon that verified: a slot's
+     * id is a fact about which machine holds that key, and overwriting it from a
+     * later beacon would let a second Mac that somehow shares the slot rename
+     * the first.
+     */
+    fun noteMacId(keyId: Int, macId: String) {
+        val list = storedRecords()
+        val existing = list.firstOrNull { it.keyId == keyId } ?: return
+        if (existing.macId != null) return
+        saveMacs(list.map { if (it.keyId == keyId) it.copy(macId = macId) else it })
     }
 
-    private fun saveMacs(list: List<MacDevice>) {
+    /**
+     * Forget one Mac: the record and both of its keys.
+     *
+     * The keys go with it, always. An entry removed from the list while its key
+     * stayed in the keystore would be a phone that had stopped admitting to
+     * opening a Mac it could still open.
+     */
+    fun forgetMac(context: Context, keyId: Int) {
+        PresenceKey.delete(context, keyId)
+        keyIds = keyIds.filter { it != keyId }
+        saveMacs(storedRecords().filter { it.keyId != keyId })
+    }
+
+    private fun saveMacs(list: List<PairedMac>) {
         val arr = JSONArray()
         list.forEach { m ->
             arr.put(
                 JSONObject()
-                    .put("id", m.id)
+                    .put("keyId", m.keyId)
                     .put("name", m.name)
-                    .put("lastSeen", m.lastSeen)
-                    .put("enabled", m.enabled),
+                    .put("pairedAt", m.pairedAt)
+                    .apply { m.macId?.let { put("macId", it) } },
             )
         }
         prefs.edit().putString(KEY_MACS, arr.toString()).apply()
     }
-
-    /**
-     * Empty, and deliberately so.
-     *
-     * This used to return two invented Macs -- "MacBook Pro（工作）· 上次 14:22" --
-     * which the home screen then displayed as the machines this phone could unlock.
-     * On a phone that had never been paired with anything, that is a screen making up
-     * a security relationship. No pairing store exists yet, so the truthful answer is
-     * that this phone knows of no Macs, and the screens say that.
-     */
-    private fun seedMacs(): List<MacDevice> = emptyList()
 
     private companion object {
         const val KEY_PAIRED = "paired"

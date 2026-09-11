@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
@@ -68,7 +69,77 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
             )
             column.addView(card, Ui.lp(top = context.dp(14)))
 
-            val reach = sectionCard(context, pal, "💻", "哪些 Mac 认得它")
+            val reach = sectionCard(context, pal, "💻", "配过的 Mac")
+
+            // The phone's own record, one row per key it holds.
+            //
+            // Three things this list must not be mistaken for, all of them said
+            // on screen rather than assumed:
+            //   - it is not the Macs' state; a Mac whose owner deleted the key
+            //     on the Mac side cannot tell this phone, and will still be here
+            //   - removing a row is not "that Mac forgets me"; it is this phone
+            //     giving up the key, which is the half it actually controls
+            //   - deleting the key below takes ALL of them, not just one
+            val macs = store.pairedMacs(context)
+            for (m in macs) {
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+                row.addView(
+                    LinearLayout(context).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(
+                            TextView(context).apply {
+                                text = m.name
+                                setTextColor(pal.textPrimary)
+                                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                            },
+                        )
+                        addView(
+                            Ui.secondary(
+                                context,
+                                pal,
+                                // The id is absent until this Mac has been heard
+                                // from once, and saying so beats showing a blank.
+                                // Three different truths, and they are not the
+                                // same one worded differently: heard and
+                                // identified, held but never heard from, and a
+                                // key older than this list.
+                                (m.macId?.let { "编号 $it" }
+                                    ?: if (m.pairedAt.isBlank()) "这条列表出现之前配的"
+                                    else "还没听到它报编号") +
+                                    " · 钥匙位 ${m.keyId}",
+                            ),
+                            Ui.lp(top = context.dp(2)),
+                        )
+                    },
+                    LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f),
+                )
+                row.addView(
+                    Ui.ghostButton(context, pal, "移走") {
+                        AlertDialog.Builder(context)
+                            .setTitle("从这台手机上移走「${m.name}」？")
+                            .setMessage(
+                                "这台手机会丢掉它那把钥匙，那台 Mac 就不会再因为你走近而解锁。\n\n" +
+                                    "这不是在那台 Mac 上做的操作——它那边的设置不会变，" +
+                                    "只是从此认不出这台手机。想恢复，重新配对一次。",
+                            )
+                            .setNegativeButton("算了", null)
+                            .setPositiveButton("移走") { _, _ ->
+                                store.forgetMac(context, m.keyId)
+                                Toast.makeText(context, "已经移走「${m.name}」", Toast.LENGTH_LONG).show()
+                                nav.go(Screen.MACS)
+                            }
+                            .show()
+                    },
+                    Ui.lp(width = WRAP_CONTENT, left = context.dp(12)),
+                )
+                reach.addView(row, Ui.lp(top = context.dp(12)))
+            }
+
+
             reach.addView(
                 Ui.secondary(
                     context,
@@ -77,9 +148,10 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                     // derives its own, and the phone's keys never leave its
                     // secure element. 「取消配对」 still takes them all, because
                     // it deletes every one.
-                    "这台手机听得到附近每一台配对过的 Mac，各自报一个编号，所以分得出是哪几台。" +
-                        "每台 Mac 用的是各自的一把钥匙，互不相干——「取消配对」会把它们全部删掉，" +
-                        "所有 Mac 一起失效。编号对应的是哪台电脑，看那台 Mac 上「技术细节」里的同一串。",
+                    "这是这台手机自己的记录，不是那些 Mac 的状态——在 Mac 那边删掉钥匙，" +
+                        "这里也不会变。每台 Mac 用的是各自的一把钥匙，互不相干；" +
+                        "下面的「取消配对」会把它们全部删掉，所有 Mac 一起失效。" +
+                        "编号对应的是哪台电脑，看那台 Mac 上「技术细节」里的同一串。",
                 ),
                 Ui.lp(top = context.dp(12)),
             )

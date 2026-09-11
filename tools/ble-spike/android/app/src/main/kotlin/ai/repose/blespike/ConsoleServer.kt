@@ -133,7 +133,7 @@ class ConsoleServer(private val context: Context) {
         if (parsed == null) {
             // Dropped, and the previous catalogue is kept. This is the one place
             // where "show it anyway" would undo the entire point of signing it.
-            lastError = "收到的列表签名对不上，已丢弃。它不是这台 Mac 发的。"
+            lastError = "收到的东西签名对不上，已经丢掉了——它不是你配对的那台 Mac 发的。"
             SpikeState.event(lastError!!)
             Log.w(TAG, "catalogue failed verification")
             return false
@@ -226,7 +226,7 @@ class ConsoleServer(private val context: Context) {
     private val closer = Runnable {
         if (SystemClock.elapsedRealtime() >= openUntil) {
             if (received == null && lastError == null) {
-                lastError = "没等到 Mac 送来列表。它要在附近，而且「快捷控制」那一页要打开着。"
+                lastError = "没同步成。Mac 要在附近，而且电脑上开着 Outsie。"
                 SpikeState.event(lastError!!)
                 SpikeState.notifyListeners()
             }

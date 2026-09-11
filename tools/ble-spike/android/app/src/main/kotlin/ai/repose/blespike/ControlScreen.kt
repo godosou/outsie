@@ -38,18 +38,21 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
                 chip = "从这里按",
                 glyph = "🎛",
                 headline = "这台 Mac 能按的键",
-                body = "列表是 Mac 给的，改要去 Mac 上改。",
+                body = "按钮是 Mac 上配的，改也要去 Mac 上改。",
             ),
             Ui.lp(top = context.dp(6)),
         )
 
-        val statusCard = sectionCard(context, pal, "📡", "取列表")
+        val statusCard = sectionCard(context, pal, "🔄", "和 Mac 同步")
         status = Ui.secondary(context, pal, "")
         statusCard.addView(status, Ui.lp(top = context.dp(12)))
         statusCard.addView(
-            Ui.ghostButton(context, pal, "向 Mac 要一份") {
+            // 「向 Mac 要一份」 described the mechanism. What the reader wants
+            // is the outcome: these buttons come from the Mac, and this makes
+            // them match what is on the Mac now (ui-conventions 3.4).
+            Ui.ghostButton(context, pal, "同步一下") {
                 if (console.request()) {
-                    status.text = "正在等 Mac 送过来。它要在附近，而且电脑上那一页要打开着。"
+                    status.text = "正在同步。Mac 要在附近，而且电脑上开着 Outsie。"
                 } else {
                     status.text = console.lastError ?: "没能开始"
                 }
@@ -65,8 +68,8 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
                 Ui.infoNote(
                     context,
                     pal,
-                    "还没有列表。列表是那台 Mac 上「快捷控制」里配好的操作——" +
-                        "取过来之后，这里会出现对应的按钮，点一下 Mac 就按下那组键。",
+                    "还没有按钮。它们是那台 Mac 上「快捷控制」里配好的操作——" +
+                        "同步过来之后会出现在这里，点一下 Mac 就按下那组键。",
                 ),
                 Ui.lp(top = context.dp(14)),
             )
@@ -109,8 +112,8 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
         }
         status.text = when {
             console.lastError != null -> console.lastError!!
-            n > 0 -> "已经有 $n 个操作。改了 Mac 上的配置就再取一次。"
-            else -> "还没取过。"
+            n > 0 -> "已经有 $n 个操作。在 Mac 上改了配置，就再同步一次。"
+            else -> "还没同步过。"
         }
     }
     refresh()

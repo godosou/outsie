@@ -351,6 +351,11 @@ class PairingServer(
             // advertising under a slot it never actually paired into.
             val store = AppStore(context)
             store.keyIds = store.keyIds + id
+            store.rememberMac(
+                keyId = id,
+                name = macName,
+                pairedAt = java.time.Instant.now().toString(),
+            )
             // Only kept once the digits matched. A name captured from a session
             // the human rejected would be the attacker's name, sitting on the
             // screen next to the words 已配对.
