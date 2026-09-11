@@ -1559,6 +1559,10 @@ struct CalState {
     far: Option<CalLeg>,
     /// Which leg is being walked right now, if any.
     active_near: Option<bool>,
+    /// Which phone is being measured. Two phones do not look alike from the
+    /// same spot, so a calibration that did not know whose it was could only
+    /// ever produce one shared band -- right for one of them at best.
+    key_id: u8,
 }
 
 // In memory on purpose. A calibration interrupted by quitting the app is not a
@@ -1568,6 +1572,7 @@ static CALIBRATION: std::sync::Mutex<CalState> = std::sync::Mutex::new(CalState 
     near: None,
     far: None,
     active_near: None,
+    key_id: 0,
 });
 
 fn now_ms() -> i64 {
@@ -1611,6 +1616,9 @@ pub struct CalibrationProgress {
 pub struct CalibrateArgs {
     /// "near" or "far".
     pub kind: String,
+    /// The key slot of the phone being measured.
+    #[serde(default)]
+    pub device_id: String,
 }
 
 #[tauri::command]
@@ -1625,8 +1633,17 @@ pub fn unlock_calibrate_start(app: AppHandle, value: CalibrateArgs) -> Result<Ca
             ))
         }
     };
+    let key_id: u8 = value.device_id.parse().map_err(|_| {
+        UnlockError::new(UnlockErrorCode::Unsupported, "不知道在给哪一部手机做校准")
+    })?;
     {
         let mut st = CALIBRATION.lock().map_err(|_| lock_poisoned())?;
+        // A different phone is a different measurement. Keeping the other leg
+        // would average two phones into one band, which is wrong for both.
+        if st.key_id != key_id {
+            *st = CalState::default();
+            st.key_id = key_id;
+        }
         // Re-walking a leg replaces it. Appending would mix the walk you just
         // decided was wrong into the one you are doing to correct it.
         let leg = CalLeg { from_ms: now_ms(), to_ms: None };
@@ -1642,7 +1659,7 @@ pub fn unlock_calibrate_sample(app: AppHandle) -> Result<CalibrationProgress, Un
     let near_leg = st.active_near.unwrap_or(true);
     let leg = if near_leg { st.near } else { st.far };
     let samples = match leg {
-        Some(l) => calibration_samples(&verified_csv(&app), l.from_ms, 1),
+        Some(l) => calibration_samples(&verified_csv(&app), l.from_ms, st.key_id),
         None => Vec::new(),
     };
     Ok(CalibrationProgress {
@@ -1679,7 +1696,7 @@ pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, Unlo
     let take = |leg: Option<CalLeg>| -> Vec<(i32, i64)> {
         let Some(l) = leg else { return Vec::new() };
         let until = l.to_ms.unwrap_or(i64::MAX);
-        calibration_samples(&csv, l.from_ms, 1)
+        calibration_samples(&csv, l.from_ms, st.key_id)
             .into_iter()
             .filter(|&(_, at)| at <= until)
             .collect()
@@ -1693,14 +1710,24 @@ pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, Unlo
     if let CalibrationOutcome::Ok { near_dbm, far_dbm } = result.outcome {
         if let Ok(dir) = app.path().app_data_dir() {
             let _ = std::fs::create_dir_all(&dir);
-            let body = serde_json::json!({
+            let path = dir.join(CALIBRATION_FILE);
+            // Merge, never replace: calibrating a second phone must not wipe the
+            // band the first one is relying on.
+            let mut doc: serde_json::Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|raw| serde_json::from_str(&raw).ok())
+                .unwrap_or_else(|| serde_json::json!({}));
+            if !doc.get("byKey").is_some_and(|b| b.is_object()) {
+                doc["byKey"] = serde_json::json!({});
+            }
+            doc["byKey"][st.key_id.to_string()] = serde_json::json!({
                 "nearDbm": near_dbm,
                 "farDbm": far_dbm,
                 "measuredAt": HostMacBackend::now_iso(),
                 "near": { "n": result.near.n, "mean": result.near.mean, "sd": result.near.sd },
                 "far": { "n": result.far.n, "mean": result.far.mean, "sd": result.far.sd },
             });
-            let _ = std::fs::write(dir.join(CALIBRATION_FILE), body.to_string());
+            let _ = std::fs::write(&path, doc.to_string());
         }
         // The bridge reads its thresholds once, at startup. Without this the
         // numbers sit in a file and the Mac goes on using the placeholders --
@@ -1731,15 +1758,48 @@ pub fn mac_identity(csv: &str) -> Option<String> {
         .find(|id| id.len() == 4 && id.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-/// The thresholds a calibration left behind, if one did.
-pub fn calibrated_thresholds(app: &AppHandle) -> Option<(i32, i32)> {
-    let dir = app.path().app_data_dir().ok()?;
-    let raw = std::fs::read_to_string(dir.join(CALIBRATION_FILE)).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let near = v.get("nearDbm")?.as_i64()? as i32;
-    let far = v.get("farDbm")?.as_i64()? as i32;
-    // A file edited by hand into nonsense must not become the live band.
-    (near > far).then_some((near, far))
+/// Every calibrated band, as `keyId:near:far` pairs for permit-bridge.sh.
+///
+/// Per phone, because two phones do not look the same to one Mac from the same
+/// spot: transmit power differs by model, and a phone in a pocket is several dB
+/// down from one on the desk. One shared pair means calibrating for one of them
+/// and being wrong about the other.
+///
+/// A band with near <= far is dropped rather than passed on: it would tell the
+/// bridge that one reading is both near and far, and the file is plain JSON
+/// anyone can mistype.
+pub fn calibration_bands(raw: &str) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return String::new() };
+    let mut out: Vec<String> = Vec::new();
+
+    let mut push = |id: &str, near: i64, far: i64| {
+        if id.parse::<u8>().is_ok_and(|n| n != 0) && near > far {
+            out.push(format!("{id}:{near}:{far}"));
+        }
+    };
+
+    if let Some(by_key) = v.get("byKey").and_then(|b| b.as_object()) {
+        for (id, band) in by_key {
+            if let (Some(n), Some(f)) = (
+                band.get("nearDbm").and_then(|x| x.as_i64()),
+                band.get("farDbm").and_then(|x| x.as_i64()),
+            ) {
+                push(id, n, f);
+            }
+        }
+    }
+    out.sort();
+    out.join(",")
+}
+
+/// The bands recorded on this Mac, or "" when nothing has been calibrated.
+pub fn calibrated_bands(app: &AppHandle) -> String {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .and_then(|d| std::fs::read_to_string(d.join(CALIBRATION_FILE)).ok())
+        .map(|raw| calibration_bands(&raw))
+        .unwrap_or_default()
 }
 
 fn lock_poisoned() -> UnlockError {
@@ -2095,10 +2155,10 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
     let runflag = work.join(format!("running.{}.{seq}", std::process::id()));
     let _ = std::fs::remove_file(&runflag);
 
-    let (near_dbm, far_dbm) = match calibrated_thresholds(app) {
-        Some((n, f)) => (n.to_string(), f.to_string()),
-        None => (String::new(), String::new()),
-    };
+    // Per-phone bands. The single NEAR/FAR pair is gone: with several phones
+    // there is no one pair that is right for all of them, and the bridge keeps
+    // its own conservative defaults for any key with no entry.
+    let bands = calibrated_bands(app);
 
     let child = Command::new("/bin/bash")
         .arg(dir.join("presence-pipeline.sh"))
@@ -2107,8 +2167,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         .env("REPOSE_STATUS_FILE", &status)
         // Empty when nothing has been calibrated, which leaves the bridge on
         // its own conservative defaults rather than on zeroes.
-        .env("REPOSE_NEAR_DBM", &near_dbm)
-        .env("REPOSE_FAR_DBM", &far_dbm)
+        .env("REPOSE_BANDS", &bands)
         .env("REPOSE_PIPELINE_DIR", &work)
         // We raise the authorization ourselves, below.
         .env("REPOSE_SKIP_PRIVILEGED", "1")
@@ -2182,7 +2241,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         "do shell script \"REPOSE_MODE=local REPOSE_BIN={bin} REPOSE_KEY_DIR={keys} \
          REPOSE_RAW={raw} REPOSE_VERIFIED={verified} REPOSE_RUNFLAG={flag} \
          REPOSE_PERMIT_DIR={permit} REPOSE_STATUS_FILE={status} REPOSE_LOG_DIR={work} \
-         REPOSE_NEAR_DBM={near} REPOSE_FAR_DBM={far} \
+         REPOSE_BANDS={bands} \
          {priv_sh}\" with administrator privileges",
         bin = applescript_quote(&dir.to_string_lossy()),
         keys = applescript_quote(PRESENCE_KEY_DIR),
@@ -2192,8 +2251,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         permit = applescript_quote("/var/run/repose-spike"),
         status = applescript_quote(&status.to_string_lossy()),
         work = applescript_quote(&work.to_string_lossy()),
-        near = applescript_quote(&near_dbm),
-        far = applescript_quote(&far_dbm),
+        bands = applescript_quote(&bands),
         priv_sh = applescript_quote(&dir.join("presence-privileged.sh").to_string_lossy()),
     );
     std::thread::spawn(move || {
@@ -3269,6 +3327,48 @@ mod tests {
     }
 
     #[test]
+    fn bands_are_per_phone_and_sorted() {
+        let raw = r#"{"byKey":{"15":{"nearDbm":-58,"farDbm":-79},"3":{"nearDbm":-60,"farDbm":-80}}}"#;
+        assert_eq!(calibration_bands(raw), "15:-58:-79,3:-60:-80");
+    }
+
+    #[test]
+    fn an_inverted_or_impossible_band_is_dropped_rather_than_passed_on() {
+        // The file is plain JSON in the app's data directory. A band where near
+        // is not above far tells the bridge one reading is both present and
+        // absent; a slot 0 is not a slot. Either one silently breaks a phone
+        // that was working, so neither reaches the bridge.
+        for raw in [
+            r#"{"byKey":{"15":{"nearDbm":-79,"farDbm":-58}}}"#,
+            r#"{"byKey":{"15":{"nearDbm":-58,"farDbm":-58}}}"#,
+            r#"{"byKey":{"0":{"nearDbm":-58,"farDbm":-79}}}"#,
+            r#"{"byKey":{"abc":{"nearDbm":-58,"farDbm":-79}}}"#,
+            r#"{"byKey":{"15":{"nearDbm":-58}}}"#,
+            "not json at all",
+            "{}",
+        ] {
+            assert_eq!(calibration_bands(raw), "", "accepted: {raw}");
+        }
+    }
+
+    #[test]
+    fn a_bad_band_beside_a_good_one_does_not_take_it_down() {
+        let raw = r#"{"byKey":{"15":{"nearDbm":-58,"farDbm":-79},"3":{"nearDbm":-80,"farDbm":-60}}}"#;
+        assert_eq!(calibration_bands(raw), "15:-58:-79");
+    }
+
+    #[test]
+    fn the_bridge_reads_a_band_per_key() {
+        let sh = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../tools/ble-spike/mac/permit-bridge.sh"),
+        )
+        .expect("permit-bridge.sh should be readable");
+        assert!(sh.contains("band_for"), "the bridge has no per-key band lookup");
+        assert!(sh.contains("REPOSE_BANDS"), "the bridge never reads the bands");
+    }
+
+    #[test]
     fn the_calibrated_band_reaches_the_bridge() {
         // Before this, permit-bridge.sh read REPOSE_NEAR_DBM/REPOSE_FAR_DBM and
         // presence-pipeline.sh never set them, so the placeholders the bridge
@@ -3295,11 +3395,15 @@ mod tests {
             .split("do shell script")
             .find(|chunk| chunk.contains("presence-privileged.sh") || chunk.contains("{priv_sh}"))
             .expect("the privileged half is started by an administrator script");
-        for var in ["REPOSE_NEAR_DBM", "REPOSE_FAR_DBM"] {
+        for var in ["REPOSE_BANDS"] {
             assert!(
                 admin.contains(var),
                 "the administrator script that starts the privileged half omits {var}, \
                  so a calibrated band can never reach the bridge",
+            );
+            assert!(
+                rust.contains(&format!(".env(\"{var}\"")),
+                "the pipeline child is never told {var} either",
             );
             assert!(pipeline.contains(var), "presence-pipeline.sh drops {var} on the floor");
             assert!(privileged.contains(var), "presence-privileged.sh drops {var} on the floor");

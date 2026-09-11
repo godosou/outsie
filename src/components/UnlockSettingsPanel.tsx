@@ -159,15 +159,20 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
   // Its own sheet rather than a stage of pairing: you re-walk it when you move
   // desks, and a measurement you can only take once, during setup, is one the
   // Mac goes on using long after the room stopped matching it.
-  const [calibrating, setCalibrating] = useState(false)
+  // Which phone is being measured. Null means the sheet is closed; a
+  // calibration with no phone attached could only produce one shared band,
+  // which is wrong for every phone but one.
+  const [calibrating, setCalibrating] = useState<string | null>(null)
   const [calLeg, setCalLeg] = useState<'intro' | 'near' | 'walk' | 'far' | 'done'>('intro')
   const [calProgress, setCalProgress] = useState<CalibrationProgress | null>(null)
   const [calResult, setCalResult] = useState<CalibrationResult | null>(null)
 
-  const startLeg = useCallback(async (kind: 'near' | 'far') => {
+  const startLeg = useCallback(async (kind: 'near' | 'far', deviceId: string) => {
     if (!bridge) return
     setCalResult(null)
-    setCalProgress(normalizeCalibrationProgress(await bridge.calibrateStart({ kind }).catch(() => null)))
+    setCalProgress(normalizeCalibrationProgress(
+      await bridge.calibrateStart({ kind, deviceId }).catch(() => null),
+    ))
     setCalLeg(kind)
   }, [bridge])
 
@@ -267,9 +272,12 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
       case 'start-phone-drill':
         void run(command, () => bridge.startDrill({ kind: 'phone-drill' })); break
       case 'begin-pairing': void startPairing(); break
-      case 'calibrate': setCalibrating(true); break
+      // The panel's own 开始采样 action, from the awaiting-calibration state.
+      // It measures whichever phone is listed; with none there is nothing to
+      // measure and the command is not offered.
+      case 'calibrate': setCalibrating(snapshot.devices[0]?.id ?? null); break
     }
-  }, [bridge, run, onToast])
+  }, [bridge, run, onToast, snapshot.devices])
 
   const confirmInstall = useCallback(async () => {
     setShowInstall(false)
@@ -542,7 +550,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           onConfirm={() => void confirmPairing()}
           onRetry={() => void startPairing()}
           onTryLock={() => { closePairing(); dispatchCommand('start-phone-drill') }}
-          onCalibrate={() => { closePairing(); setCalibrating(true) }}
+          onCalibrate={() => { closePairing(); setCalibrating(snapshot.devices[0]?.id ?? '1') }}
         />
       )}
 
@@ -551,8 +559,8 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           leg={calLeg}
           progress={calProgress}
           result={calResult}
-          onClose={() => { setCalibrating(false); setCalLeg('intro'); setCalResult(null) }}
-          onStartLeg={kind => void startLeg(kind)}
+          onClose={() => { setCalibrating(null); setCalLeg('intro'); setCalResult(null) }}
+          onStartLeg={kind => void startLeg(kind, calibrating)}
           onWalk={() => setCalLeg('walk')}
           onFinish={() => void finishCalibration()}
         />
@@ -575,7 +583,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           setArmedRevoke(null)
           void run('revoke-device', () => bridge!.revokeDevice({ deviceId: id }))
         }}
-        onCalibrate={() => setCalibrating(true)}
+        onCalibrate={id => setCalibrating(id)}
       />
     )}
     </>
@@ -795,7 +803,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
   armed: string | null
   onArm: (id: string | null) => void
   onRevoke: (id: string) => void
-  onCalibrate: () => void
+  onCalibrate: (id: string) => void
 }) {
   return (
     <section className="panel preferences-panel">
@@ -841,7 +849,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate 
               and a second pairing. The armed step says what is about to go. */}
           <div className="pk-device-action">
             {armed !== device.id && (
-              <button className="button light pk-device-tune" disabled={busy} onClick={onCalibrate}>
+              <button className="button light pk-device-tune" disabled={busy} onClick={() => onCalibrate(device.id)}>
                 量一下距离
               </button>
             )}

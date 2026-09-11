@@ -96,6 +96,35 @@ set -uo pipefail
 
 NEAR_DBM="${REPOSE_NEAR_DBM:--72}"     # >= this: near enough to count as present
 FAR_DBM="${REPOSE_FAR_DBM:--85}"       # <= this: far enough to count as gone
+
+# Per-phone bands, as `keyId:near:far` separated by commas.
+#
+# Two phones do not look the same to this Mac even standing in the same place:
+# transmit power differs by model, and a phone in a pocket is several dB down
+# from one on the desk. One shared pair of thresholds means calibrating for one
+# of them and being wrong about the other -- either locking while its owner is
+# still sitting there, or staying open after they have gone.
+#
+# NEAR_DBM/FAR_DBM above remain the fallback for any key with no entry, which is
+# every key until someone walks the calibration.
+BANDS="${REPOSE_BANDS:-}"
+
+# Echo `near far` for a key id, falling back to the shared pair.
+band_for() {
+    _k="$1"
+    case ",${BANDS}," in
+        *",${_k}:"*)
+            _b="${BANDS#*,${_k}:}"      # may still have a leading entry
+            case "${BANDS}" in
+                "${_k}:"*) _b="${BANDS#${_k}:}" ;;
+            esac
+            _b="${_b%%,*}"
+            printf '%s %s' "${_b%%:*}" "${_b#*:}"
+            return
+            ;;
+    esac
+    printf '%s %s' "${NEAR_DBM}" "${FAR_DBM}"
+}
 STALE_S="${REPOSE_STALE_S:-45}"        # no sample for this long -> treat as gone
                                        # (see "WHY 45" below; being wrong here
                                        # interrupts someone who is working)
@@ -231,7 +260,7 @@ trap on_signal TERM INT HUP EXIT
 RUN_FLAG="${REPOSE_RUNFLAG:-}"
 
 publish starting
-log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
+log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM}${BANDS:+ bands=${BANDS}} stale=${STALE_S}s refresh=${REFRESH_S}s"
 
 # read -t returns >128 on timeout, non-zero on EOF. On EOF we stop; on timeout we
 # fall through to the staleness/refresh housekeeping with no new sample.
@@ -289,6 +318,13 @@ while :; do
         fields="$(printf '%s' "${line}" | tr ',' '\n')"
         auth="$(printf '%s' "${fields}" | sed -n 's/^auth=//p' | tr -d '[:space:]')"
         vcmd="$(printf '%s' "${fields}" | sed -n 's/^cmd=//p' | tr -d '[:space:]')"
+        # Column 5 is the key id, i.e. which phone this row is about. Read
+        # positionally like the rssi beside it, and only used to pick a band --
+        # a wrong id here costs the wrong thresholds, never a wrong verdict,
+        # because auth= is what decides whether the row counts at all.
+        kid="$(printf '%s' "${line}" | cut -d, -f5 | tr -d '[:space:]')"
+        set -- $(band_for "${kid}")
+        near_now="$1"; far_now="$2"
 
         # Commands arrive already judged.
         #
@@ -319,14 +355,14 @@ while :; do
 
         if is_dbm "${rssi}"; then
             last_sample="${now}"
-            if [ "${rssi}" -ge "${NEAR_DBM}" ]; then
+            if [ "${rssi}" -ge "${near_now}" ]; then
                 if [ "${present}" = 0 ]; then
                     present=1; last_refresh="${now}"
                     log "ENTER (rssi=${rssi}) -> asserting permit"
                     publish near "${rssi}"
                     assert_permit
                 fi
-            elif [ "${rssi}" -le "${FAR_DBM}" ]; then
+            elif [ "${rssi}" -le "${far_now}" ]; then
                 if [ "${present}" = 1 ]; then
                     present=0
                     log "LEAVE (rssi=${rssi}) -> clearing permit"

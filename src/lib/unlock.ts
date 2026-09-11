@@ -651,7 +651,7 @@ export type UnlockDesktopBridge = {
   /** Poll for the phone actually using the key this Mac wrote. */
   awaitPhonePairing: () => Promise<unknown>
   cancelPairing: () => Promise<void>
-  calibrateStart: (value: { kind: 'near' | 'far' }) => Promise<unknown>
+  calibrateStart: (value: { kind: 'near' | 'far'; deviceId: string }) => Promise<unknown>
   calibrateSample: () => Promise<unknown>
   calibrateFinish: () => Promise<unknown>
   startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<unknown>

@@ -84,6 +84,9 @@ export REPOSE_RUNFLAG="${REPOSE_RUNFLAG}"
 # so every Mac silently used numbers measured once, on one desk, from one phone.
 [ -n "${REPOSE_NEAR_DBM:-}" ] && export REPOSE_NEAR_DBM="${REPOSE_NEAR_DBM}"
 [ -n "${REPOSE_FAR_DBM:-}" ] && export REPOSE_FAR_DBM="${REPOSE_FAR_DBM}"
+# Per-phone bands, `keyId:near:far` comma separated. Optional for the same
+# reason: a Mac nobody has calibrated still runs, on the bridge's defaults.
+[ -n "${REPOSE_BANDS:-}" ] && export REPOSE_BANDS="${REPOSE_BANDS}"
 
 # The stages are DIRECT children of this script, not wrapped in an inner
 # `sh -c`. pkill -P reaches children, not grandchildren, so a wrapper meant the
