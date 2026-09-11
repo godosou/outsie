@@ -111,7 +111,7 @@ private fun renderPairingWindow(
         column.addView(
             heroCard(
                 context, pal,
-                chip = "第 2 步，共 2 步",
+                chip = "手机这边 · 第 2 步，共 2 步",
                 glyph = "👀",
                 headline = "核对这六位数字",
                 body = "Mac 上现在也应该显示同一串。",
@@ -170,7 +170,7 @@ private fun renderPairingWindow(
         column.addView(
             heroCard(
                 context, pal,
-                chip = "第 1 步，共 2 步",
+                chip = "手机这边 · 第 1 步，共 2 步",
                 glyph = "📡",
                 headline = "手机准备好了",
                 body = "等 Mac 那边开始。",
@@ -182,7 +182,7 @@ private fun renderPairingWindow(
             Ui.body(
                 context,
                 pal,
-                "打开 ${Brand.NAME} → 设置 → 手机钥匙，点「配对手机」。",
+                "打开 ${Brand.NAME}，左边选「手机控制」，点「配对手机」。",
             ),
             Ui.lp(top = context.dp(12)),
         )
