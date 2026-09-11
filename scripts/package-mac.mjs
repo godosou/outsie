@@ -11,12 +11,12 @@ const source = path.join(root, 'node_modules/electron/dist/Electron.app')
 const release = path.join(root, 'release')
 // A versioned filename lets an update coexist with a currently running bundle.
 const outputNameIndex = process.argv.indexOf('--output-name')
-const outputName = outputNameIndex === -1 ? 'Repose.app' : process.argv[outputNameIndex + 1]
-if (!/^Repose(?:-\d+\.\d+\.\d+)?\.app$/.test(outputName || '')) {
-  throw new Error('--output-name must be Repose.app or Repose-<version>.app')
+const outputName = outputNameIndex === -1 ? 'Outsie.app' : process.argv[outputNameIndex + 1]
+if (!/^Outsie(?:-\d+\.\d+\.\d+)?\.app$/.test(outputName || '')) {
+  throw new Error('--output-name must be Outsie.app or Outsie-<version>.app')
 }
 const output = path.join(release, outputName)
-const productName = 'Repose'
+const productName = 'Outsie'
 const bundleId = 'ai.repose.desktop'
 
 function run(command, args, options = {}) {
@@ -81,12 +81,12 @@ async function main() {
       `The bundled dependency ${packageName} is missing its LICENSE file. Run npm install before packaging.`)
   }
   const metadata = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
-  const zipPath = path.join(release, `Repose-${metadata.version}-mac-${process.arch}.zip`)
+  const zipPath = path.join(release, `Outsie-${metadata.version}-mac-${process.arch}.zip`)
   const scratch = await mkdtemp(path.join(tmpdir(), 'repose-package-'))
-  const staged = path.join(scratch, 'Repose.app')
+  const staged = path.join(scratch, 'Outsie.app')
 
   try {
-    console.log('Preparing Repose.app…')
+    console.log('Preparing Outsie.app…')
     run('/usr/bin/ditto', [source, staged])
     const contents = path.join(staged, 'Contents')
     const resources = path.join(contents, 'Resources')
@@ -113,7 +113,7 @@ async function main() {
 
     // Electron is bundled, so launching this app never needs Node.js or npm.
     const plist = path.join(contents, 'Info.plist')
-    await rename(path.join(contents, 'MacOS/Electron'), path.join(contents, 'MacOS/Repose'))
+    await rename(path.join(contents, 'MacOS/Electron'), path.join(contents, 'MacOS/Outsie'))
     for (const [key, value] of Object.entries({
       CFBundleDisplayName: productName,
       CFBundleName: productName,
@@ -121,9 +121,9 @@ async function main() {
       CFBundleIdentifier: bundleId,
       CFBundleShortVersionString: metadata.version,
       CFBundleVersion: metadata.version,
-      CFBundleIconFile: 'Repose.icns',
+      CFBundleIconFile: 'Outsie.icns',
       LSApplicationCategoryType: 'public.app-category.healthcare-fitness',
-      NSAppleEventsUsageDescription: 'Repose 会在电脑闲置时请求锁定 macOS 屏幕，以保护你的工作内容。',
+      NSAppleEventsUsageDescription: 'Outsie 会在电脑闲置时请求锁定 macOS 屏幕，以保护你的工作内容。',
     })) setPlist(plist, key, value)
     run('/usr/bin/plutil', ['-remove', 'ElectronAsarIntegrity', plist])
 
@@ -140,8 +140,8 @@ async function main() {
       setPlist(helperPlist, 'CFBundleVersion', metadata.version)
     }
 
-    console.log('Drawing the Repose Dock icon…')
-    const iconset = path.join(scratch, 'Repose.iconset')
+    console.log('Drawing the Outsie Dock icon…')
+    const iconset = path.join(scratch, 'Outsie.iconset')
     const icon = path.join(scratch, 'icon-1024.png')
     await mkdir(iconset)
     run(process.execPath, ['scripts/generate-icon.mjs', icon])
@@ -152,7 +152,7 @@ async function main() {
         else run('/usr/bin/sips', ['-z', String(size * scale), String(size * scale), icon, '--out', filename], { stdio: 'ignore' })
       }
     }
-    await writeIconContainer(iconset, path.join(resources, 'Repose.icns'))
+    await writeIconContainer(iconset, path.join(resources, 'Outsie.icns'))
 
     console.log('Applying a local ad hoc signature…')
     run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', staged])
@@ -163,7 +163,7 @@ async function main() {
     run('/usr/bin/ditto', [staged, output])
     await rm(zipPath, { force: true })
     run('/usr/bin/ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', output, zipPath])
-    await copyFile(icon, path.join(release, 'Repose-icon.png'))
+    await copyFile(icon, path.join(release, 'Outsie-icon.png'))
     console.log(`\nApp: ${output}\nZIP: ${zipPath}\nLocally signed only; no Apple Developer signing or notarization.`)
   } finally {
     await rm(scratch, { recursive: true, force: true })

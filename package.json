@@ -3,8 +3,8 @@
   "version": "0.6.3",
   "private": true,
   "type": "module",
-  "productName": "Repose",
-  "description": "Repose · 歇一会 — 给日常，留一点空白。",
+  "productName": "Outsie",
+  "description": "Outsie · 歇一会 — 给日常，留一点空白。",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",

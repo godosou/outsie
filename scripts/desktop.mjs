@@ -29,7 +29,7 @@ async function viteIsReady() {
     const response = await fetch(`${serverURL}/@vite/client`, { signal: AbortSignal.timeout(800) })
     if (!response.ok || !(response.headers.get('content-type') || '').includes('javascript')) return false
     const page = await fetch(serverURL, { signal: AbortSignal.timeout(800) })
-    return page.ok && /<title>[^<]*Repose/i.test(await page.text())
+    return page.ok && /<title>[^<]*Outsie/i.test(await page.text())
   } catch {
     return false
   }
@@ -79,7 +79,7 @@ async function main() {
     env: electronEnv,
   })
   electronProcess.on('error', error => {
-    console.error(`无法启动 Repose：${error.message}`)
+    console.error(`无法启动 Outsie：${error.message}`)
     stop(1)
   })
   electronProcess.on('exit', (code, signal) => stop(code ?? (signal ? 1 : 0)))

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const app = path.resolve(root, process.argv[2] || 'src-tauri/target/release/bundle/macos/Repose.app')
+const app = path.resolve(root, process.argv[2] || 'src-tauri/target/release/bundle/macos/Outsie.app')
 const config = JSON.parse(await readFile(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
 const plist = JSON.parse(execFileSync('/usr/bin/plutil', [
   '-convert', 'json', '-o', '-', path.join(app, 'Contents/Info.plist'),

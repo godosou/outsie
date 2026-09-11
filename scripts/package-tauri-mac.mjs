@@ -10,7 +10,7 @@ const metadata = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf
 const config = JSON.parse(await readFile(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'))
 if (process.platform !== 'darwin') throw new Error('macOS is required to build this release.')
 if (!/^\d+\.\d+\.\d+$/.test(metadata.version) || metadata.version !== config.version) throw new Error('Release versions must match.')
-const name = `Repose-${metadata.version}-mac-${process.arch}`
+const name = `Outsie-${metadata.version}-mac-${process.arch}`
 const release = path.join(root, 'release', name)
 try {
   await access(release)
@@ -26,7 +26,7 @@ function run(command, args) {
 run('npm', ['run', 'package:mac'])
 run('npm', ['run', 'verify:build'])
 run('npm', ['run', 'verify:mac'])
-const source = path.join(root, 'src-tauri/target/release/bundle/macos/Repose.app')
+const source = path.join(root, 'src-tauri/target/release/bundle/macos/Outsie.app')
 const licenses = path.join(source, 'Contents/Resources/licenses')
 await mkdir(licenses, { recursive: true })
 await copyFile(path.join(root, 'src/assets/STRETCH-HUMAN-LICENSE.md'), path.join(licenses, 'Stretch-Human.md'))
@@ -34,14 +34,14 @@ await copyFile(path.join(root, 'node_modules/three/LICENSE'), path.join(licenses
 run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', source])
 run('/usr/bin/codesign', ['--verify', '--deep', '--strict', source])
 await mkdir(release, { recursive: true })
-const app = path.join(release, 'Repose.app')
+const app = path.join(release, 'Outsie.app')
 run('/usr/bin/ditto', [source, app])
 const stage = await mkdtemp(path.join(tmpdir(), 'repose-dmg-'))
 const dmg = path.join(release, `${name}.dmg`)
 try {
-  run('/usr/bin/ditto', [app, path.join(stage, 'Repose.app')])
+  run('/usr/bin/ditto', [app, path.join(stage, 'Outsie.app')])
   await symlink('/Applications', path.join(stage, 'Applications'))
-  run('/usr/bin/hdiutil', ['create', '-volname', `Repose ${metadata.version}`, '-srcfolder', stage, '-format', 'UDZO', '-fs', 'HFS+', dmg])
+  run('/usr/bin/hdiutil', ['create', '-volname', `Outsie ${metadata.version}`, '-srcfolder', stage, '-format', 'UDZO', '-fs', 'HFS+', dmg])
   run('/usr/bin/hdiutil', ['verify', dmg])
   const hash = createHash('sha256').update(await readFile(dmg)).digest('hex')
   await writeFile(path.join(release, 'SHA256SUMS.txt'), `${hash}  ${path.basename(dmg)}\n`)
