@@ -2042,17 +2042,22 @@ fn run_privileged(script: &str) -> Result<(), UnlockError> {
 
     let source = NSString::from_str(script);
     // SAFETY / THREADING: Apple documents NSAppleScript as not thread-safe.
-    // Install and pairing reach this from a synchronous Tauri command, which
-    // runs on the main thread. The presence pipeline reaches it from a thread
-    // of its own, deliberately -- `do shell script` does not return until the
-    // command does, and that one runs for as long as monitoring does, so
-    // blocking the main thread with it would freeze the window for the whole
-    // session rather than for the length of a dialog.
+    //
+    // NOTHING reaches this from the main thread any more. `do shell script ...
+    // with administrator privileges` does not return until the dialog is
+    // answered, so a caller on the main thread freezes the window for as long
+    // as the dialog is up -- and for good if it is dismissed without an answer
+    // or ends up behind another window. That happened on 2026-09-12: the app was
+    // found alive with zero windows, stuck here, unrecoverable without a kill.
+    //
+    // Every command that can land here is async over spawn_blocking now, which
+    // is the shape the presence pipeline has used from the start for the same
+    // reason -- its script runs for as long as monitoring does.
     //
     // One instance, one thread, never shared: that is the shape that is safe.
-    // It has been exercised on this Mac; if it ever misbehaves, the alternative
-    // is Authorization Services directly, which is more code and the same
-    // dialog.
+    // It has been exercised on this Mac many times; if it ever misbehaves, the
+    // alternative is Authorization Services directly, which is more code and
+    // the same dialog.
     let result = unsafe {
         let apple_script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source)
             .ok_or_else(|| {
@@ -2504,24 +2509,50 @@ pub fn unlock_preflight(app: AppHandle) -> Result<PreflightReport, UnlockError> 
     HostMacBackend::new(&app).preflight()
 }
 
+// EVERY COMMAND THAT CAN RAISE AN ADMINISTRATOR PROMPT IS ASYNC.
+//
+// `NSAppleScript ... with administrator privileges` does not return until the
+// dialog is answered, and a synchronous Tauri command runs on the MAIN THREAD.
+// So the window froze for as long as the dialog was up -- and if the dialog was
+// dismissed without being answered, or ended up behind something, it froze for
+// good: 2026-09-12 the app was found with zero windows, alive, stuck in
+// unlock_pair_confirm -> run_privileged -> executeAndReturnError, unrecoverable
+// without killing it.
+//
+// unlock_presence_set was fixed for this in 4d2330f; these four were the same
+// shape and were missed, which is the useful half of the lesson -- the fix
+// belonged to a CLASS of command, not to the one that was noticed.
+//
+// spawn_blocking, not plain async: everything inside is blocking I/O, and an
+// async worker would be blocked instead of the main thread.
 #[tauri::command]
-pub fn unlock_install(app: AppHandle, value: InstallArgs) -> Result<UnlockSnapshot, UnlockError> {
+pub async fn unlock_install(app: AppHandle, value: InstallArgs) -> Result<UnlockSnapshot, UnlockError> {
     let variant = match value.variant.as_deref() {
         Some("A") => Some(RuleVariant::A),
         Some("B") => Some(RuleVariant::B),
         _ => None,
     };
-    HostMacBackend::new(&app).install(variant)
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || HostMacBackend::new(&handle).install(variant))
+        .await
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
 }
 
 #[tauri::command]
-pub fn unlock_repair(app: AppHandle, value: RepairArgs) -> Result<UnlockSnapshot, UnlockError> {
-    HostMacBackend::new(&app).repair(&value.target)
+pub async fn unlock_repair(app: AppHandle, value: RepairArgs) -> Result<UnlockSnapshot, UnlockError> {
+    let handle = app.clone();
+    let target = value.target;
+    tauri::async_runtime::spawn_blocking(move || HostMacBackend::new(&handle).repair(&target))
+        .await
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
 }
 
 #[tauri::command]
-pub fn unlock_uninstall(app: AppHandle) -> Result<UninstallReport, UnlockError> {
-    HostMacBackend::new(&app).uninstall()
+pub async fn unlock_uninstall(app: AppHandle) -> Result<UninstallReport, UnlockError> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || HostMacBackend::new(&handle).uninstall())
+        .await
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
 }
 
 /// Start or stop presence monitoring. Wired to the panel's switch, because it
@@ -2569,8 +2600,15 @@ pub fn unlock_pause_for(app: AppHandle, value: PauseArgs) -> Result<UnlockSnapsh
 }
 
 #[tauri::command]
-pub fn unlock_revoke_device(app: AppHandle, value: DeviceArgs) -> Result<UnlockSnapshot, UnlockError> {
-    HostMacBackend::new(&app).revoke_device(&value.device_id)
+pub async fn unlock_revoke_device(
+    app: AppHandle,
+    value: DeviceArgs,
+) -> Result<UnlockSnapshot, UnlockError> {
+    let handle = app.clone();
+    let id = value.device_id;
+    tauri::async_runtime::spawn_blocking(move || HostMacBackend::new(&handle).revoke_device(&id))
+        .await
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
 }
 
 // ---- Pairing: the live half -----------------------------------------------
@@ -2739,7 +2777,14 @@ pub fn unlock_pair_await_phone(app: AppHandle) -> Result<PairingSession, UnlockE
 
 /// The human said the digits match. This is the only path that writes a key.
 #[tauri::command]
-pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError> {
+pub async fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError> {
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || pair_confirm_blocking(handle))
+        .await
+        .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?
+}
+
+fn pair_confirm_blocking(app: AppHandle) -> Result<PairingSession, UnlockError> {
     use std::io::{Read, Write};
 
     let mut live = {
@@ -3917,6 +3962,45 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
             sh.contains(r#"[ "${disabled}" = 1 ] || run_command lock"#),
             "a switched-off phone can still send commands",
         );
+    }
+
+    #[test]
+    fn nothing_that_can_ask_for_a_password_runs_on_the_main_thread() {
+        // A synchronous Tauri command runs on the main thread, and the
+        // administrator dialog does not return until it is answered. The window
+        // then freezes for the length of the dialog -- and permanently if the
+        // dialog is dismissed unanswered or lands behind something, which is
+        // how this Mac ended up with a live app, zero windows, and nothing to
+        // do but kill it.
+        //
+        // Checked by reading our own source because there is no type that
+        // distinguishes "can raise a prompt" from "cannot": the property lives
+        // in what the function eventually calls.
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/unlock.rs"),
+        )
+        .expect("own source should be readable");
+
+        // Commands whose body reaches run_privileged, directly or through the
+        // backend. Listed rather than inferred: a wrong inference here would
+        // pass while the window froze.
+        for name in [
+            "unlock_install",
+            "unlock_repair",
+            "unlock_uninstall",
+            "unlock_revoke_device",
+            "unlock_pair_confirm",
+            "unlock_presence_set",
+        ] {
+            let sig = src
+                .lines()
+                .find(|l| l.contains(&format!("fn {name}(")))
+                .unwrap_or_else(|| panic!("{name} not found"));
+            assert!(
+                sig.contains("pub async fn"),
+                "{name} is synchronous, so its administrator prompt freezes the window: {sig}",
+            );
+        }
     }
 
     #[test]
