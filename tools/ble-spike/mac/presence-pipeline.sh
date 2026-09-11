@@ -206,7 +206,26 @@ chmod +x "${WORK}/privileged.sh"
 say "starting the privileged half as root (one authorization prompt, ${MODE} target)"
 run_root "'${WORK}/privileged.sh'" &
 ROOT_PID=$!
-sleep 4
+sleep 5
+
+# Did the privileged half actually come up?
+#
+# It is behind an authorization dialog, and a dialog can be cancelled, dismissed
+# by someone who did not expect it, or never noticed at all. When that happens
+# the scanner keeps running and keeps writing rows, the process list still shows
+# a live pipeline, and nothing verifies anything -- the feature is off, and every
+# surface says it is on. That was observed on a real Mac: 77 advertisements
+# captured, verified.csv empty, no permit, and a panel reporting a running
+# monitor.
+#
+# The verifier writes its startup line to verify.log the moment it begins, so its
+# absence is a reliable "never started".
+if [ ! -e "${WORK}/verify.log" ]; then
+  say "the privileged half did not start -- the authorization prompt was not completed."
+  say "presence monitoring is OFF. Nothing is verifying beacons, and no permit will be written."
+  [ -n "${STATUS_FILE_ARG}" ] && printf 'noauth,-,%s\n' "$(date +%s)" > "${STATUS_FILE_ARG}"
+  exit 3
+fi
 # root may have created the status file; the app reads it unprivileged.
 [ -n "${STATUS_FILE_ARG}" ] && run_root "chmod 644 '${STATUS_FILE_ARG}'" >/dev/null 2>&1
 

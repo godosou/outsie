@@ -181,3 +181,28 @@
 .phone-key-modal .pk-foreign ul { margin: 0 0 8px; padding-left: 18px; }
 .phone-key-modal .pk-foreign code { font-size: 12px; word-break: break-all; }
 .phone-key-modal .pk-foreign p { margin: 0; font-size: 12.5px; line-height: 1.65; }
+
+/* The three facts that can change the answer. Full weight, short lines, no
+   numbering -- a numbered list reads as a procedure to get through, and these
+   are not steps, they are things to know before saying yes. */
+.phone-key-modal .pk-three { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
+.phone-key-modal .pk-three li { font-size: 12.5px; line-height: 1.85; color: var(--subtle); }
+.phone-key-modal .pk-three b { color: var(--text); display: block; margin-bottom: 3px; font-weight: 550; }
+
+/* Everything else. Closed by default: present, not shouted. */
+.phone-key-modal .pk-more { margin: 18px 0 0; border-top: 1px solid var(--line); padding-top: 14px; }
+.phone-key-modal .pk-more > summary {
+  cursor: pointer; font-size: 11.5px; color: var(--muted); list-style: none;
+  display: flex; align-items: center; gap: 6px;
+}
+.phone-key-modal .pk-more > summary::-webkit-details-marker { display: none; }
+.phone-key-modal .pk-more > summary::before { content: '＋'; font-size: 12px; }
+.phone-key-modal .pk-more[open] > summary::before { content: '－'; }
+.phone-key-modal .pk-more .pk-steps { margin-top: 14px; }
+
+/* Warning about the prompt's name. Quiet, but directly above the button that
+   raises it -- a note about a dialog is useless anywhere the reader has already
+   scrolled past. */
+.phone-key-modal .pk-prompt-note {
+  margin: 18px 0 0; font-size: 11.5px; line-height: 1.8; color: var(--muted);
+}

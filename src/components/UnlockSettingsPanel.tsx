@@ -188,8 +188,14 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
         </div>
       )}
 
-      {/* Primary action for the current state (exactly one, a verb). */}
-      {!degraded && view.primaryAction && (
+      {/* Primary action for the current state (exactly one, a verb).
+
+          Except when it would be a second way to do what the switch above
+          already does. On a Mac with nothing installed the switch says 回车解锁
+          and the button said 开始设置, side by side, both opening the same
+          disclosure -- two controls for one decision, which makes a reader stop
+          and work out whether they differ. They do not. */}
+      {!degraded && view.primaryAction && view.primaryAction.command !== 'install' && (
         <div className="phone-key-primary">
           <button className="button primary" disabled={busy} onClick={() => dispatchCommand(view.primaryAction!.command)}>
             {view.primaryAction.verb}
@@ -270,45 +276,77 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
 // ---- install disclosure (§5.3) -------------------------------------------
 
+// The consent sheet.
+//
+// The first version listed five numbered steps, a third-party-plugin block and
+// three "what it cannot stop" bullets, all at full weight. Every fact in it was
+// true and the whole thing was unreadable -- a wall of text at the moment of
+// consent gets clicked through, which costs exactly the sentences that mattered.
+// Being exhaustive and being honest are not the same thing.
+//
+// So: the three facts that can change the answer, in full weight, and everything
+// else one disclosure away. Nothing was deleted -- an accordion is a different
+// claim from a paragraph, but it is not a missing one, and a reader who wants
+// the detail is one click from all of it.
 function InstallDisclosure(
   { onClose, onConfirm, variant, pre }:
   { onClose: () => void; onConfirm: () => void; variant: 'A' | 'B' | null; pre: PreflightReport | null },
 ) {
   const foreign = pre?.foreign ?? []
   return (
-    <ModalShell label="开始前，先说清楚会发生什么" onClose={onClose} className="phone-key-modal">
+    <ModalShell label="开启前，有三件事" onClose={onClose} className="phone-key-modal">
       <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
       <div className="eyebrow">A KEY IN YOUR POCKET</div>
-      <h2>开始前，先说清楚会发生什么</h2>
-      <ol className="pk-steps">
-        <li><b>解锁时你要做什么。</b>唤醒 Mac，密码框出现，<b>不输任何字符，按一下回车。</b>它不会在你走近时自己打开；手机替代的是你的密码，不是那一次按键。偶尔手机还没被认出来，回车会失败一次，再按一次通常就好。</li>
-        <li><b>会修改一处系统设置。</b>把一个解锁组件装到 <code>/Library/Security/SecurityAgentPlugins/</code>，并在锁屏授权规则里加上自己的一条，排在原有密码路径<b>前面</b>。</li>
-        <li><b>它认的是手机，不是你。</b>开着时，只要你的手机在附近，任何坐到这台 Mac 前的人按一下回车就能进。</li>
-        <li><b>需要一次管理员密码。</b>只在安装和移除时各需要一次，平时不需要。</li>
-        <li><b>还原的路一直在。</b>备份、还原脚本、一份纯文本说明都落在 <code>/var/db/repose-unlock/</code>，删掉 Repose 也不影响。</li>
-        {variant === 'B' && <li className="pk-variant-b"><b>锁屏界面会换一个程序来画。</b>为了让手机钥匙工作，锁屏会改由系统的 SecurityAgent 绘制——同样是 macOS 自己的界面，但排版可能和现在略有不同。一分钟后的演练里你就会看到它。</li>}
-      </ol>
+      <h2>开启前，有三件事</h2>
+
+      <ul className="pk-three">
+        <li>
+          <b>它认的是手机，不是你。</b>
+          手机在身边时，任何坐到这台 Mac 前的人，按一下回车就能进。
+        </li>
+        <li>
+          <b>会改一处 macOS 系统设置。</b>
+          需要一次管理员密码；随时可以在这里一键还原。
+        </li>
+        <li>
+          <b>密码永远还能用。</b>
+          手机没电、蓝牙关了、功能出问题，照常输密码进入。
+        </li>
+      </ul>
+
       {foreign.length > 0 && (
         <div className="pk-foreign">
           <strong>这台 Mac 的锁屏里已经有别的解锁组件</strong>
           <ul>{foreign.map(f => <li key={f}><code>{f}</code></li>)}</ul>
-          <p>
-            不是 Repose 装的，也不一定有问题——但你该知道它在。锁屏规则现在是
-            <b>「任一条通过即可进入」</b>，所以上面每一条都能单独放行；装上 Repose 是
-            <b>再加一条</b>，不是加一道锁。移除 Repose 只会还原我们改动的部分，不会动它。
-          </p>
+          <p>不是 Repose 装的。锁屏规则是「任一条通过即可进入」，装上 Repose 是<b>再加一条</b>，不是加一道锁。</p>
         </div>
       )}
-      <div className="pk-cant">
-        <strong><ShieldCheck size={15} /> 它挡不住什么</strong>
-        <ul>
-          <li>有人可以转发你手机的无线信号，让这台 Mac 以为你在附近。</li>
-          <li>手机被拿走且处于解锁状态时，带着它靠近仍然能进。丢了手机，第一时间来这里撤销它——撤销不需要手机在你手上。</li>
-          <li>这台 Mac 里如果有比手机更值钱的东西，就老实输密码。</li>
-        </ul>
-      </div>
+
+      <details className="pk-more">
+        <summary>还有这些，想看可以展开</summary>
+        <ol className="pk-steps">
+          <li><b>解锁时你要做什么。</b>唤醒 Mac，密码框出现，<b>不输任何字符，按一下回车。</b>它不会在你走近时自己打开——手机替代的是你的密码，不是那一次按键。偶尔手机还没被认出来，回车会失败一次，再按一次通常就好。</li>
+          <li><b>改的是哪一处。</b>把一个解锁组件装到 <code>/Library/Security/SecurityAgentPlugins/</code>，并在锁屏授权规则里加上自己的一条，排在原有密码路径<b>前面</b>。</li>
+          <li><b>还原的路一直在。</b>备份、还原脚本、一份纯文本说明都落在 <code>/var/db/repose-unlock/</code>，删掉 Repose 也不影响。</li>
+          {variant === 'B' && <li><b>锁屏界面会换一个程序来画。</b>改由系统的 SecurityAgent 绘制——同样是 macOS 自己的界面，排版可能略有不同。</li>}
+          <li><b>它挡不住什么。</b>有人可以转发你手机的无线信号，让这台 Mac 以为你在附近；手机被拿走且处于解锁状态时，带着它靠近仍然能进。这台 Mac 里如果有比手机更值钱的东西，就老实输密码。</li>
+        </ol>
+      </details>
+
+      {/* Said before it happens, because the dialog does not say it itself.
+          macOS attributes an authorization prompt to the executable that asks,
+          and Repose asks through osascript -- so the box is titled "osascript",
+          a name the user has no reason to recognise, at the exact moment they
+          are being asked for an administrator password. The real fix is for the
+          app process to request authorization itself; until then, saying what
+          is coming is better than letting an unexplained prompt appear.
+          Tracked in docs/issues/0003-authorization-prompt-identity.md. */}
+      <p className="pk-prompt-note">
+        点下面之后，macOS 会弹出密码框。<b>它的标题会显示「osascript」</b>——那是 Repose
+        用来向系统请求授权的工具，不是别的程序。
+      </p>
       <div className="pk-modal-actions">
-        <button className="button primary" onClick={onConfirm}>我了解了，继续</button>
+        <button className="button primary" onClick={onConfirm}>开启手机钥匙</button>
         <button className="button light" onClick={onClose}>先不用</button>
       </div>
     </ModalShell>

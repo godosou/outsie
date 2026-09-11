@@ -31,6 +31,32 @@ run() {
 
 cd "$REPO"
 
+# The Command Line Tools ship an SDK newer than their own linker sometimes: on
+# 2026-09-11 this machine had CLT executables 26.6 with MacOSX27.0.sdk selected,
+# whose .tbd files declare an `arm64e.x1` architecture ld 26.6 does not know. The
+# failure is a wall of linker output ending in "tapi error: malformed file",
+# which reads like a broken dependency rather than a toolchain mismatch -- and it
+# appears between two green runs with no source change in between.
+#
+# So: if the active SDK cannot link, fall back to the newest one that can, and
+# say so. Picking silently would hide a real environment problem; refusing to run
+# would block every Rust test on a machine whose Rust is fine.
+if [ -z "${SDKROOT:-}" ] && [ -d /Library/Developer/CommandLineTools/SDKs ]; then
+  active_sdk="$(xcrun --show-sdk-path 2>/dev/null)"
+  if [ -n "$active_sdk" ] && grep -q 'arm64e\.x1' "$active_sdk/usr/lib/libiconv.2.tbd" 2>/dev/null; then
+    for candidate in /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+                     /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk \
+                     /Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk; do
+      if [ -d "$candidate" ] && ! grep -q 'arm64e\.x1' "$candidate/usr/lib/libiconv.2.tbd" 2>/dev/null; then
+        export SDKROOT="$candidate"
+        printf 'note: the active SDK (%s) cannot be linked by the installed ld;\n' "$(basename "$active_sdk")"
+        printf '      using %s instead. Update the Command Line Tools to fix properly.\n' "$(basename "$candidate")"
+        break
+      fi
+    done
+  fi
+fi
+
 run "web + lib unit tests" npm test --silent
 # The health assessment lives here: which host readings mean "this Mac opens for
 # anybody right now". That state is dangerous to reproduce on a real machine, so

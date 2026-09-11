@@ -375,6 +375,9 @@ pub enum PresenceReport {
     /// A file we could not parse. Treated as "not running" for the state
     /// machine, kept distinct so the panel can say why.
     Unreadable,
+    /// Scanning, but nothing is verifying: the administrator prompt that starts
+    /// the privileged half was not completed.
+    NoAuthorization,
 }
 
 /// Turn a published line and its age into what the panel shows.
@@ -396,6 +399,11 @@ pub fn read_presence(line: Option<&str>, now_s: i64) -> PresenceReport {
     }
     match f[0] {
         "stopped" => PresenceReport::NotRunning,
+        // The scanner came up and the privileged half did not, because the
+        // authorization prompt was never completed. Distinct from "not running":
+        // something IS running, it just cannot verify anything, and the panel
+        // must not let that read as either working or merely stopped.
+        "noauth" => PresenceReport::NoAuthorization,
         state => PresenceReport::Fresh {
             state: state.to_string(),
             rssi: f[1].parse::<i32>().ok(),
@@ -560,6 +568,13 @@ pub fn assess(f: &HostFacts) -> Assessment {
             ComponentId::Transport,
             Health::Degraded,
             "在场监测没有在运行 —— 这不是「手机不在」，是没人在看。密码照常可用。",
+            Some(Remediation::ReinstallComponent),
+        ),
+        (PresenceKeyState::Ok, PresenceReport::NoAuthorization) => component(
+            ComponentId::Transport,
+            Health::Degraded,
+            "在场监测没有拿到管理员授权，所以只有扫描在跑，没有任何东西在验证 —— \
+             手机钥匙不会生效，密码照常可用。把开关关掉再打开，这次在密码框里完成授权。",
             Some(Remediation::ReinstallComponent),
         ),
         (PresenceKeyState::Ok, PresenceReport::Unreadable) => component(
@@ -760,19 +775,18 @@ impl UnlockBackend for HostMacBackend {
             .filter(|p| p.exists())
             .ok_or_else(|| UnlockError::new(UnlockErrorCode::InstallFailed, "找不到安装脚本"))?;
         let _ = variant_str(variant); // form is chosen inside the script's preflight
-        // One native authorization prompt; the payload runs as root.
+        // ASSUME_YES, because there is nobody to answer the script's own prompt.
+        // install.sh asks "Proceed? [y/N]" on a terminal; under `do shell script`
+        // there is no stdin, so the read hit EOF and the installer aborted --
+        // after the user had already agreed in the app's own disclosure and typed
+        // their password. uninstall.sh was passed this from the start; install was
+        // simply missed, and the generic failure message hid which one it was.
         let cmd = format!(
-            "do shell script \"{} permit\" with administrator privileges",
+            "do shell script \"ASSUME_YES=1 {} permit\" with administrator privileges",
             shell_quote(&script.to_string_lossy()),
         );
-        match run_status("/usr/bin/osascript", &["-e", &cmd]) {
-            Ok(true) => self.get_snapshot(),
-            Ok(false) => Err(UnlockError::new(
-                UnlockErrorCode::AuthorizationDenied,
-                "没有拿到管理员授权，系统里什么都没有改",
-            )),
-            Err(e) => Err(UnlockError::new(UnlockErrorCode::InstallFailed, e)),
-        }
+        run_privileged(&cmd)?;
+        self.get_snapshot()
     }
 
     fn repair(&self, target: &str) -> Result<UnlockSnapshot, UnlockError> {
@@ -791,23 +805,23 @@ impl UnlockBackend for HostMacBackend {
             "do shell script \"ASSUME_YES=1 {} \" with administrator privileges",
             shell_quote(&script.to_string_lossy()),
         );
-        match run_status("/usr/bin/osascript", &["-e", &cmd]) {
-            Ok(_) => {
-                let rule_now = Self::read_rule().unwrap_or_default();
-                let still_referenced = rule_now.contains("ai.repose");
-                Ok(UninstallReport {
-                    read_at: Self::now_iso(),
-                    rule_now,
-                    backup_used: true,
-                    diff_against_backup: vec![],
-                    right_removed: !still_referenced,
-                    bundle_removed: true,
-                    keys_removed: true,
-                    residual: if still_referenced { vec!["规则仍引用 ai.repose".into()] } else { vec![] },
-                })
-            }
-            Err(e) => Err(UnlockError::new(UnlockErrorCode::InstallFailed, e)),
-        }
+        run_privileged(&cmd)?;
+        let rule_now = Self::read_rule().unwrap_or_default();
+        let still_referenced = rule_now.contains(SUBRULE_NAME);
+        Ok(UninstallReport {
+            read_at: Self::now_iso(),
+            rule_now,
+            backup_used: true,
+            diff_against_backup: vec![],
+            right_removed: !still_referenced,
+            bundle_removed: true,
+            keys_removed: true,
+            residual: if still_referenced {
+                vec![format!("规则仍引用 {SUBRULE_NAME}")]
+            } else {
+                vec![]
+            },
+        })
     }
 
     fn set_enabled(&self, _enabled: bool) -> Result<UnlockSnapshot, UnlockError> {
@@ -849,6 +863,39 @@ fn run_capture_stdin(bin: &str, args: &[&str], stdin_data: &str) -> Option<Strin
         return None;
     }
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Run one privileged command and say what actually happened.
+///
+/// `run_status` collapses every failure into false, and the install path turned
+/// that into "没有拿到管理员授权，系统里什么都没有改" -- shown to someone who had
+/// just typed their password correctly. Being told you did not authorize
+/// something you did authorize is worse than a bare error: it sends you looking
+/// in the wrong place, and it is the same class of false statement this project
+/// keeps finding in its own documents.
+///
+/// Cancelling really is different from failing, so the two are distinguished:
+/// osascript reports a cancelled authorization as AppleScript error -128.
+fn run_privileged(script: &str) -> Result<(), UnlockError> {
+    let out = Command::new("/usr/bin/osascript")
+        .args(["-e", script])
+        .output()
+        .map_err(|e| UnlockError::new(UnlockErrorCode::InstallFailed, e.to_string()))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if err.contains("-128") || err.contains("User canceled") || err.contains("用户取消") {
+        return Err(UnlockError::new(
+            UnlockErrorCode::AuthorizationDenied,
+            "取消了管理员授权，系统里什么都没有改",
+        ));
+    }
+    Err(UnlockError::new(
+        UnlockErrorCode::InstallFailed,
+        // The script's own last words, not a guess about them.
+        if err.is_empty() { "安装脚本失败了，但没有留下说明".to_string() } else { err },
+    ))
 }
 
 fn run_status(bin: &str, args: &[&str]) -> Result<bool, String> {
@@ -1532,6 +1579,45 @@ mod tests {
             "ReposeSpike.bundle",
         ] {
             assert!(conf.contains(needed), "tauri.conf.json bundles no {needed}");
+        }
+    }
+
+    #[test]
+    fn every_privileged_script_call_answers_the_script_s_own_prompt() {
+        // install.sh and uninstall.sh both ask "Proceed? [y/N]" on a terminal.
+        // `do shell script` gives them no stdin, so the read hits EOF and the
+        // script aborts -- after the user has agreed in the app's disclosure and
+        // typed their password. install was missing ASSUME_YES for exactly that
+        // reason, and the generic failure message reported it as the user having
+        // declined authorization.
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/unlock.rs"),
+        )
+        .expect("own source should be readable");
+        for line in src.lines() {
+            let l = line.trim();
+            // Comments talk about this too, including the one explaining the bug.
+            if l.starts_with("//") || l.starts_with("///") || !l.contains("do shell script") {
+                continue;
+            }
+            if l.contains("install.sh") || l.contains("uninstall.sh") || l.contains("{}") {
+                assert!(
+                    l.contains("ASSUME_YES=1"),
+                    "a privileged script call with no way to answer its prompt: {l}",
+                );
+            }
+        }
+
+        // And the scripts really do prompt, so the requirement above is not
+        // guarding something that stopped being true.
+        for name in ["install.sh", "uninstall.sh"] {
+            let script = std::fs::read_to_string(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../native/macos/minimal-auth-plugin")
+                    .join(name),
+            )
+            .unwrap_or_default();
+            assert!(script.contains("ASSUME_YES"), "{name} no longer honours ASSUME_YES");
         }
     }
 
