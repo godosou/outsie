@@ -154,7 +154,7 @@ fun buildHomeScreen(
                 context,
                 pal,
                 "这台手机只往外发信号、收不到回音，所以看不出哪台 Mac 认出了你。" +
-                    "要看那一边，去 Mac 上的 Outsie。",
+                    "要看那一边，去 Mac 上的 ${Brand.NAME}。",
             ),
             Ui.lp(top = context.dp(8)),
         )
@@ -217,7 +217,7 @@ fun buildHomeScreen(
         }
 
         // ---- Keep-alive entry ----
-        val keepAlive = sectionCard(context, pal, "🔋", "让 Outsie 一直醒着").apply {
+        val keepAlive = sectionCard(context, pal, "🔋", "让 ${Brand.NAME} 一直醒着").apply {
             isClickable = true
             isFocusable = true
             setOnClickListener { nav.go(Screen.KEEPALIVE) }

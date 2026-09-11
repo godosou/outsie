@@ -23,7 +23,7 @@ fun buildKeepAliveScreen(context: Context, nav: Nav): ScreenView {
     val root = screenScaffold(
         context = context,
         pal = pal,
-        title = "让 Outsie 一直醒着",
+        title = "让 ${Brand.NAME} 一直醒着",
         lead = "锁屏时也要能被 Mac 认出，得允许它后台运行、不被省电策略冻结。",
         onBack = { nav.back() },
     ) { column ->
@@ -120,9 +120,9 @@ private fun showLockInstructions(context: Context, pal: Palette) {
     AlertDialog.Builder(context, Ui.dialogTheme(context))
         .setTitle("锁定在后台")
         .setMessage(
-            "打开最近任务（多任务）界面，找到 Outsie 的卡片，" +
+            "打开最近任务（多任务）界面，找到 ${Brand.NAME} 的卡片，" +
                 "点卡片顶部的图标或长按，选择「锁定」或「加锁」。" +
-                "锁定后，一键清理不会把 Outsie 划掉。\n\n" +
+                "锁定后，一键清理不会把 ${Brand.NAME} 划掉。\n\n" +
                 "不同手机叫法略有不同——小米叫「锁定」，华为叫「加锁」，OPPO/realme 叫「锁定后台」。",
         )
         .setPositiveButton("知道了", null)

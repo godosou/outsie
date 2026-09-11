@@ -3,6 +3,7 @@ import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, Ca
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
 import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
+import { BRAND_NAME, BRAND_WORDMARK } from './lib/brand'
 import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
 import { localDateKey } from './lib/timer'
 import { getShortBreakVoice } from './lib/reposeVoice'
@@ -285,7 +286,7 @@ export default function App() {
   return <div className="app-shell" onPointerDown={initAudio}>
     {mobileMenu && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setMobileMenu(false)} />}
     <aside className={`sidebar ${mobileMenu ? 'mobile-open' : ''}`}>
-      <button className="brand" onClick={() => navigate('overview')} aria-label="Outsie 首页"><BrandMark /><span>outsie<span className="brand-period">.</span></span></button>
+      <button className="brand" onClick={() => navigate('overview')} aria-label={`${BRAND_NAME} 首页`}><BrandMark /><span>{BRAND_WORDMARK.replace(/\.$/, '')}<span className="brand-period">.</span></span></button>
       <p className="brand-tagline">给日常，留一点空白</p>
       <div className="nav-label">你的日常空间</div>
       <nav aria-label="主导航">{navigation.map(item => <button className={`nav-item ${page === item.id ? 'active' : ''}`} key={item.id} onClick={() => navigate(item.id)} aria-current={page === item.id ? 'page' : undefined}><item.icon size={19} strokeWidth={1.65} /><span>{item.label}</span>{page === item.id && <span className="nav-active-dot" />}</button>)}</nav>

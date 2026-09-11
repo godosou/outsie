@@ -156,7 +156,7 @@ private fun renderPairingWindow(
             Ui.body(
                 context,
                 pal,
-                "打开 Outsie → 设置 → 手机钥匙，点「配对手机」。",
+                "打开 ${Brand.NAME} → 设置 → 手机钥匙，点「配对手机」。",
             ),
             Ui.lp(top = context.dp(12)),
         )

@@ -1,0 +1,20 @@
+{
+  "$comment": "The product's name, in one place. Everything user-visible derives from this; the declaration sites that cannot import it are checked against it by src/lib/brandAssets.test.ts, which names every file it verifies. Renaming the product means editing this file and running that test until it stops complaining.",
+
+  "name": "Outsie",
+  "wordmark": "outsie.",
+  "tagline": "歇一会",
+
+  "$identifiers": "NOT derived from `name`, and must not be. These appear on disk, on the air, and inside HMAC pre-images shared with the phone; a rename that swept them would silently orphan an installed plugin or make every beacon fail to verify, which looks exactly like a phone that is out of range. They are recorded here so the next person renaming the product can see what was deliberately left behind.",
+  "keep": {
+    "bundleIdentifier": "ai.repose.lite",
+    "pluginIdentifier": "ai.repose.spike",
+    "androidPackage": "ai.repose.blespike",
+    "pluginBundle": "ReposeSpike.bundle",
+    "keyDirectory": "/var/db/repose-unlock",
+    "runtimeDirectory": "/var/run/repose-spike",
+    "beaconLabel": "repose-presence-v2 beacon",
+    "pairingLabels": "repose-pair-v2 {commit,sas,presence-key}",
+    "electronUserDataDirectory": "Repose"
+  }
+}

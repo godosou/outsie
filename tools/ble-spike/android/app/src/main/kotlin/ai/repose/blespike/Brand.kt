@@ -19,6 +19,22 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
+ * The product's name, in one place on this side of the wire.
+ *
+ * brand.json at the repo root is the canonical record; this is the Kotlin
+ * declaration site, and src/lib/brandAssets.test.ts asserts the two agree. The
+ * Android build cannot read a file outside its own tree at compile time, so the
+ * agreement is enforced by a test rather than by the type system — which is
+ * enough, as long as the test names this file, and it does.
+ */
+object Brand {
+    const val NAME = "Outsie"
+
+    /** Lowercase, with the full stop. The header draws this, not [NAME]. */
+    const val WORDMARK = "outsie."
+}
+
+/**
  * The Outsie mark: four petals around a hole.
  *
  * Ported from `ReposeBrandMark` in mobile/lib/app/repose_theme.dart, ovals and
@@ -85,7 +101,7 @@ fun brandHeader(context: Context, pal: Palette): View {
     }
     words.addView(
         TextView(context).apply {
-            text = "outsie."
+            text = Brand.WORDMARK
             setTextColor(pal.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
             typeface = Typeface.create("sans-serif", Typeface.BOLD)

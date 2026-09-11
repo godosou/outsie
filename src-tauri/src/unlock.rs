@@ -299,7 +299,7 @@ impl PairingSession {
 /// leaves behind. It must never be worded as a glitch worth retrying.
 pub fn pairing_failure(code: Option<i32>) -> String {
     match code {
-        Some(2) => "这台 Mac 的蓝牙用不了。检查蓝牙是否打开、系统设置里是否允许 Outsie 使用蓝牙，然后再试一次。".into(),
+        Some(2) => format!("这台 Mac 的蓝牙用不了。检查蓝牙是否打开、系统设置里是否允许 {BRAND} 使用蓝牙，然后再试一次。"),
         Some(3) => "没找到正在配对的手机。在手机上点「开始配对」，把手机放在 Mac 旁边，再试一次。".into(),
         Some(4) => "配对过程中断了。重新配一次即可。".into(),
         Some(5) => "已中止：手机后来公布的信息和它先前的承诺对不上。\
@@ -449,6 +449,14 @@ pub const BUNDLE_PATH: &str = "/Library/Security/SecurityAgentPlugins/ReposeSpik
 pub const DAEMON_LABEL: &str = "ai.repose.spike.healthcheck";
 pub const SUBRULE_NAME: &str = "ai.repose.spike";
 pub const PRESENCE_KEY_DIR: &str = "/var/db/repose-unlock";
+
+/// The product's name, for the strings this module shows people.
+///
+/// brand.json at the repo root is the canonical record; this is the Rust
+/// declaration site, and src/lib/brandAssets.test.ts asserts the two agree.
+/// Deliberately separate from PRESENCE_KEY_DIR and the identifiers around it:
+/// those are on disk and on the air and must survive a rename untouched.
+pub const BRAND: &str = "Outsie";
 
 /// Where permit-bridge.sh publishes its decision, one line: `state,rssi,unix_s`.
 /// User-owned by design -- it is a display signal, not an authorization input.
@@ -897,7 +905,7 @@ impl UnlockBackend for HostMacBackend {
             }
             None => Err(UnlockError::new(
                 UnlockErrorCode::PreflightRuleShape,
-                "这台 Mac 的锁屏规则和预期不同，Outsie 不改它",
+                &format!("这台 Mac 的锁屏规则和预期不同，{BRAND} 不改它"),
             )),
         }
     }
@@ -1409,7 +1417,7 @@ fn key_fingerprint(hex_key: &str) -> Option<String> {
 #[tauri::command]
 pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> {
     let mut slot = PAIRING.lock().map_err(|_| {
-        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Outsie")
+        UnlockError::new(UnlockErrorCode::Unsupported, format!("配对状态异常，请重启 {BRAND}"))
     })?;
     // Starting over means the previous attempt is dead to us. Leaving it
     // running would put two tools on the radio and let a stale answer land.
@@ -1458,7 +1466,7 @@ pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> 
 #[tauri::command]
 pub fn unlock_pair_poll() -> Result<PairingSession, UnlockError> {
     let mut slot = PAIRING.lock().map_err(|_| {
-        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Outsie")
+        UnlockError::new(UnlockErrorCode::Unsupported, format!("配对状态异常，请重启 {BRAND}"))
     })?;
     let Some(live) = slot.as_mut() else {
         return Ok(PairingSession::stage(PairingStage::Idle));
@@ -1483,7 +1491,7 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
 
     let mut live = {
         let mut slot = PAIRING.lock().map_err(|_| {
-            UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Outsie")
+            UnlockError::new(UnlockErrorCode::Unsupported, format!("配对状态异常，请重启 {BRAND}"))
         })?;
         slot.take().ok_or_else(|| {
             UnlockError::new(UnlockErrorCode::Unsupported, "这次配对已经结束了，请重新开始")
