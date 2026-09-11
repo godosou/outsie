@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { KeyRound, Smartphone, ShieldCheck, X, Monitor, LockKeyhole, ArrowUpRight } from 'lucide-react'
+import { KeyRound, Smartphone, X, Monitor, LockKeyhole, ArrowUpRight } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
   beginRequest, finishRequest, failRequest, canIssue, healthClass, normalizePreflight,
@@ -19,6 +19,7 @@ import {
   type UnlockSnapshot, type UnlockError, type PanelCommand, type RequestState,
   type PreflightReport, type PairingSession, type UninstallSummary,
   type UnlockDesktopBridge,
+  type PairedDevice,
 } from '../lib/unlock'
 
 /**
@@ -252,10 +253,15 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
   const enabled = snapshot.presenceRunning
 
   return (
+    <>
     <section className={`panel preferences-panel phone-key-panel${degraded ? ' is-degraded' : ''}`}>
       <div className="section-heading">
-        <div><h2>手机钥匙</h2><p>手机在身边时，回车就是你的密码。</p></div>
-        <span className="subtle-badge"><Monitor size={13} />{degraded ? '桌面版专属' : 'Mac 桌面版'}</span>
+        {/* The page is already titled 手机就是钥匙; repeating 手机钥匙 here says
+            nothing. This panel is the pair of switches, so it is named for
+            them. The 「Mac 桌面版」 badge is noise inside the Mac app -- kept
+            only where it is news, which is the web preview. */}
+        <div><h2>锁与开</h2><p>锁得紧不紧，和回来要不要输密码。</p></div>
+        {degraded && <span className="subtle-badge"><Monitor size={13} />桌面版专属</span>}
       </div>
 
       <div className="preference-row">
@@ -320,10 +326,16 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           <span className="preference-icon"><LockKeyhole size={21} /></span>
           <div>
             <h3>离开 30 秒就自动锁屏</h3>
-            <p className={`pk-row-state${idleLock.enabled && !idleLock.error ? ' is-on' : ''}`}>
-              {idleLock.error
-                ? '开着，但没有生效 · 缺辅助功能权限'
-                : idleLock.enabled ? '已开启' : '已关闭 · 离开电脑不会自动锁屏'}
+            {/* The state line and the switch must not disagree. This said
+                「开着，但没有生效」 whenever securityError was set -- and the
+                error path in App.tsx also switches it OFF, so the sentence
+                claimed 开着 above a grey switch. */}
+            <p className={`pk-row-state${idleLock.enabled ? ' is-on' : ''}`}>
+              {idleLock.enabled
+                ? '已开启'
+                : idleLock.error
+                  ? '已关闭 · macOS 拒绝了，因为缺辅助功能权限'
+                  : '已关闭 · 离开电脑不会自动锁屏'}
             </p>
             <p>
               这两个是一对：锁得越紧越安全，而上面那个负责让你不为此多输一次密码。
@@ -333,7 +345,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
             </p>
             {idleLock.error && (
               <button className="text-button" onClick={idleLock.onOpenSettings} style={{ marginTop: 6 }}>
-                打开系统设置<ArrowUpRight size={14} />
+                去授予权限<ArrowUpRight size={14} />
               </button>
             )}
           </div>
@@ -369,32 +381,10 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
         </div>
       )}
 
-      {/* Paired device + revoke (§5.13). Revoke never needs the phone present. */}
-      {!degraded && snapshot.device && (
-        <div className="phone-key-device">
-          <span className="pk-device-icon"><Smartphone size={18} /></span>
-          <div className="pk-device-meta">
-            <b>{snapshot.device.name}</b>
-            <span>{snapshot.device.platform} · {snapshot.device.pairedAt} 配对</span>
-          </div>
-          {armedRevoke === snapshot.device.id ? (
-            <span className="pk-revoke-confirm">
-              <button className="text-button" onClick={() => setArmedRevoke(null)}>取消</button>
-              <button
-                className="text-button danger-text"
-                onClick={() => { const id = snapshot.device!.id; setArmedRevoke(null); void run('resume', () => bridge!.revokeDevice({ deviceId: id })); onToast?.(`已撤销 ${snapshot.device!.name}，这台 Mac 现在只接受密码`) }}
-              >确认撤销</button>
-            </span>
-          ) : (
-            <button className="text-button" disabled={busy} onClick={() => setArmedRevoke(snapshot.device!.id)}>撤销这台设备</button>
-          )}
-        </div>
-      )}
-
       {/* Component status, collapsed. "never-observed" must read as "还没观察到", not a green tick. */}
       {!degraded && loaded && snapshot.state !== 'not-installed' && (
         <details className="phone-key-detail" open={detailsOpen} onToggle={e => setDetailsOpen((e.target as HTMLDetailsElement).open)}>
-          <summary>查看组件状态</summary>
+          <summary>技术细节</summary>
           <dl className="pk-klist">
             {snapshot.components.map(c => (
               <div className="pk-krow" key={c.id}>
@@ -411,28 +401,29 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
               </dd>
             </div>
           </dl>
+
+          {/* Kept, not deleted (ui-conventions 3.1). This is what the feature
+              cannot protect against -- the person who wants to know must be
+              able to find it on the day they go looking. */}
+          <p className="pk-fold-note">
+            它判断的是「手机在不在附近」，不是「是不是你本人」。有人可以转发你手机的信号让这台 Mac
+            误判；手机被别人拿走、而且还没锁屏时，带着它靠近一样会解锁。不放心的场合，把上面的开关
+            临时关掉。
+          </p>
+
+          {!degraded && (
+            <button className="button outline full-width" disabled={busy} onClick={() => setShowManifest(true)} style={{ marginTop: 14 }}>
+              不再使用，把 Mac 改回原样
+            </button>
+          )}
         </details>
       )}
 
-      <div className="security-permission pk-safety">
-        <ShieldCheck size={15} />
-        <p>
-          解锁时不会自动打开：密码框出现后，不输字符按一下回车即可。手机不在，或者功能出问题，
-          <b>密码始终照常可用。</b>
-        </p>
-      </div>
+      {/* One line, always present, everywhere. The single most important
+          sentence in this feature: whatever is broken, the password works. */}
       <p className="security-limit">
-        判断的是「手机在不在附近」，不是「是不是你本人」。有人可转发你手机的信号让这台 Mac 误判；
-        手机被拿走且处于解锁状态时，带着它靠近仍会解锁。不放心的场合，用上面的开关暂时关闭。
+        不管这些开关是什么状态，<b>Mac 密码一直都能登录。</b>
       </p>
-
-      {!degraded && snapshot.state !== 'not-installed' && (
-        <div className="phone-key-remove">
-          <button className="button outline full-width" disabled={busy} onClick={() => setShowManifest(true)}>
-            不再使用，把 Mac 改回原样
-          </button>
-        </div>
-      )}
 
       {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} pre={pre} />}
       {showManifest && <RemoveConfirm onClose={() => setShowManifest(false)} onConfirm={() => { setShowManifest(false); dispatchCommand('uninstall') }} />}
@@ -488,6 +479,21 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
         />
       )}
     </section>
+
+    {!degraded && loaded && snapshot.state !== 'not-installed' && (
+      <PhoneList
+        device={snapshot.device}
+        onPair={() => dispatchCommand('begin-pairing')}
+        busy={busy}
+        armed={armedRevoke}
+        onArm={setArmedRevoke}
+        onRevoke={id => {
+          setArmedRevoke(null)
+          void run('revoke-device', () => bridge!.revokeDevice({ deviceId: id }))
+        }}
+      />
+    )}
+    </>
   )
 }
 
@@ -504,6 +510,93 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
 // So: the three facts that can change the answer, in full weight, and everything
 // else one disclosure away. Nothing was deleted -- an accordion is a different
 // claim from a paragraph, but it is not a missing one, and a reader who wants
+
+// ---------------------------------------------------------------------------
+// Who can touch this Mac.
+//
+// One row today, because one key slot exists. Protocol v3 gives the phone its
+// own keyId and this becomes a real list -- the shape is here already so that
+// the second phone does not need a new page.
+//
+// Deliberately NOT here: a per-phone 解锁 switch. With a single phone it would
+// be a second control for the decision the switch above already makes, which
+// is the duplicate-control bug this page was reorganised to remove. The row
+// shows the state that switch produces, and says so.
+//
+// Also deliberately not here: a 快捷控制 switch. Nothing reads such a flag yet,
+// and a switch that stores a preference no code enforces is the same lie as a
+// hardcoded `keys_removed: true`.
+function PhoneList({ device, onPair, busy, armed, onArm, onRevoke }: {
+  device: PairedDevice | null
+  onPair: () => void
+  busy: boolean
+  armed: string | null
+  onArm: (id: string | null) => void
+  onRevoke: (id: string) => void
+}) {
+  return (
+    <section className="panel preferences-panel">
+      <div className="section-heading">
+        <div><h2>能打开这台 Mac 的</h2><p>{device ? '现在只有它。' : '还没有。'}</p></div>
+      </div>
+
+      {device ? (
+        <div className={`pk-device${device.canUnlock ? '' : ' is-off'}`}>
+          <div className="pk-device-icon"><Smartphone size={19} /></div>
+          <div className="pk-device-body">
+            <p className="pk-device-name">{device.name}</p>
+            <p className="pk-device-state">
+              {device.canUnlock ? '可以解锁' : device.blockedReason ?? '现在不能解锁'}
+            </p>
+            <p className="pk-device-meta">
+              {device.paired
+                ? `在这台 Mac 上配对${formatPairedAt(device.pairedAt)}`
+                : '不是配对来的，是开发时用 USB 装进去的一把钥匙。它一样能开这台 Mac。'}
+            </p>
+          </div>
+          {/* Two steps, because it cannot be undone without the phone in hand
+              and a second pairing. The armed step says what is about to go. */}
+          <div className="pk-device-action">
+            {armed === device.id ? (
+              <>
+                <p className="pk-device-warn">删掉钥匙之后，这部手机要重新配对一次才能再解锁。</p>
+                <span className="pk-revoke-confirm">
+                  <button className="text-button" onClick={() => onArm(null)}>算了</button>
+                  <button className="text-button danger-text" disabled={busy} onClick={() => onRevoke(device.id)}>
+                    删掉这把钥匙
+                  </button>
+                </span>
+              </>
+            ) : (
+              <button className="text-button" disabled={busy} onClick={() => onArm(device.id)}>删掉这把钥匙</button>
+            )}
+          </div>
+        </div>
+      ) : (
+        // 6.4: an empty list must answer what this is, not just offer a button.
+        <div className="pk-device-empty">
+          <p>配一部手机之后，它会出现在这里。配对要两边同时在场，在手机上点一下「一样」才算成功。</p>
+          <button className="button primary" disabled={busy} onClick={onPair}>配对手机</button>
+        </div>
+      )}
+
+      {device && (
+        <p className="security-limit" style={{ marginTop: 16 }}>
+          再配一部手机、以及给每部手机单独开关，还没做。
+        </p>
+      )}
+    </section>
+  )
+}
+
+/** "" when unknown, so the sentence simply ends instead of showing a fake date. */
+function formatPairedAt(iso: string): string {
+  if (!iso) return ''
+  const t = new Date(iso)
+  if (Number.isNaN(t.getTime())) return ''
+  return ` · ${t.getFullYear()} 年 ${t.getMonth() + 1} 月 ${t.getDate()} 日`
+}
+
 // the detail is one click from all of it.
 function InstallDisclosure(
   { onClose, onConfirm, variant, pre }:

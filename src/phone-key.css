@@ -1,3 +1,13 @@
+/* Amber is the only warning colour in this product; there is no red
+   (ui-conventions 6.1). #8a6f42 measured 4.19:1 on the panel ground, which is
+   under the 4.5:1 body-text line -- this is the same hue with the lightness
+   pressed down until it passes (4.58:1). See ui-conventions 7.2.
+   New CSS uses the token; the existing uses of the old value are left for the
+   one visual pass that changes them all together. */
+:root {
+  --amber-ink: #83693f;
+}
+
 /* 手机钥匙 (Phone Key) panel styles.
  *
  * Multi-line format (like activity-chart.css), NOT styles.css's single-line
@@ -62,8 +72,8 @@
 .phone-key-panel .pk-device-meta { flex: 1; }
 .phone-key-panel .pk-device-meta b { font-size: 14px; }
 .phone-key-panel .pk-device-meta span { display: block; color: var(--muted); font-size: 12px; }
-.phone-key-panel .pk-revoke-confirm { display: inline-flex; gap: 12px; }
-.phone-key-panel .danger-text { color: #aa6a58; }
+.pk-revoke-confirm { display: inline-flex; gap: 12px; }
+.danger-text { color: #aa6a58; }
 
 .phone-key-panel .phone-key-detail { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
 .phone-key-panel .phone-key-detail summary {
@@ -166,7 +176,7 @@
 [data-theme="dark"] .phone-key-panel .pk-dot.ready { background: #9cbb7f; }
 [data-theme="dark"] .phone-key-panel .pk-krow dd.good { color: #9cbb7f; }
 [data-theme="dark"] .phone-key-panel .pk-krow dd.bad,
-[data-theme="dark"] .phone-key-panel .danger-text { color: #e79a90; }
+[data-theme="dark"] .danger-text { color: #e79a90; }
 [data-theme="dark"] .phone-key-panel .pk-krow dd.warn { color: #d9bd86; }
 [data-theme="dark"] .pk-cant {
   background: #332b1c;
@@ -333,3 +343,96 @@
   border-radius: 20px; padding: 1px 6px; flex: none;
 }
 .nav-item.active .nav-soon { border-color: transparent; }
+
+/* A note inside a fold is already opted into, so it can be plain prose --
+   no icon, no tinted box. Boxing it would make it shout from inside a
+   drawer the reader deliberately opened. */
+.phone-key-detail .pk-fold-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--subtle);
+}
+
+/* ---- who can open this Mac ------------------------------------------- */
+/* Font sizes here stay >= 12px for body and >= 11px for the meta line, per
+   ui-conventions 7.1 -- the existing panel has declarations down to 9px, and
+   "raise the block you touch" is how that gets paid down. */
+.pk-device {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sage-faint, #f4f7f1);
+}
+.pk-device.is-off { background: transparent; }
+.pk-device.is-off .pk-device-icon { color: var(--muted); }
+
+.pk-device-icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--green);
+}
+.pk-device-body { min-width: 0; }
+.pk-device-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* The one line that changes: it names the state the switch above produces. */
+.pk-device-state {
+  margin: 3px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+}
+.pk-device.is-off .pk-device-state { color: var(--subtle); font-weight: 500; }
+.pk-device-meta {
+  margin: 7px 0 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--subtle);
+}
+
+.pk-device-empty {
+  margin-top: 16px;
+  padding: 20px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  text-align: center;
+}
+.pk-device-empty p {
+  margin: 0 auto 14px;
+  max-width: 40em;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--subtle);
+}
+
+/* The destructive action sits at the end of the row, quiet until armed. */
+.pk-device-action {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+.pk-device-warn {
+  margin: 0;
+  max-width: 22em;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--amber-ink);
+}

@@ -32,7 +32,7 @@ function snapshot(overrides: Partial<UnlockSnapshot> = {}): UnlockSnapshot {
       { id: 'transport', health: 'ok', detail: '蓝牙已开' },
     ],
     componentInvocation: { kind: 'observed', at: '2026-09-09T14:22:00Z' },
-    device: { id: 'dev1', name: 'realme RMX3888', platform: 'Android', pairedAt: '2026-09-09', lastSeenMs: 12000 },
+    device: { id: '1', name: 'realme RMX3888', platform: 'Android', pairedAt: '2026-09-09', paired: true, canUnlock: true, blockedReason: null },
     stats: { unlocksToday: 4, lastUnlockAt: '2026-09-09T14:22:00Z' },
     lastFailure: null,
     macosBuild: '23G93',
@@ -255,7 +255,7 @@ test('every remediation primitive has a label except leave-it-alone', () => {
   assert.equal(remediationLabel({ kind: 're-pair' }), '重新配对')
   assert.equal(remediationLabel({ kind: 're-calibrate' }), '重做校准')
   assert.equal(remediationLabel({ kind: 'fix-on-phone', hint: 'unseen' }), '在手机上打开')
-  assert.equal(remediationLabel({ kind: 'revoke-device' }), '撤销这台设备')
+  assert.equal(remediationLabel({ kind: 'revoke-device' }), '删掉这把钥匙')
   assert.equal(remediationLabel({ kind: 'uninstall-and-restore' }), '不再使用，把 Mac 改回原样')
   assert.equal(remediationLabel({ kind: 'leave-it-alone' }), null)
 })

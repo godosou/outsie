@@ -173,11 +173,65 @@ pub enum ComponentInvocation {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairedDevice {
+    /// The key slot it occupies. Today only slot 1 exists; protocol v3 gives
+    /// the phone its own id, and then this stops being a constant.
     pub id: String,
     pub name: String,
     pub platform: String,
+    /// ISO time the key file was written. Empty when unreadable -- the card
+    /// then omits the line rather than showing a made-up date.
     pub paired_at: String,
-    pub last_seen_ms: Option<i64>,
+    /// True only when `.provenance` records a real SAS pairing. A key pushed
+    /// over USB by a dev script can unlock this Mac too, so it belongs in the
+    /// list; calling it a paired phone is what would be false.
+    pub paired: bool,
+    /// Whether this device can unlock right now, and why not when it cannot.
+    pub can_unlock: bool,
+    pub blocked_reason: Option<String>,
+}
+
+/// The shell that deletes one device's key. Pure so the quoting and the fact
+/// that it takes the provenance file with it are testable: a key deleted while
+/// its provenance stays behind leaves the next key looking SAS-paired when it
+/// was pushed over USB.
+pub fn revoke_script(key_path: &str) -> String {
+    format!(
+        "do shell script \"rm -f {key} {key}.provenance\" with administrator privileges",
+        key = applescript_quote(key_path),
+    )
+}
+
+/// Build the row from the facts that exist. There is deliberately no
+/// "last seen" field: the bridge publishes its current verdict and keeps no
+/// history, so any timestamp here would be invented.
+pub fn paired_device(
+    key: &PresenceKeyState,
+    saved_name: Option<&str>,
+    paired_at: Option<String>,
+    watching: bool,
+) -> Option<PairedDevice> {
+    let paired = match key {
+        // No key, or a key the verifier would refuse: nothing can unlock, so
+        // the list is empty rather than showing a device that cannot work.
+        PresenceKeyState::Missing | PresenceKeyState::BadPermissions { .. } => return None,
+        PresenceKeyState::Ok { paired } => *paired,
+    };
+    let name = match (paired, saved_name.map(str::trim).filter(|n| !n.is_empty())) {
+        (true, Some(n)) => n.to_string(),
+        // Paired, but the cosmetic name was never written or was lost. The row
+        // still belongs here; only its label is unknown.
+        (true, None) => "已配对的手机".to_string(),
+        (false, _) => "USB 下发的开发密钥".to_string(),
+    };
+    Some(PairedDevice {
+        id: "1".to_string(),
+        name,
+        platform: if paired { "Android" } else { "开发用" }.to_string(),
+        paired_at: paired_at.unwrap_or_default(),
+        paired,
+        can_unlock: watching,
+        blocked_reason: (!watching).then(|| "上面的开关关着，现在谁都解不了锁".to_string()),
+    })
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -864,6 +918,23 @@ impl HostMacBackend {
         }
     }
 
+    /// The nickname the phone reported during pairing, saved next to the
+    /// pairing state. Cosmetic, and absent on a Mac paired before it was
+    /// recorded -- both are fine; the card falls back to a generic label.
+    fn saved_peer_name(app: &AppHandle) -> Option<String> {
+        let dir = app.path().app_data_dir().ok()?.join("pairing");
+        std::fs::read_to_string(dir.join("peer-name.saved")).ok()
+    }
+
+    /// When the key file was written, which is when pairing finished.
+    fn key_written_at() -> Option<String> {
+        let md = std::fs::metadata(format!("{PRESENCE_KEY_DIR}/presence-key.1")).ok()?;
+        let secs = md.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+        // Same idiom as now_iso: shell to `date` rather than pull a date crate
+        // in for two call sites.
+        run_capture("/bin/date", &["-u", "-r", &secs.to_string(), "+%Y-%m-%dT%H:%M:%SZ"])
+    }
+
     fn presence_key_state() -> PresenceKeyState {
         use std::os::unix::fs::MetadataExt;
         // Slot 1 is the only one the spike provisions. A missing file and an
@@ -943,7 +1014,12 @@ impl UnlockBackend for HostMacBackend {
             variant,
             components: assessment.components,
             component_invocation: ComponentInvocation::NeverObserved,
-            device: None,
+            device: paired_device(
+                &Self::presence_key_state(),
+                Self::saved_peer_name(&self.app).as_deref(),
+                Self::key_written_at(),
+                assessment.presence_running,
+            ),
             stats: UnlockStats { unlocks_today: 0, last_unlock_at: None },
             last_failure: None,
             macos_build,
@@ -1032,9 +1108,39 @@ impl UnlockBackend for HostMacBackend {
         self.get_snapshot()
     }
 
-    fn revoke_device(&self, _device_id: &str) -> Result<UnlockSnapshot, UnlockError> {
-        // Deletes the on-device pairing key (never requires the phone). Pairing
-        // store is DEFERRED; today a no-op re-read.
+    /// Delete the pairing key for one device, leaving the plugin installed so
+    /// another phone can be paired.
+    ///
+    /// This was a no-op that re-read the snapshot while the UI's confirm step
+    /// told the user 「已撤销，这台 Mac 现在只接受密码」. It never rendered because
+    /// `device` was hardcoded to None; the moment that field carried a real
+    /// phone, the lie would have shipped. So it is implemented rather than
+    /// removed -- revoking a key and uninstalling the whole feature are
+    /// genuinely different things to want.
+    fn revoke_device(&self, device_id: &str) -> Result<UnlockSnapshot, UnlockError> {
+        // Slot 1 is the only slot that exists. Accepting any id and deleting
+        // slot 1 would delete the wrong key the day a second one exists.
+        if device_id != "1" {
+            return Err(UnlockError::new(
+                UnlockErrorCode::Unsupported,
+                format!("这台 Mac 上没有编号 {device_id} 的钥匙"),
+            ));
+        }
+        let key = format!("{PRESENCE_KEY_DIR}/presence-key.1");
+        run_privileged(&revoke_script(&key))?;
+
+        // Read back before reporting. The password prompt was the user's, and
+        // what it bought them has to be checked, not assumed.
+        if std::fs::metadata(&key).is_ok() {
+            return Err(UnlockError::new(
+                UnlockErrorCode::InstallFailed,
+                format!("{key} 还在。这部手机仍然可以解锁这台 Mac。"),
+            ));
+        }
+        // The nickname is only meaningful next to the key it named.
+        if let Ok(dir) = self.app.path().app_data_dir() {
+            let _ = std::fs::remove_file(dir.join("pairing").join("peer-name.saved"));
+        }
         self.get_snapshot()
     }
 }
@@ -2385,6 +2491,88 @@ mod tests {
             pipeline_action(Some("4242"), true, false, false),
             PipelineAction::Stop(4242),
         );
+    }
+
+    #[test]
+    fn revoking_takes_the_provenance_with_the_key() {
+        // Leaving `.provenance` behind would make the NEXT key -- which may well
+        // be a dev key pushed over USB -- read as "paired by SAS". The panel
+        // would then vouch for a key nobody verified.
+        let script = revoke_script("/var/db/repose-unlock/presence-key.1");
+        assert!(script.contains("presence-key.1'"), "the key itself: {script}");
+        assert!(script.contains("presence-key.1'.provenance"), "and its provenance: {script}");
+        assert!(script.contains("with administrator privileges"));
+    }
+
+    #[test]
+    fn a_quote_in_a_path_stays_one_shell_word() {
+        // Not a grep for scary substrings -- "rm -rf /" appears verbatim inside
+        // correctly quoted output and is inert there. The property that matters
+        // is that /bin/sh hands the word back unchanged.
+        //
+        // Only the shell layer is covered. The AppleScript string around it
+        // escapes nothing, so a path containing a double quote or a backslash
+        // would still break the literal; every path passed here today is a
+        // compile-time constant, and that is the reason it is safe rather than
+        // an accident to rely on.
+        let nasty = "/tmp/a'; rm -rf /; echo '";
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", &format!("printf %s {}", applescript_quote(nasty))])
+            .output()
+            .expect("sh should run");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), nasty);
+    }
+
+    #[test]
+    fn no_usable_key_means_an_empty_list() {
+        // A device row is a promise that something can unlock this Mac. With no
+        // key, or a key the verifier refuses, nothing can -- and a row saying
+        // otherwise is the bug this whole file is written against.
+        assert!(paired_device(&PresenceKeyState::Missing, Some("realme GT5 Pro"), None, true).is_none());
+        assert!(paired_device(
+            &PresenceKeyState::BadPermissions { detail: String::new() },
+            Some("realme GT5 Pro"),
+            None,
+            true
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn a_dev_key_is_listed_but_not_called_a_paired_phone() {
+        // It really can unlock this Mac, so hiding it would be a lie by
+        // omission; calling it a paired phone would be the opposite lie.
+        let d = paired_device(&PresenceKeyState::Ok { paired: false }, Some("realme GT5 Pro"), None, true)
+            .expect("a usable key is a device that can unlock");
+        assert!(!d.paired);
+        assert!(!d.name.contains("realme"), "a name from a previous pairing must not label a dev key: {}", d.name);
+    }
+
+    #[test]
+    fn a_paired_phone_wears_the_name_it_reported() {
+        let d = paired_device(&PresenceKeyState::Ok { paired: true }, Some("  realme GT5 Pro "), None, true).unwrap();
+        assert_eq!(d.name, "realme GT5 Pro");
+        assert!(d.paired);
+        assert!(d.can_unlock);
+        assert!(d.blocked_reason.is_none());
+    }
+
+    #[test]
+    fn a_paired_phone_without_a_saved_name_still_gets_a_row() {
+        // The nickname is cosmetic and its absence must not delete the device.
+        for name in [None, Some(""), Some("   ")] {
+            let d = paired_device(&PresenceKeyState::Ok { paired: true }, name, None, true).unwrap();
+            assert_eq!(d.name, "已配对的手机");
+        }
+    }
+
+    #[test]
+    fn a_phone_that_cannot_unlock_says_why() {
+        // ui-conventions 1.1: the row shows what is true now, not what pairing
+        // once achieved. With the monitor stopped, this phone opens nothing.
+        let d = paired_device(&PresenceKeyState::Ok { paired: true }, Some("realme"), None, false).unwrap();
+        assert!(!d.can_unlock);
+        assert!(d.blocked_reason.is_some(), "a disabled row must carry its reason");
     }
 
     #[test]

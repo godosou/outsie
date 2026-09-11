@@ -92,8 +92,12 @@ export type PairedDevice = {
   id: string
   name: string
   platform: string
+  /** ISO time pairing finished; empty when the file's mtime was unreadable. */
   pairedAt: string
-  lastSeenMs: number | null
+  /** False for a key pushed over USB by a dev script. It can still unlock. */
+  paired: boolean
+  canUnlock: boolean
+  blockedReason: string | null
 }
 
 export type LastFailure = {
@@ -214,10 +218,19 @@ export function normalizeUnlockSnapshot(
   let device: PairedDevice | null = null
   if (s.device && typeof s.device === 'object') {
     const d = s.device as Record<string, unknown>
-    const id = str(d.id), name = str(d.name), platform = str(d.platform), pairedAt = str(d.pairedAt)
-    if (id && name && platform && pairedAt) {
-      const lastSeenMs = typeof d.lastSeenMs === 'number' && Number.isFinite(d.lastSeenMs) ? d.lastSeenMs : null
-      device = { id, name, platform, pairedAt, lastSeenMs }
+    const id = str(d.id), name = str(d.name), platform = str(d.platform)
+    // pairedAt is deliberately NOT required: an unreadable mtime means one
+    // missing line on the card, not a phone that disappears from the list.
+    if (id && name && platform) {
+      device = {
+        id,
+        name,
+        platform,
+        pairedAt: str(d.pairedAt) ?? '',
+        paired: d.paired === true,
+        canUnlock: d.canUnlock === true,
+        blockedReason: str(d.blockedReason),
+      }
     }
   }
 
@@ -263,7 +276,7 @@ export type UnlockView = {
 export type PanelCommand =
   | 'install' | 'repair-rule' | 'reinstall-component' | 'uninstall'
   | 'start-password-drill' | 'start-phone-drill' | 'begin-pairing' | 'calibrate'
-  | 'resume' | 'open-bluetooth-settings'
+  | 'resume' | 'open-bluetooth-settings' | 'revoke-device'
 
 export function deriveUnlockView(snapshot: UnlockSnapshot): UnlockView {
   switch (snapshot.state) {
@@ -527,7 +540,7 @@ export function remediationLabel(remediation: Remediation): string | null {
     case 're-pair': return '重新配对'
     case 're-calibrate': return '重做校准'
     case 'fix-on-phone': return '在手机上打开'
-    case 'revoke-device': return '撤销这台设备'
+    case 'revoke-device': return '删掉这把钥匙'
     // 「移除并还原」 was two verbs and no object: removing what, restoring what
     // to what? It is also the destructive twin of the switch above it, and
     // nothing in either name said which was which. This one says what the Mac
