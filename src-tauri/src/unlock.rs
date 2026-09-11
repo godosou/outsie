@@ -1587,6 +1587,19 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     // Pairing is not finished until this Mac is actually watching for the
     // phone. Stopping at "key written" hands back a paired Mac that does
     // nothing, and the panel would have said 已配对 above a dead pipeline.
+    //
+    // RESTART, not "make sure it is running".
+    //
+    // This was `set_presence_running(true)`, which does nothing when a pipeline
+    // is already alive -- and pairing from the panel is the ordinary case where
+    // one is. The verifier in that pipeline had already looked for the key
+    // before it existed, so it went on refusing every beacon for the life of
+    // the process. The panel said 已配对 and 监测运行中 and the Mac never
+    // unlocked, with nothing anywhere saying why.
+    //
+    // The verifier no longer caches a missing key either; both halves are fixed
+    // because either one alone leaves the other as a trap for the next change.
+    let _ = set_presence_running(&app, false);
     let _ = set_presence_running(&app, true);
 
     // The nickname is cosmetic, so saving it must never be able to fail the

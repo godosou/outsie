@@ -103,6 +103,9 @@ final class KeyStore {
     private let dir: String
     private var cache: [UInt8: KeyLoad] = [:]
     private var complained = Set<UInt8>()
+    /// When each missing key was last looked for. See key(for:).
+    private var lastMiss: [UInt8: TimeInterval] = [:]
+    private let missRetrySeconds: TimeInterval = 1.0
 
     init(dir: String) { self.dir = dir }
 
@@ -116,11 +119,37 @@ final class KeyStore {
         for (id, k) in fixed { cache[id] = .key(k) }
     }
 
+    /// A found key is cached forever; a MISSING one is re-checked.
+    ///
+    /// It used to cache both. That made pairing while the pipeline was already
+    /// running a no-op that never recovered: the verifier had looked once,
+    /// before the key existed, and kept that answer for the life of the
+    /// process. The panel said 已配对 and 监测运行中, and nothing worked, and
+    /// nothing would ever have started working.
+    ///
+    /// Re-checking is cheap but not free -- this runs once per advertisement,
+    /// several times a second -- so a miss is retried at most once a second.
+    /// That is well inside the time it takes a person to walk back to their
+    /// Mac after pairing.
     func key(for keyId: UInt8) -> SymmetricKey? {
-        let loaded = cache[keyId] ?? load(keyId)
-        cache[keyId] = loaded
+        if case .key(let k)? = cache[keyId] { return k }
+
+        let now = Date().timeIntervalSince1970
+        if let last = lastMiss[keyId], now - last < missRetrySeconds {
+            return nil
+        }
+        lastMiss[keyId] = now
+
+        let loaded = load(keyId)
         switch loaded {
         case .key(let k):
+            cache[keyId] = loaded
+            lastMiss[keyId] = nil
+            // Worth a line: it is the moment a Mac that was refusing everything
+            // starts accepting the phone, and someone reading the log during a
+            // pairing needs to see it happen.
+            log("keyId \(keyId): key loaded")
+            complained.remove(keyId)
             return k
         case .absent(let why):
             if complained.insert(keyId).inserted { log("keyId \(keyId): \(why)") }
