@@ -339,9 +339,25 @@ while :; do
     fi
 
     # Keep the permit fresh while present.
-    if [ "${present}" = 1 ] && [ "$((now - last_refresh))" -ge "${REFRESH_S}" ]; then
+    # The status line is a HEARTBEAT, not a change log.
+    #
+    # This block used to run only while present, so walking away stopped the
+    # publishing entirely: the last line aged past the reader's freshness
+    # window and the app concluded that presence monitoring had stopped -- on a
+    # pipeline that was running perfectly, doing exactly what it should. The
+    # panel's switch then showed OFF and could not be turned on, because the
+    # start path saw a live pid and did nothing. Walking away from your desk
+    # wedged the control.
+    #
+    # So it beats either way. The permit is still asserted only while present;
+    # that part was never in question.
+    if [ "$((now - last_refresh))" -ge "${REFRESH_S}" ]; then
         last_refresh="${now}"
-        publish near "${rssi:-}"
-        assert_permit
+        if [ "${present}" = 1 ]; then
+            publish near "${rssi:-}"
+            assert_permit
+        else
+            publish away "${rssi:-}"
+        fi
     fi
 done

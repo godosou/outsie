@@ -1214,6 +1214,8 @@ pub const PID_FILE: &str = "presence.pid";
 /// What to do when asked to start or stop.
 #[derive(Debug, PartialEq)]
 pub enum PipelineAction {
+    /// Alive but no longer publishing. Stop it, then start a new one.
+    Restart(u32),
     Start,
     Stop(u32),
     /// Already in the requested state. Starting twice would put two scanners on
@@ -1226,11 +1228,23 @@ pub enum PipelineAction {
 /// Separated from the doing so the awkward cases are testable: a pidfile left
 /// behind by a crash, a pid that has been recycled by something else, a file
 /// full of nonsense.
-pub fn pipeline_action(pidfile: Option<&str>, alive: bool, want_running: bool) -> PipelineAction {
+pub fn pipeline_action(
+    pidfile: Option<&str>,
+    alive: bool,
+    want_running: bool,
+    // Is the pipeline still publishing? See the wedged case below.
+    publishing: bool,
+) -> PipelineAction {
     let pid = pidfile.and_then(read_pid);
     match (pid, alive, want_running) {
         // A pidfile whose process is gone is a crash, not a running pipeline.
         (Some(_), false, true) | (None, _, true) => PipelineAction::Start,
+        // Alive but silent: the user is looking at a switch that says OFF --
+        // because the panel reads the same silence -- and asking for ON. This
+        // used to answer Nothing, which left the control dead: the UI said
+        // stopped, the backend said already running, and clicking did neither.
+        // Restarting is the only answer that can agree with the screen.
+        (Some(p), true, true) if !publishing => PipelineAction::Restart(p),
         (Some(_), true, true) => PipelineAction::Nothing,
         (Some(p), true, false) => PipelineAction::Stop(p),
         (Some(_), false, false) | (None, _, false) => PipelineAction::Nothing,
@@ -1291,8 +1305,27 @@ pub fn set_presence_running(app: &AppHandle, want_running: bool) -> Result<(), U
     let text = pidfile.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
     let alive = text.as_deref().and_then(read_pid).map(pid_alive).unwrap_or(false);
 
-    match pipeline_action(text.as_deref(), alive, want_running) {
+    // Publishing, not merely alive. The panel reads the same status file to
+    // decide what the switch shows, so this must read it too -- otherwise the
+    // two disagree and the control dies between them.
+    let publishing = matches!(
+        HostMacBackend::presence_report(app),
+        PresenceReport::Fresh { .. } | PresenceReport::NoAuthorization
+    );
+
+    match pipeline_action(text.as_deref(), alive, want_running, publishing) {
         PipelineAction::Nothing => Ok(()),
+        PipelineAction::Restart(pid) => {
+            let _ = run_status("/bin/kill", &["-TERM", &pid.to_string()]);
+            if let Some(p) = pid_path(app) {
+                let _ = std::fs::remove_file(p);
+            }
+            // Give the old chain a moment to run its handlers -- the bridge
+            // clears the permit on the way out, and two pipelines briefly
+            // sharing one radio is worth avoiding.
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            start_pipeline(app)
+        }
         PipelineAction::Stop(pid) => {
             // TERM, so the bridge's handler gets a chance to clear the permit.
             // If it does not reach it, the plugin ages the permit out within
@@ -1303,7 +1336,12 @@ pub fn set_presence_running(app: &AppHandle, want_running: bool) -> Result<(), U
             }
             Ok(())
         }
-        PipelineAction::Start => {
+        PipelineAction::Start => start_pipeline(app),
+    }
+}
+
+/// Spawn a fresh pipeline. Shared by Start and Restart.
+fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
             let dir = resolve_ble_dir(app).ok_or_else(|| {
                 UnlockError::new(UnlockErrorCode::Unsupported, "找不到在场监测的程序")
             })?;
@@ -1329,12 +1367,10 @@ pub fn set_presence_running(app: &AppHandle, want_running: bool) -> Result<(), U
                 .spawn()
                 .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
 
-            if let Some(p) = pid_path(app) {
-                let _ = std::fs::write(p, child.id().to_string());
-            }
-            Ok(())
-        }
+    if let Some(p) = pid_path(app) {
+        let _ = std::fs::write(p, child.id().to_string());
     }
+    Ok(())
 }
 
 fn resolve_scripts_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -2144,15 +2180,41 @@ mod tests {
     // ---- pipeline lifecycle ------------------------------------------------
 
     #[test]
+    fn a_live_but_silent_pipeline_is_restarted_rather_than_left_wedged() {
+        // The observed deadlock. The panel reads the status file to decide what
+        // the switch shows; when the bridge stopped publishing (it only beat
+        // while the phone was present) the switch went OFF on a pipeline that
+        // was running fine. Clicking ON asked the backend, which saw a live pid
+        // and answered Nothing. The screen said stopped, the backend said
+        // running, and the control did neither -- every time the user walked
+        // away from their desk.
+        assert_eq!(
+            pipeline_action(Some("4242"), true, true, false),
+            PipelineAction::Restart(4242),
+        );
+        // Publishing and asked to run: genuinely nothing to do. Starting a
+        // second would put two scanners on one radio.
+        assert_eq!(
+            pipeline_action(Some("4242"), true, true, true),
+            PipelineAction::Nothing,
+        );
+        // Silence is irrelevant when the answer is "stop".
+        assert_eq!(
+            pipeline_action(Some("4242"), true, false, false),
+            PipelineAction::Stop(4242),
+        );
+    }
+
+    #[test]
     fn nothing_recorded_means_start() {
-        assert_eq!(pipeline_action(None, false, true), PipelineAction::Start);
+        assert_eq!(pipeline_action(None, false, true, true), PipelineAction::Start);
     }
 
     #[test]
     fn a_live_pipeline_is_not_started_again() {
         // Two scanners on one radio is not twice the presence; it is two
         // processes taking turns missing the phone.
-        assert_eq!(pipeline_action(Some("4242"), true, true), PipelineAction::Nothing);
+        assert_eq!(pipeline_action(Some("4242"), true, true, true), PipelineAction::Nothing);
     }
 
     #[test]
@@ -2160,18 +2222,18 @@ mod tests {
         // The file outlives the process. Treating a stale one as "already
         // running" would leave presence permanently off with no way back except
         // finding and deleting a file the user has never heard of.
-        assert_eq!(pipeline_action(Some("4242"), false, true), PipelineAction::Start);
+        assert_eq!(pipeline_action(Some("4242"), false, true, true), PipelineAction::Start);
     }
 
     #[test]
     fn stopping_signals_the_recorded_pid() {
-        assert_eq!(pipeline_action(Some("4242"), true, false), PipelineAction::Stop(4242));
+        assert_eq!(pipeline_action(Some("4242"), true, false, true), PipelineAction::Stop(4242));
     }
 
     #[test]
     fn stopping_something_already_gone_does_nothing() {
-        assert_eq!(pipeline_action(Some("4242"), false, false), PipelineAction::Nothing);
-        assert_eq!(pipeline_action(None, false, false), PipelineAction::Nothing);
+        assert_eq!(pipeline_action(Some("4242"), false, false, true), PipelineAction::Nothing);
+        assert_eq!(pipeline_action(None, false, false, true), PipelineAction::Nothing);
     }
 
     #[test]
@@ -2185,8 +2247,8 @@ mod tests {
 
     #[test]
     fn a_nonsense_pidfile_starts_rather_than_signalling_something_random() {
-        assert_eq!(pipeline_action(Some("nope"), true, true), PipelineAction::Start);
-        assert_eq!(pipeline_action(Some("1"), true, false), PipelineAction::Nothing);
+        assert_eq!(pipeline_action(Some("nope"), true, true, true), PipelineAction::Start);
+        assert_eq!(pipeline_action(Some("1"), true, false, true), PipelineAction::Nothing);
     }
 
     // ---- presence ---------------------------------------------------------

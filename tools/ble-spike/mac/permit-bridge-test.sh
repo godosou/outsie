@@ -392,5 +392,39 @@ grep -q '^ON$' "${ACTIONS}" \
   && bad "a macstate line asserted a permit" "$(tr '\n' ' ' <"${ACTIONS}")" \
   || ok "the Mac's own state lines never assert a permit"
 
+# 28. The status line has to keep beating while the phone is AWAY.
+#
+#     It used to stop, because the refresh block ran only while present. The
+#     reader treats freshness as liveness, so walking away made a perfectly
+#     healthy pipeline look stopped -- and the panel's switch then showed OFF
+#     and could not be turned on, because the start path saw a live pid and did
+#     nothing. Leaving your desk wedged the control.
+#
+#     Sampled WHILE running: after it exits the last word is `stopped`, which
+#     would hide exactly the failure this is looking for.
+: > "${ACTIONS}"; rm -f "${STATUS}"
+( printf '0,-95,aa,1,1,dead,0,0,auth=VALID,cmd=0\n'; sleep 6 ) \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+    REPOSE_STATUS_FILE="${STATUS}" \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" >/dev/null 2>&1 &
+beat_pid=$!
+sleep 2
+early="$(cut -d, -f3 "${STATUS}" 2>/dev/null)"
+early_state="$(cut -d, -f1 "${STATUS}" 2>/dev/null)"
+sleep 3
+late="$(cut -d, -f3 "${STATUS}" 2>/dev/null)"
+kill -9 "${beat_pid}" 2>/dev/null; wait "${beat_pid}" 2>/dev/null
+
+if grep -q '^ON$' "${ACTIONS}"; then
+  bad "the away heartbeat asserted a permit" "$(tr '\n' ' ' <"${ACTIONS}")"
+elif [ -n "${early}" ] && [ -n "${late}" ] && [ "${late}" -gt "${early}" ] \
+     && [ "${early_state}" = away ]; then
+  ok "the status keeps beating while the phone is away, without asserting anything"
+else
+  bad "no away heartbeat" "early='${early_state},${early}' late='${late}'"
+fi
+
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]
