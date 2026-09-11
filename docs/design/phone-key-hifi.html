@@ -383,15 +383,16 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 
       <div class="grp">
         <p class="gl">手机控制</p>
-        <div class="item cur">手机钥匙<span class="k">本文档</span></div>
-        <div class="sub-item">总开关 · 已授权的手机列表 · 添加</div>
-        <div class="sub-item">单部手机 → 解锁权限 · 控制权限 · 删除</div>
+        <div class="item cur">手机控制<span class="k">设备与权限</span></div>
+        <div class="sub-item">在场监测总开关</div>
+        <div class="sub-item"><b>已授权的手机</b>，每部两个开关：解锁 · 快捷控制</div>
+        <div class="sub-item">单部手机 → 两个开关 · 最后认出 · 删除</div>
         <div class="sub-item">配对流程（弹窗）→ 找手机 · 核对数字 · 等手机 · 校准</div>
         <div class="sub-item">手机丢了 · 技术细节 · 移除并还原</div>
-        <div class="item">快捷控制 <span class="tag-soon">以后</span><span class="k">另一分支已有原型</span></div>
-        <div class="sub-item">总开关 · 辅助功能权限</div>
+        <div class="item">快捷控制 <span class="tag-soon">以后</span><span class="k">配置内容</span></div>
+        <div class="sub-item">辅助功能权限</div>
         <div class="sub-item"><b>App 与操作（全局配置）</b>→ 每个 App 一组按键映射</div>
-        <div class="sub-item">哪些手机可以用（每部一个开关）</div>
+        <div class="sub-item">单个 App → 操作列表 · 按键编辑</div>
       </div>
 
       <div class="grp">
@@ -428,16 +429,23 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
   <div class="col" style="margin-top:26px">
     <h3 style="margin-bottom:8px">三条分层规则</h3>
     <p class="section-lede" style="margin-top:0">
-      <b>1 · 配置在 Mac，使用在手机。</b>按键映射是全局的、每台 Mac 一份，
-      在 Mac 上编辑；手机只是把它显示成按钮。手机上不出现任何编辑器——
-      <em>在手机上配电脑快捷键，是把最难的输入放在最小的屏幕上</em>。
+      <b>1 · 谁能做什么，和能做什么，是两个 tab。</b>
+      「手机控制」管设备与权限——哪几部手机、各自允许做什么；
+      「快捷控制」管配置内容——有哪些 App、每个 App 有哪些操作。
+      <em>把它们混在一起，同一部手机就会出现在两个地方、带两个开关</em>，
+      而那正是这份稿子上一版犯的错。
     </p>
     <p class="section-lede">
-      <b>2 · 每部手机只有一个开关。</b>「这部手机能不能用快捷控制」是一个是非题，
-      放在 Mac 的手机列表里。默认开。
+      <b>2 · 权限挂在设备上，一部手机一行两个开关。</b>
+      解锁和快捷控制是两类风险，要能分别关掉——
+      「这部只让它锁屏，不让它开屏」是合理要求。两个都默认开。
     </p>
     <p class="section-lede">
-      <b>3 · 手机上的按钮总是在，不够权限时说清去哪儿开。</b>
+      <b>3 · 配置在 Mac，使用在手机。</b>按键映射在 Mac 上编辑，手机只把它显示成按钮。
+      手机上不出现任何编辑器——<em>在手机上配电脑快捷键，是把最难的输入放在最小的屏幕上</em>。
+    </p>
+    <p class="section-lede">
+      <b>4 · 手机上的按钮总是在，不够权限时说清去哪儿开。</b>
       卡片上的「控制」不会因为 Mac 那边关着就消失——消失的按钮没法解释自己。
       点下去连不上时，它说「这台 Mac 上还没开启快捷控制」，而不是静默失败。
     </p>
@@ -447,8 +455,9 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 <!-- ══════════════════════════════════════════════ -->
 <section>
   <div class="col">
-    <h2>Mac · 手机钥匙 tab · 主视图</h2>
-    <p class="section-lede">侧栏分组之后的样子：休息四项，手机控制两项（快捷控制标着「以后」）。</p>
+    <h2>Mac · 手机控制 tab</h2>
+    <p class="section-lede">设备与权限都在这一页：哪几部手机、各自允许做什么。
+      按键映射不在这里——那是「快捷控制」tab 的事。</p>
   </div>
 
   <div class="plate">
@@ -475,7 +484,7 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 
               <p class="navlabel">手机控制</p>
               <div class="navgroup">
-                <div class="nav on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.8-8.8"/><path d="m17 6 3 3"/></svg>手机钥匙</div>
+                <div class="nav on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>手机控制</div>
                 <div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/></svg>快捷控制<span class="badge">以后</span></div>
               </div>
 
@@ -487,14 +496,14 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 
             <main class="content">
               <div class="topbar">
-                <div class="crumbs"><span>我的空间</span><span>›</span><span style="color:var(--subtle)">手机钥匙</span></div>
+                <div class="crumbs"><span>我的空间</span><span>›</span><span style="color:var(--subtle)">手机控制</span></div>
                 <div class="crumbs"><span>9月11日 星期五</span></div>
               </div>
 
               <div class="pagehead">
-                <p class="kicker">Phone Key</p>
-                <h1>手机钥匙</h1>
-                <p>手机在身边时，回车就是你的密码。</p>
+                <p class="kicker">Phone</p>
+                <h1>手机控制</h1>
+                <p>哪几部手机能碰这台 Mac，各自允许做什么。</p>
               </div>
 
               <div class="panel">
@@ -516,19 +525,39 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 
               <div class="panel">
                 <div class="sechead">
-                  <div><h2>已授权的手机</h2><p>它们都能用回车打开这台 Mac。</p></div>
+                  <div><h2>已授权的手机</h2><p>每部手机各自允许做什么，在这里定。</p></div>
                   <span class="tbtn">配对新手机 ›</span>
                 </div>
                 <div class="devlist" style="margin-top:16px">
-                  <div class="dev">
-                    <span class="av"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
-                    <span class="g"><b>真我GT5 Pro</b><span>刚刚认出 · 9 月 11 日配对</span></span>
-                    <span class="chip ok">可用</span><span class="chev">›</span>
+                  <div class="dev" style="align-items:flex-start">
+                    <span class="av" style="margin-top:2px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+                    <span class="g">
+                      <b>真我GT5 Pro</b><span>刚刚认出 · 9 月 11 日配对</span>
+                      <span style="display:flex;gap:22px;margin-top:11px">
+                        <span style="display:flex;align-items:center;gap:9px">
+                          <span class="toggle on" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px;margin-left:12px"></span></span>
+                          <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">回车解锁</span></span>
+                        <span style="display:flex;align-items:center;gap:9px">
+                          <span class="toggle on" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px;margin-left:12px"></span></span>
+                          <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">快捷控制</span></span>
+                      </span>
+                    </span>
+                    <span class="chev" style="margin-top:2px">›</span>
                   </div>
-                  <div class="dev off">
-                    <span class="av"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
-                    <span class="g"><b>备用机 Pixel 6a</b><span>已停用 · 8 月 2 日配对</span></span>
-                    <span class="chip no">停用</span><span class="chev">›</span>
+                  <div class="dev off" style="align-items:flex-start">
+                    <span class="av" style="margin-top:2px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+                    <span class="g">
+                      <b>备用机 Pixel 6a</b><span>3 天前认出 · 8 月 2 日配对</span>
+                      <span style="display:flex;gap:22px;margin-top:11px">
+                        <span style="display:flex;align-items:center;gap:9px">
+                          <span class="toggle" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px"></span></span>
+                          <span style="font-size:11px;color:var(--muted);letter-spacing:.2px">回车解锁</span></span>
+                        <span style="display:flex;align-items:center;gap:9px">
+                          <span class="toggle on" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px;margin-left:12px"></span></span>
+                          <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">快捷控制</span></span>
+                      </span>
+                    </span>
+                    <span class="chev" style="margin-top:2px">›</span>
                   </div>
                 </div>
 
@@ -585,60 +614,6 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
         组件状态、密钥指纹、移除按钮全在「技术细节」里。</p>
       <p><b>每行写"最后一次认出"</b>，不是配对时间——后者永远不变，判断一把钥匙还该不该留着时帮不上忙。</p>
       <p><b>「手机丢了」是列表上的一张卡</b>，不是藏在设置里：人最慌的时候会来找它。</p>
-    </div>
-  </div>
-</section>
-
-<!-- ══════════════════════════════════════════════ -->
-<section>
-  <div class="col">
-    <h2>Mac · 刚配完</h2>
-    <p class="section-lede">配对结束那一刻，屏幕的职责不是显示设置，而是说唯一剩下的那件事。</p>
-  </div>
-  <div class="plate">
-    <div>
-      <p class="frame-note">内容区 · 1:1</p>
-      <div class="scroller">
-        <div class="mac" style="width:900px">
-          <div class="titlebar"><i></i><i></i><i></i><span>Outsie · 歇一会</span></div>
-          <div style="padding:30px 42px 42px;background:var(--bg);font-family:var(--sans)">
-            <div class="pagehead" style="padding-top:0">
-              <p class="kicker">Phone Key</p><h1>手机钥匙</h1>
-              <p>手机在身边时，回车就是你的密码。</p>
-            </div>
-            <div class="panel">
-              <div class="steps">
-                <span class="s"><span class="n">✓</span>安装</span><span class="bar"></span>
-                <span class="s"><span class="n">✓</span>配对</span><span class="bar"></span>
-                <span class="s now"><span class="n">3</span>试一次</span>
-              </div>
-              <div class="hero">
-                <h3>和「真我GT5 Pro」配好了</h3>
-                <p>还剩一件事：锁一次屏，确认 macOS 真的在用它。</p>
-              </div>
-              <div style="margin-top:20px"><span class="btn primary">锁屏，试一次</span></div>
-              <p class="foot">屏幕会锁上。手机在身边时，密码框留空、直接按回车就能进。
-                进不去也不要紧——密码一直都能用。</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="spec">
-      <h4>步骤条</h4>
-      <dl>
-        <dt>圆点</dt><dd>20 × 20 · r50%</dd>
-        <dt>已完成</dt><dd>sage 底 / ✓</dd>
-        <dt>当前</dt><dd>green 底 / 白字</dd>
-        <dt>连接线</dt><dd>1px · 最长 70</dd>
-        <dt>标签</dt><dd>10 / +0.4</dd>
-      </dl>
-      <h4>这一屏的判断</h4>
-      <p><b>编号只出现在这里</b>，因为安装真的是一个序列。界面里别处一个数字都没有——
-        给不是序列的东西编号，是拿结构装饰内容。</p>
-      <p><b>这一步之前不提供「锁屏，试一次」</b>：没有密钥时插件只会拒绝，那是一个必定失败的按钮。</p>
-      <p><b>最后一句先说退路</b>：「进不去也不要紧——密码一直都能用」。
-        人在被要求锁掉自己屏幕之前，有权先知道最坏情况。</p>
     </div>
   </div>
 </section>
@@ -745,12 +720,10 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 </section>
 
 <!-- ══════════════════════════════════════════════ -->
-
-<!-- ══════════════════════════════════════════════ -->
 <section>
   <div class="col">
     <h2>配对流程</h2>
-    <p class="section-lede">四步，跨两块屏。<em style="font-family:var(--serif);font-style:italic">顺序不重要，先点哪边都行</em>——
+    <p class="section-lede">五步，跨两块屏。<em style="font-family:var(--serif);font-style:italic">顺序不重要，先点哪边都行</em>——
       重要的是两边都点，以及 Mac 最后等的是一个信号而不是一句话。</p>
   </div>
 
@@ -827,19 +800,16 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
         手机没有，而两块屏幕都不说。</p>
     </div>
   </div>
-</section>
 
-<!-- ══════════════════════════════════════════════ -->
-<section>
-  <div class="col">
-    <h2>④ 校准</h2>
-    <p class="section-lede">
-      「在」和「不在」现在是两个写死的 dBm 阈值，脚本里自己标着<code>不要发布这两个数字</code>。
+  <div class="col" style="margin-top:52px">
+    <h3 style="font-size:23px;font-family:var(--serif);font-weight:400;margin-bottom:8px">④ 校准</h3>
+    <p class="section-lede" style="margin-top:0">
+      「在」和「不在」现在是两个写死的 dBm 阈值，脚本里自己标着 <code>不要发布这两个数字</code>。
       校准让这台 Mac、这部手机、<em style="font-family:var(--serif);font-style:italic">你这个座位</em>自己说了算。
     </p>
   </div>
 
-  <div class="plate">
+<div class="plate">
     <div>
       <p class="frame-note">Mac · 第一段：坐着别动</p>
       <div class="sheet" style="width:470px">
@@ -943,9 +913,63 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
       <p style="color:var(--redline)"><b>未实现。</b>今天阈值是硬编码的占位值。</p>
     </div>
   </div>
+
+
+  <div class="col" style="margin-top:52px">
+    <h3 style="font-size:23px;font-family:var(--serif);font-weight:400;margin-bottom:8px">⑤ 配完之后落在哪</h3>
+    <p class="section-lede" style="margin-top:0">
+      弹窗关掉，回到「手机控制」。这一屏的职责不是显示设置，而是说<em style="font-family:var(--serif);font-style:italic">唯一剩下的那件事</em>。
+    </p>
+  </div>
+
+  <div class="plate">
+    <div>
+      <p class="frame-note">Mac · 内容区 1:1</p>
+      <div class="scroller">
+        <div class="mac" style="width:900px">
+          <div class="titlebar"><i></i><i></i><i></i><span>Outsie · 歇一会</span></div>
+          <div style="padding:30px 42px 42px;background:var(--bg);font-family:var(--sans)">
+            <div class="pagehead" style="padding-top:0">
+              <p class="kicker">Phone Key</p><h1>手机钥匙</h1>
+              <p>手机在身边时，回车就是你的密码。</p>
+            </div>
+            <div class="panel">
+              <div class="steps">
+                <span class="s"><span class="n">✓</span>安装</span><span class="bar"></span>
+                <span class="s"><span class="n">✓</span>配对</span><span class="bar"></span>
+                <span class="s now"><span class="n">3</span>试一次</span>
+              </div>
+              <div class="hero">
+                <h3>和「真我GT5 Pro」配好了</h3>
+                <p>还剩一件事：锁一次屏，确认 macOS 真的在用它。</p>
+              </div>
+              <div style="margin-top:20px"><span class="btn primary">锁屏，试一次</span></div>
+              <p class="foot">屏幕会锁上。手机在身边时，密码框留空、直接按回车就能进。
+                进不去也不要紧——密码一直都能用。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="spec">
+      <h4>步骤条</h4>
+      <dl>
+        <dt>圆点</dt><dd>20 × 20 · r50%</dd>
+        <dt>已完成</dt><dd>sage 底 / ✓</dd>
+        <dt>当前</dt><dd>green 底 / 白字</dd>
+        <dt>连接线</dt><dd>1px · 最长 70</dd>
+        <dt>标签</dt><dd>10 / +0.4</dd>
+      </dl>
+      <h4>这一屏的判断</h4>
+      <p><b>编号只出现在这里</b>，因为安装真的是一个序列。界面里别处一个数字都没有——
+        给不是序列的东西编号，是拿结构装饰内容。</p>
+      <p><b>这一步之前不提供「锁屏，试一次」</b>：没有密钥时插件只会拒绝，那是一个必定失败的按钮。</p>
+      <p><b>最后一句先说退路</b>：「进不去也不要紧——密码一直都能用」。
+        人在被要求锁掉自己屏幕之前，有权先知道最坏情况。</p>
+    </div>
+  </div>
+
 </section>
-
-
 <!-- ══════════════════════════════════════════════ -->
 <section>
   <div class="col">
@@ -965,7 +989,7 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
         <div style="padding:30px 42px 42px;background:var(--bg);font-family:var(--sans)">
           <div class="pagehead" style="padding-top:0">
             <p class="kicker">Shortcuts</p><h1>快捷控制</h1>
-            <p>在手机上点一下，这台 Mac 就按下那组键。</p>
+            <p>能按哪些键，在这里定。哪几部手机可以按，在「手机控制」里定。</p>
           </div>
 
           <div class="panel">
@@ -1001,18 +1025,26 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
           </div>
 
           <div class="panel">
-            <div class="sechead"><div><h2>哪些手机可以用</h2>
-              <p>在「手机钥匙」里配过的手机会出现在这里。新配的手机默认可用。</p></div></div>
-            <div style="margin-top:6px">
-              <div class="prow"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
-                <div class="g"><h3>真我GT5 Pro</h3><p>刚刚认出</p></div>
-                <span class="toggle on"><span></span></span></div>
-              <div class="prow"><span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
-                <div class="g"><h3>备用机 Pixel 6a</h3><p>已停用 · 在手机钥匙里也停着</p></div>
-                <span class="toggle"><span></span></span></div>
+            <div class="sechead"><div><h2>终端 · tmux 的操作</h2>
+              <p>点上面任意一个 App 展开。手机上看到的按钮就是这一组。</p></div>
+              <span class="tbtn">添加操作 ›</span></div>
+            <div style="margin-top:14px">
+              <div class="actrow"><span class="ai">▥</span>
+                <span style="flex:1"><b>左右分屏</b><div class="keys">
+                  <span class="kbd">⌃B</span><span class="kbd">%</span> · 2 步序列</div></span>
+                <span class="chev">›</span></div>
+              <div class="actrow"><span class="ai">▤</span>
+                <span style="flex:1"><b>上下分屏</b><div class="keys">
+                  <span class="kbd">⌃B</span><span class="kbd">"</span> · 2 步序列</div></span>
+                <span class="chev">›</span></div>
+              <div class="actrow"><span class="ai">↹</span>
+                <span style="flex:1"><b>下一个面板</b><div class="keys">
+                  <span class="kbd">⌃B</span><span class="kbd">O</span> · 2 步序列</div></span>
+                <span class="chev">›</span></div>
             </div>
             <p class="fold">＋ 技术细节</p>
-            <p class="foot">Mac 锁屏或正在休息时，快捷控制会暂停。</p>
+            <p class="foot">Mac 锁屏或正在休息时，快捷控制会暂停。
+              按键发给当时在前台的 App，不是发给这里选中的那个。</p>
           </div>
         </div>
       </div></div>
@@ -1020,16 +1052,19 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
 
     <div class="spec">
       <h4>这一屏的判断</h4>
-      <p><b>三个面板，一个问题各一个。</b>能不能用（权限）· 能按什么（全局映射）· 谁能按（每部手机一个开关）。</p>
+      <p><b>这一页只回答一个问题：能按什么。</b>
+        「谁能按」在「手机控制」里——那是设备与权限的地盘。
+        上一版把手机列表同时放在两个 tab，<b>同一部手机两个开关，读的人得自己判断哪个说了算</b>。</p>
       <p><b>权限那一行在最上面。</b>没有辅助功能权限，下面所有配置都只是摆设——
         <em>一个必定失败的功能，不该把它的前提放在最下面</em>。</p>
-      <p><b>映射是全局的，所以它不出现在任何一部手机的详情里。</b>
-        手机详情里只有一个开关：这部能不能用。</p>
+      <p><b>映射是全局的，每台 Mac 一份</b>，所有手机看到的是同一套。
+        所以它不出现在任何一部手机的详情里——手机那边只有一个是非题。</p>
       <p><b>bundleId 写在第二行</b>，因为两个 App 可以同名而 bundleId 不会——
         但它是次要信息，不占标题。</p>
       <h4>骨架</h4>
       <dl><dt>App 行</dt><dd>与手机列表同构<br>15 17 · 图标 36 r10</dd>
-          <dt>手机行</dt><dd>用 prow，不用列表<br>因为它带开关不带层级</dd></dl>
+          <dt>操作行</dt><dd>12 上下 · 图标 30 r9</dd>
+          <dt>按键</dt><dd>kbd 胶囊 · mono 10</dd></dl>
     </div>
   </div>
 
