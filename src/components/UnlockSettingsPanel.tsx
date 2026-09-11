@@ -236,13 +236,23 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
       <div className="preference-row">
         <span className="preference-icon"><KeyRound size={21} /></span>
         <div>
-          <h3>{enabled ? '正在等你的手机' : '没有在等手机'}</h3>
+          {/* The name stays put; the line under it carries the state.
+              For one build the title itself changed — 正在等你的手机 /
+              没有在等手机 — which is not how Chinese apps read and is not how
+              anyone says it out loud. A heading names the thing; whether it is
+              on belongs underneath. */}
+          <h3>回车解锁</h3>
+          {!degraded && loaded && (
+            <p className={`pk-row-state${enabled ? ' is-on' : ''}`}>
+              {enabled ? '已开启 · 正在留意你的手机' : '已关闭 · 现在只能用密码登录'}
+            </p>
+          )}
           <p>
-            解锁 Mac 时，如果配对的手机在身边，密码框留空、直接按一下回车就能进入。
-            <b>它不会在你走近时自己打开</b>——密码框还是会出现，你只是不用输任何字符。
+            锁屏时，配对的手机在身边，密码框留空、直接按一下回车就能进。
+            <b>走近不会自己打开</b>——密码框照样出现，只是不用输字符。
             {degraded
-              ? '手机钥匙需要修改 macOS 的锁屏授权设置，只能在 Outsie Mac App 中使用；网页版仅预览界面。'
-              : '开启需要改一处 macOS 的系统设置。'}
+              ? '手机钥匙要改 macOS 的锁屏设置，只能在 Outsie Mac App 里用；网页版只能看界面。'
+              : '开启时要改一处 macOS 的系统设置。'}
           </p>
         </div>
         <button

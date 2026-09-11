@@ -73,8 +73,8 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                 Ui.secondary(
                     context,
                     pal,
-                    "这台手机不知道有几台 Mac 配过它 —— 它只往外发信号，收不到回音。" +
-                        "要看某一台 Mac 的情况，去那台 Mac 上的 ${Brand.NAME}。",
+                    "这台手机能听到附近有配对过的 Mac，但分不出是哪一台、也不知道一共有几台 —— " +
+                        "它们共用同一把钥匙。要看某一台的情况，去那台 Mac 上的 ${Brand.NAME}。",
                 ),
                 Ui.lp(top = context.dp(12)),
             )

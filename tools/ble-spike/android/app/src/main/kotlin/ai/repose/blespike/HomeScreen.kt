@@ -155,8 +155,8 @@ fun buildHomeScreen(
             Ui.secondary(
                 context,
                 pal,
-                "这台手机只往外发信号、收不到回音，所以看不出哪台 Mac 认出了你。" +
-                    "要看那一边，去 Mac 上的 ${Brand.NAME}。",
+                "上面那张卡是配对过的 Mac 报来的。所有 Mac 共用同一把钥匙，" +
+                    "所以分不出是哪一台 —— 要看某一台的详细情况，去那台 Mac 上的 ${Brand.NAME}。",
             ),
             Ui.lp(top = context.dp(8)),
         )
@@ -192,7 +192,7 @@ fun buildHomeScreen(
                 Ui.secondary(
                     context,
                     pal,
-                    "指令跟着信标一起发出，所以只有 Mac 听得到这台手机时才有用 —— " +
+                    "指令跟着信号一起发出，只在 Mac 就在附近时有用 —— " +
                         "人不在电脑旁边，按了也不会生效。",
                 ),
                 Ui.lp(top = context.dp(12)),
@@ -220,7 +220,7 @@ fun buildHomeScreen(
                 Ui.secondary(
                     context,
                     pal,
-                    "手机收不到 Mac 的回音，所以这里不会显示「已锁定」。要确认，看 Mac。",
+                    "锁上之后，上面那张「你的 Mac」会跟着变。",
                 ),
                 Ui.lp(top = context.dp(10)),
             )
@@ -322,14 +322,14 @@ fun buildHomeScreen(
             MacLockState.UNLOCKED -> {
                 macStatus?.text = "开着"
                 macStatus?.setTextColor(pal.textPrimary)
-                macHint?.text = "现在不需要解锁。"
+                macHint?.text = "没锁，不用解锁。"
             }
             MacLockState.UNKNOWN -> {
                 macStatus?.text = "不知道"
                 macStatus?.setTextColor(pal.textSecondary)
                 // Says which possibilities it cannot tell apart, rather than a
                 // bare 未知 that reads as a fault.
-                macHint?.text = "没有听到你的 Mac —— 可能不在附近、睡着了，或者没开着 Outsie。"
+                macHint?.text = "附近没找到你的 Mac。可能不在身边、睡着了，或者没开 Outsie。"
             }
         }
 
@@ -363,7 +363,7 @@ private fun sendCommand(context: Context, cmd: Int) {
     val message = when {
         !queued -> "还没有配对，Mac 不会接受这条指令。"
         !SpikeState.serviceRunning -> "手机钥匙是关着的，先打开上面的开关。"
-        cmd == SpikeContract.CMD_LOCK -> "已发出。Mac 听得到这台手机的话，几秒内会锁屏。"
+        cmd == SpikeContract.CMD_LOCK -> "已发出。Mac 在附近的话，几秒内会锁屏。"
         else -> "已发出。回到 Mac 前按回车即可。"
     }
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
