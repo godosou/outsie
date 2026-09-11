@@ -270,7 +270,7 @@ private fun renderProvisioned(
     // wrong in between -- and makes testing a change mean breaking a setup that
     // works.
     column.addView(
-        Ui.ghostButton(context, pal, "重新配对") {
+        Ui.ghostButton(context, pal, "换一台 Mac，重新配一次") {
             Pairing.start(context) { nav.go(Screen.PAIRING) }
             nav.go(Screen.PAIRING)
         },

@@ -99,7 +99,12 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
             // and hoping.
             column.addView(techDetails(context, pal, fingerprint), Ui.lp(top = context.dp(14)))
             column.addView(
-                Ui.primaryButton(context, pal, "重新配对") { nav.go(Screen.PAIRING) },
+                // It does not re-pair; it opens the pairing screen, where the
+                // first thing you see is what you are already paired with and a
+                // second button also called 重新配对. Pressing a button and being
+                // asked the same question is how people conclude they missed a
+                // step (ui-conventions 2.5).
+                Ui.primaryButton(context, pal, "看这次配对") { nav.go(Screen.PAIRING) },
                 Ui.lp(top = context.dp(20)),
             )
             column.addView(
