@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Install the Repose spike Authorization Plugin and wire it into
+# Install the Outsie spike Authorization Plugin and wire it into
 # system.login.screensaver, mirroring the pattern that is already proven to
 # load on macOS (a cdhash-pinned evaluate-mechanisms sub-rule referenced from
 # the screensaver rule with k-of-n=1, so the password path still works).

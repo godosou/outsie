@@ -13,7 +13,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="Repose"
+        android:label="Outsie"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity

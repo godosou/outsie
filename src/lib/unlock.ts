@@ -372,7 +372,7 @@ export function deriveGlobalBanner(snapshot: UnlockSnapshot): GlobalBanner | nul
   // gone) is the fail-open emergency.
   //
   // This used to be titled 「检测到异常，已自动恢复到纯密码解锁」 and to tell the
-  // user 「Repose 的后台守护已把规则改回只认密码，一切安全」. That was false, and
+  // user 「Outsie 的后台守护已把规则改回只认密码，一切安全」. That was false, and
   // false in the worst possible direction. This snapshot is the app looking at
   // the rule *right now* and finding it still pointing at a component that is
   // not there — which is precisely the state the daemon would have removed had
@@ -550,7 +550,7 @@ export type PreflightReport = {
    * Empty on an untouched machine. Non-empty means someone else's authorization
    * plugin is already in the unlock path -- with k-of-n = 1, each entry can grant
    * an unlock on its own, so adding ours adds one more door rather than a second
-   * lock. That is a fact about the user's Mac, not about Repose, and the install
+   * lock. That is a fact about the user's Mac, not about Outsie, and the install
    * sheet has to say it before they agree to anything.
    */
   foreign: string[]

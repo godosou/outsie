@@ -1,5 +1,5 @@
 // 手机钥匙 (Phone Key) settings panel. Lives in the settings page between the
-// "Mac 屏幕保护" security panel and "提醒与声音" (App.tsx). Reuses Repose's panel
+// "Mac 屏幕保护" security panel and "提醒与声音" (App.tsx). Reuses Outsie's panel
 // idiom (.panel / .section-heading / .preference-row / Toggle / .security-limit)
 // and the Accessibility feature's degradation pattern; the state model is
 // src/lib/unlock.ts (§6 contract). Styles in src/phone-key.css.
@@ -107,7 +107,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   // surface nobody is watching.
 
   const startPairing = useCallback(async () => {
-    if (!bridge) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
+    if (!bridge) { onToast?.('手机钥匙只能在 Outsie Mac App 中使用'); return }
     setPairing({ stage: 'scanning', digits: null, fingerprint: null, peerName: null, detail: null })
     try {
       setPairing(normalizePairing(await bridge.beginPairing()))
@@ -157,7 +157,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   useEffect(() => () => { void bridge?.cancelPairing().catch(() => undefined) }, [bridge])
 
   const dispatchCommand = useCallback((command: PanelCommand) => {
-    if (!bridge) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
+    if (!bridge) { onToast?.('手机钥匙只能在 Outsie Mac App 中使用'); return }
     switch (command) {
       case 'install': setShowInstall(true); break
       case 'repair-rule': void run(command, () => bridge.repair({ target: 'rule' })); break
@@ -207,7 +207,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
             解锁 Mac 时，如果配对的手机在身边，密码框留空、直接按一下回车就能进入。
             <b>它不会在你走近时自己打开</b>——密码框还是会出现，你只是不用输任何字符。
             {degraded
-              ? '手机钥匙需要修改 macOS 的锁屏授权设置，只能在 Repose Mac App 中使用；网页版仅预览界面。'
+              ? '手机钥匙需要修改 macOS 的锁屏授权设置，只能在 Outsie Mac App 中使用；网页版仅预览界面。'
               : '开启需要改一处 macOS 的系统设置。'}
           </p>
         </div>
@@ -216,7 +216,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
           type="button" role="switch" aria-checked={enabled} aria-label="回车解锁"
           disabled={degraded || busy}
           onClick={() => {
-            if (degraded) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
+            if (degraded) { onToast?.('手机钥匙只能在 Outsie Mac App 中使用'); return }
             if (enabled) {
               // Stop watching first, then record the preference. The other order
               // leaves a scanner running for a feature the panel says is off.
@@ -388,7 +388,7 @@ function InstallDisclosure(
         <div className="pk-foreign">
           <strong>这台 Mac 的锁屏里已经有别的解锁组件</strong>
           <ul>{foreign.map(f => <li key={f}><code>{f}</code></li>)}</ul>
-          <p>不是 Repose 装的。锁屏规则是「任一条通过即可进入」，装上 Repose 是<b>再加一条</b>，不是加一道锁。</p>
+          <p>不是 Outsie 装的。锁屏规则是「任一条通过即可进入」，装上 Outsie 是<b>再加一条</b>，不是加一道锁。</p>
         </div>
       )}
 
@@ -397,7 +397,7 @@ function InstallDisclosure(
         <ol className="pk-steps">
           <li><b>解锁时你要做什么。</b>唤醒 Mac，密码框出现，<b>不输任何字符，按一下回车。</b>它不会在你走近时自己打开——手机替代的是你的密码，不是那一次按键。偶尔手机还没被认出来，回车会失败一次，再按一次通常就好。</li>
           <li><b>改的是哪一处。</b>把一个解锁组件装到 <code>/Library/Security/SecurityAgentPlugins/</code>，并在锁屏授权规则里加上自己的一条，排在原有密码路径<b>前面</b>。</li>
-          <li><b>还原的路一直在。</b>备份、还原脚本、一份纯文本说明都落在 <code>/var/db/repose-unlock/</code>，删掉 Repose 也不影响。</li>
+          <li><b>还原的路一直在。</b>备份、还原脚本、一份纯文本说明都落在 <code>/var/db/repose-unlock/</code>，删掉 Outsie 也不影响。</li>
           {variant === 'B' && <li><b>锁屏界面会换一个程序来画。</b>改由系统的 SecurityAgent 绘制——同样是 macOS 自己的界面，排版可能略有不同。</li>}
           <li><b>它挡不住什么。</b>有人可以转发你手机的无线信号，让这台 Mac 以为你在附近；手机被拿走且处于解锁状态时，带着它靠近仍然能进。这台 Mac 里如果有比手机更值钱的东西，就老实输密码。</li>
         </ol>
@@ -405,15 +405,15 @@ function InstallDisclosure(
 
       {/* Said before it happens, because an unannounced password box is the
           moment people are trained to be suspicious of -- and should be.
-          macOS attributes the prompt to the executable that asks. Repose used
+          macOS attributes the prompt to the executable that asks. Outsie used
           to ask by shelling out to /usr/bin/osascript, so the box was titled
           "osascript": a name with no relationship to anything the user
           installed. It now asks in-process via NSAppleScript and the box says
-          Repose, which is what makes "确认弹窗上写的是 Repose" safe advice
+          Outsie, which is what makes "确认弹窗上写的是 Outsie" safe advice
           rather than a thing we taught them to ignore.
           See docs/issues/0003-authorization-prompt-identity.md. */}
       <p className="pk-prompt-note">
-        点下面之后，macOS 会弹出密码框，问你要管理员密码。<b>确认弹窗上写的是「Repose」</b>
+        点下面之后，macOS 会弹出密码框，问你要管理员密码。<b>确认弹窗上写的是「Outsie」</b>
         ——不是的话就别输。
       </p>
       <div className="pk-modal-actions">
@@ -455,7 +455,7 @@ function PairingSheet(
       {session.stage === 'scanning' && (
         <>
           <p className="modal-intro">
-            在手机上打开 Repose，点「开始配对」，然后把手机放在这台 Mac 旁边。
+            在手机上打开 Outsie，点「开始配对」，然后把手机放在这台 Mac 旁边。
           </p>
           <div className="pk-pair-waiting" role="status" aria-live="polite">
             <span className="pk-pair-dot" /><span className="pk-pair-dot" /><span className="pk-pair-dot" />
@@ -530,7 +530,7 @@ function RemoveConfirm({ onClose, onConfirm }: { onClose: () => void; onConfirm:
     <ModalShell label="移除手机钥匙并还原系统设置" onClose={onClose} className="phone-key-modal">
       <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
       <h2>移除手机钥匙并还原系统设置</h2>
-      <p className="modal-intro">Repose 会按安装的逆序还原：从备份还原锁屏规则、删除授权规则、删除组件与 <code>/var/db/repose-unlock/</code>、删除这台 Mac 上的配对密钥。需要一次管理员密码，完成后把实际读数给你看。</p>
+      <p className="modal-intro">Outsie 会按安装的逆序还原：从备份还原锁屏规则、删除授权规则、删除组件与 <code>/var/db/repose-unlock/</code>、删除这台 Mac 上的配对密钥。需要一次管理员密码，完成后把实际读数给你看。</p>
       <div className="pk-modal-actions">
         <button className="button primary" onClick={onConfirm}>移除并还原</button>
         <button className="button light" onClick={onClose}>取消</button>

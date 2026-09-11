@@ -20,7 +20,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Host for the Repose 手机钥匙 product shell. One Activity, four screens, a small manual
+ * Host for the Outsie 手机钥匙 product shell. One Activity, four screens, a small manual
  * navigator, and a two-item bottom nav. The advertise toggle on the home screen drives the
  * existing [BleSpikeService] — the product's "advertise on/off" IS start/stop advertising.
  */

@@ -1,7 +1,7 @@
 /* 手机钥匙 (Phone Key) panel styles.
  *
  * Multi-line format (like activity-chart.css), NOT styles.css's single-line
- * blocks. Reuses Repose tokens where they exist; dark mode is redefined per-rule
+ * blocks. Reuses Outsie tokens where they exist; dark mode is redefined per-rule
  * because the token set is not complete (survey §2.1). No destructive red — the
  * one red (#c74943, the app's stretch-anatomy accent) is reserved for the
  * fail-open emergency banner only. Everything else uses the warm-amber warning.

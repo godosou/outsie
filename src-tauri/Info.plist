@@ -16,6 +16,6 @@
 	  transmit.
 	-->
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Repose 用蓝牙判断你配对的手机是否在这台 Mac 附近，以便锁屏时可以直接回车解锁。它只监听，不连接任何设备，也不发送任何信息。</string>
+	<string>Outsie 用蓝牙判断你配对的手机是否在这台 Mac 附近，以便锁屏时可以直接回车解锁。它只监听，不连接任何设备，也不发送任何信息。</string>
 </dict>
 </plist>

@@ -299,7 +299,7 @@ impl PairingSession {
 /// leaves behind. It must never be worded as a glitch worth retrying.
 pub fn pairing_failure(code: Option<i32>) -> String {
     match code {
-        Some(2) => "这台 Mac 的蓝牙用不了。检查蓝牙是否打开、系统设置里是否允许 Repose 使用蓝牙，然后再试一次。".into(),
+        Some(2) => "这台 Mac 的蓝牙用不了。检查蓝牙是否打开、系统设置里是否允许 Outsie 使用蓝牙，然后再试一次。".into(),
         Some(3) => "没找到正在配对的手机。在手机上点「开始配对」，把手机放在 Mac 旁边，再试一次。".into(),
         Some(4) => "配对过程中断了。重新配一次即可。".into(),
         Some(5) => "已中止：手机后来公布的信息和它先前的承诺对不上。\
@@ -897,7 +897,7 @@ impl UnlockBackend for HostMacBackend {
             }
             None => Err(UnlockError::new(
                 UnlockErrorCode::PreflightRuleShape,
-                "这台 Mac 的锁屏规则和预期不同，Repose 不改它",
+                "这台 Mac 的锁屏规则和预期不同，Outsie 不改它",
             )),
         }
     }
@@ -1023,7 +1023,7 @@ fn run_privileged(script: &str) -> Result<(), UnlockError> {
     // no reason to recognise, at the one moment in this product where they are
     // asked for an administrator password. "Do not give your password to
     // software you do not recognise" is a good habit, and we were training them
-    // out of it. NSAppleScript from inside Repose makes the prompt say Repose.
+    // out of it. NSAppleScript from inside the app makes the prompt say Outsie.
     //
     // Cancelling is still distinguished from failing: AppleScript reports a
     // cancelled authorization as error -128, and a script that ran and failed
@@ -1138,7 +1138,7 @@ pub fn uninstall_report(now_iso: String, f: &RemovalFacts) -> UninstallReport {
 /// Where the running pipeline's pid is recorded.
 ///
 /// A pidfile rather than a handle in memory, because the pipeline outlives any
-/// single run of this app: quit Repose with presence running and something is
+/// single run of this app: quit Outsie with presence running and something is
 /// still scanning and still writing permits. Without a record on disk the next
 /// launch cannot find it, and "start" would quietly add a second scanner
 /// fighting the first over the radio.
@@ -1409,7 +1409,7 @@ fn key_fingerprint(hex_key: &str) -> Option<String> {
 #[tauri::command]
 pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> {
     let mut slot = PAIRING.lock().map_err(|_| {
-        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Repose")
+        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Outsie")
     })?;
     // Starting over means the previous attempt is dead to us. Leaving it
     // running would put two tools on the radio and let a stale answer land.
@@ -1458,7 +1458,7 @@ pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> 
 #[tauri::command]
 pub fn unlock_pair_poll() -> Result<PairingSession, UnlockError> {
     let mut slot = PAIRING.lock().map_err(|_| {
-        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Repose")
+        UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Outsie")
     })?;
     let Some(live) = slot.as_mut() else {
         return Ok(PairingSession::stage(PairingStage::Idle));
@@ -1483,7 +1483,7 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
 
     let mut live = {
         let mut slot = PAIRING.lock().map_err(|_| {
-            UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Repose")
+            UnlockError::new(UnlockErrorCode::Unsupported, "配对状态异常，请重启 Outsie")
         })?;
         slot.take().ok_or_else(|| {
             UnlockError::new(UnlockErrorCode::Unsupported, "这次配对已经结束了，请重新开始")
@@ -1524,7 +1524,7 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
         .map(|s| s.trim().chars().take(60).collect::<String>())
         .filter(|s| !s.is_empty());
 
-    // Install it. One administrator prompt, attributed to Repose.
+    // Install it. One administrator prompt, attributed to Outsie.
     //
     // The key goes via a 0600 file the unprivileged side writes, NOT
     // interpolated into the shell command. Two reasons, one of which cost a

@@ -280,7 +280,7 @@ class BleSpikeService : Service() {
 
     private fun buildNotification(): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Repose 手机钥匙")
+            .setContentTitle("Outsie 手机钥匙")
             .setContentText(
                 if (SpikeState.authentic) "正在让你的 Mac 认出这台手机" else "还没有配对，Mac 认不出这台手机",
             )

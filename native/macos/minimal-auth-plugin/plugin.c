@@ -1,5 +1,5 @@
 /*
- * Repose spike: the smallest Authorization Plugin that can answer one question --
+ * Outsie spike: the smallest Authorization Plugin that can answer one question --
  * does macOS let a third-party plugin take part in screensaver unlock?
  *
  * Two mechanisms live in this one binary:

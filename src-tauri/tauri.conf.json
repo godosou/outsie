@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Repose",
+  "productName": "Outsie",
   "version": "0.6.3",
   "identifier": "ai.repose.lite",
   "build": {
@@ -15,7 +15,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Repose · 歇一会",
+        "title": "Outsie · 歇一会",
         "width": 1440,
         "height": 940,
         "minWidth": 960,

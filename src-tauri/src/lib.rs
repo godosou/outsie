@@ -496,7 +496,7 @@ fn create_break_windows(app: &AppHandle) -> tauri::Result<()> {
         let position: PhysicalPosition<i32> = *monitor.position();
         let size: PhysicalSize<u32> = *monitor.size();
         let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("break.html".into()))
-            .title("Repose · 屏幕休息中")
+            .title("Outsie · 屏幕休息中")
             .position(position.x as f64, position.y as f64)
             .inner_size(size.width as f64, size.height as f64)
             .decorations(false)
@@ -825,19 +825,19 @@ fn run_idle_monitor(app: AppHandle, shared: Arc<SharedState>) {
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
-        .text("open", "打开 Repose · 歇一会")
+        .text("open", "打开 Outsie · 歇一会")
         .separator()
         .text("toggle", "暂停／继续提醒")
         .text("short", "现在小休息")
         .text("long", "现在大休息")
         .separator()
-        .text("quit", "退出 Repose")
+        .text("quit", "退出 Outsie")
         .build()?;
     // The same smiling flower, rendered from public/tray.svg; macOS supplies contrast.
     let tray_icon = tauri::include_image!("icons/tray/18x18.png");
     TrayIconBuilder::with_id("repose-tray")
         .menu(&menu)
-        .tooltip("Repose · 歇一会")
+        .tooltip("Outsie · 歇一会")
         .icon(tray_icon)
         .icon_as_template(true)
         .build(app)?;
@@ -935,7 +935,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Repose");
+        .expect("failed to build Outsie");
 
     app.run(|app, event| {
         if let RunEvent::ExitRequested { api, .. } = event {

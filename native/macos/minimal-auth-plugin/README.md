@@ -1,4 +1,4 @@
-# Repose minimal Authorization Plugin — a spike
+# Outsie minimal Authorization Plugin — a spike
 
 This is a **one-shot experiment**, not a product. Its only job is to answer one
 question for Step 2 of `docs/plans/2026-09-08-phone-unlock-tdd-restart.md`:

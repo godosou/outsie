@@ -1,4 +1,4 @@
-# Repose · 歇一会
+# Outsie · 歇一会
 
 一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。
 
@@ -8,7 +8,7 @@
 
 ## 打开 Mac 应用
 
-完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Repose.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
+完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Outsie.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
 
 公开预览版提供 Apple Silicon / macOS 14+ 的 DMG 与 SHA-256 校验文件，使用 ad hoc 签名，尚未经过 Apple Developer ID 签名或 Apple 公证。手机钥匙与手机工作台不包含在此安装包中。
 
@@ -42,7 +42,7 @@ npm run desktop:dev
 npm run package:mac
 ```
 
-产物位于 `src-tauri/target/release/bundle/macos/Repose.app`。内部应用标识保持不变，以便升级后继续使用原来的本地设置与系统权限。
+产物位于 `src-tauri/target/release/bundle/macos/Outsie.app`。内部应用标识保持不变，以便升级后继续使用原来的本地设置与系统权限。
 
 ```sh
 npm test

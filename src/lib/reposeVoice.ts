@@ -15,7 +15,7 @@ export const SHORT_BREAK_VOICE: Readonly<Record<ShortBreakVoiceContext, readonly
     { title: '你当然可以继续盯屏幕。', body: '也可以做个会休息的聪明人。选后者。' },
   ],
   notification: [
-    { title: 'Repose 正在看着你的工位。', body: '它发现你又忘了眨眼。' },
+    { title: 'Outsie 正在看着你的工位。', body: '它发现你又忘了眨眼。' },
     { title: '二十秒休息已送达。', body: '请本人签收，不接受同事代领。' },
     { title: '你和屏幕的会面超时了。', body: '先散会二十秒，回来再谈。' },
     { title: '屏幕说它想静静。', body: '给它，也给自己二十秒。' },
@@ -24,7 +24,7 @@ export const SHORT_BREAK_VOICE: Readonly<Record<ShortBreakVoiceContext, readonly
     { title: '眼睛提交了请假申请。', body: '已批准。申请人请立即离屏。' },
     { title: '别担心，工作还在那里。', body: '我确认过了。先休息二十秒。' },
     { title: '你的休息额度快过期了。', body: '现在使用，不支持转赠。' },
-    { title: 'Repose 敲了敲屏幕。', body: '该把视线还给远处了。' },
+    { title: 'Outsie 敲了敲屏幕。', body: '该把视线还给远处了。' },
   ],
   postpone: [
     { title: '行，再给你一分钟。', body: '“马上”最好是真的马上。' },
@@ -58,7 +58,7 @@ export const SHORT_BREAK_VOICE: Readonly<Record<ShortBreakVoiceContext, readonly
     { title: '任务完成：照顾自己。', body: '这项绩效我给满分。' },
     { title: '眼睛已重新上线。', body: '屏幕可以继续，记得偶尔做人。' },
     { title: '很好，你听劝了。', body: '保持这个难得的好习惯。' },
-    { title: '短休息打卡成功。', body: 'Repose 对此表示勉强满意。' },
+    { title: '短休息打卡成功。', body: 'Outsie 对此表示勉强满意。' },
     { title: '可以继续了。', body: '我会在该出现的时候再次出现。' },
   ],
 }

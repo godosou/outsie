@@ -19,7 +19,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * The Repose mark: four petals around a hole.
+ * The Outsie mark: four petals around a hole.
  *
  * Ported from `ReposeBrandMark` in mobile/lib/app/repose_theme.dart, ovals and
  * angles unchanged, so the phone draws the same shape as the desktop app rather
@@ -85,7 +85,7 @@ fun brandHeader(context: Context, pal: Palette): View {
     }
     words.addView(
         TextView(context).apply {
-            text = "repose."
+            text = "outsie."
             setTextColor(pal.textPrimary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 21f)
             typeface = Typeface.create("sans-serif", Typeface.BOLD)

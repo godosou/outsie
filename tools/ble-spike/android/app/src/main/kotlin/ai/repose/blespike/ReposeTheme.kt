@@ -5,7 +5,7 @@ import android.content.res.Configuration
 import android.util.TypedValue
 
 /**
- * Repose design tokens. Forest green + warm off-white in light mode, with a matching
+ * Outsie design tokens. Forest green + warm off-white in light mode, with a matching
  * dark variant. Every colour here is resolved once per screen build from the current
  * night-mode configuration; the views paint themselves explicitly, so we never depend
  * on the framework theme's default text/background colours.

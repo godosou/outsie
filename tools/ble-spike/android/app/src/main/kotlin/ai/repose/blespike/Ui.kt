@@ -108,7 +108,7 @@ object Ui {
             setOnClickListener { onClick() }
         }
 
-    /** A calm, warm-amber advisory block. Never red — Repose has no destructive-red anywhere. */
+    /** A calm, warm-amber advisory block. Never red — Outsie has no destructive-red anywhere. */
     fun amberNote(context: Context, pal: Palette, text: CharSequence): TextView = TextView(context).apply {
         this.text = text
         setTextColor(pal.amberText)
