@@ -37,8 +37,21 @@ import android.util.Log
 @SuppressLint("MissingPermission")
 class PairingServer(
     private val context: Context,
-    private val onStateChanged: () -> Unit,
+    onStateChanged: () -> Unit,
 ) {
+
+    /**
+     * Every notification goes to the main thread.
+     *
+     * GATT callbacks arrive on a binder thread. Calling back straight from there
+     * meant the screen rebuilt its views off the UI thread -- which does not
+     * throw and does not log; it just produces a view tree that never draws. The
+     * first live pairing run showed a blank phone while the Mac sat waiting at
+     * the six digits, which is the worst moment to have nothing on screen.
+     */
+    private val notify: () -> Unit = {
+        Handler(Looper.getMainLooper()).post(onStateChanged)
+    }
 
     companion object {
         private const val TAG = "ReposePair"
@@ -59,7 +72,7 @@ class PairingServer(
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
             advertising = true
             SpikeState.event("配对窗口已打开（${SpikeContract.PAIRING_WINDOW_SECONDS} 秒）")
-            onStateChanged()
+            notify()
         }
         override fun onStartFailure(errorCode: Int) {
             lastError = "配对广播失败 code=$errorCode"
@@ -99,7 +112,7 @@ class PairingServer(
                     offset, null,
                 )
             }
-            onStateChanged()
+            notify()
         }
 
         override fun onCharacteristicReadRequest(
@@ -129,7 +142,7 @@ class PairingServer(
                 device, requestId, BluetoothGatt.GATT_SUCCESS, offset,
                 payload.copyOfRange(offset, payload.size),
             )
-            onStateChanged()
+            notify()
         }
 
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
@@ -232,6 +245,15 @@ class PairingServer(
             session?.complete()
             SpikeState.event("配对完成，指纹 ${PresenceKey.fingerprint(context)}")
             stop()
+            // Pairing takes the beacon down to advertise connectably; finishing
+            // has to put it back. Otherwise a successful pairing hands you a
+            // phone that is paired and silent, with the home screen reporting
+            // 已关闭 -- which reads as the pairing having failed.
+            runCatching {
+                context.startForegroundService(
+                    android.content.Intent(context, BleSpikeService::class.java),
+                )
+            }
             true
         }.getOrElse {
             lastError = "写入密钥失败：${it.message}"
@@ -257,6 +279,6 @@ class PairingServer(
         runCatching { gatt?.close() }
         gatt = null
         if (session?.stage != PairingSession.Stage.Done) session = null
-        onStateChanged()
+        notify()
     }
 }

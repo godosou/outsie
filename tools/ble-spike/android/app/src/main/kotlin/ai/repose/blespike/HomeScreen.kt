@@ -184,7 +184,14 @@ fun buildHomeScreen(
     fun refresh() {
         val running = SpikeState.serviceRunning
         val advertising = SpikeState.advertising
-        val authentic = SpikeState.authentic
+        // Ask the Keystore, not the service.
+        //
+        // SpikeState.authentic is only set when BleSpikeService starts, so with
+        // the beacon switched off this screen announced 没有配对密钥 on a phone
+        // that had one -- telling someone their pairing is gone because a toggle
+        // is off. "Is there a key" and "is the beacon running" are different
+        // questions and the screen now asks each of them separately.
+        val authentic = PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)
         suppress = true
         toggle.isChecked = running
         suppress = false
@@ -228,7 +235,7 @@ fun buildHomeScreen(
         }
 
         keyStatus.text = if (authentic) {
-            "密钥指纹 ${SpikeState.fingerprint ?: "?"} · 已发出 ${SpikeState.beaconsSent} 次"
+            "密钥指纹 ${PresenceKey.fingerprint(context) ?: "?"} · 已发出 ${SpikeState.beaconsSent} 次"
         } else {
             "没有配对密钥。信标照常发，但标签是随机凑出来的，Mac 会看见这台手机然后拒绝它。"
         }

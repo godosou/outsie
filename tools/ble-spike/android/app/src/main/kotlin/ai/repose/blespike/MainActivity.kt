@@ -81,6 +81,19 @@ class MainActivity : Activity(), Nav {
         // It grants nothing new: MainActivity is the launcher activity, so anything
         // that can send this could already tap the toggle. Permissions are still asked
         // for the same way, so a first run still needs a human.
+        maybeAutostart(intent)
+    }
+
+    // An already-running activity gets onNewIntent, not onCreate, so the seam
+    // only worked on a cold start -- and every "it did not advertise" after that
+    // looked like a radio problem rather than an intent that was never read.
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        maybeAutostart(intent)
+    }
+
+    private fun maybeAutostart(intent: Intent?) {
         if (intent?.getBooleanExtra("autostart", false) == true) {
             SpikeState.event("autostart requested (test seam)")
             requestPermissionsThenStart()
