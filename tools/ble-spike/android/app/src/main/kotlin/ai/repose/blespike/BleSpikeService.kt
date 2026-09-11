@@ -52,12 +52,60 @@ class BleSpikeService : Service() {
          * left, so the check must never be the thing that is late.
          */
         private const val ROTATE_CHECK_MS = 2_000L
+
+        /**
+         * How soon after a button press the new payload goes on the air.
+         *
+         * The ordinary rotate check is fine for a window that turns over every
+         * 30s, but someone who just pressed 锁定 Mac is watching their screen.
+         * Two seconds of nothing reads as a button that did not work.
+         */
+        private const val COMMAND_CHECK_MS = 400L
+
+        /**
+         * The command the beacon is currently carrying, and when it expires.
+         *
+         * A command is not a message that gets delivered once — it rides in
+         * every advertisement for [SpikeContract.COMMAND_BROADCAST_MS] and then
+         * stops. That is deliberate: the beacon is one-way, so there is no
+         * acknowledgement to wait for, and a single packet is easily the one
+         * that lands in a scan gap (measured p99 ~7s between sightings of a
+         * single advertiser — see docs/validation/2026-09-10-scan-cadence.md).
+         * Repeating for a few seconds is the only delivery guarantee available.
+         *
+         * Static because the UI posts commands while the service is the thing
+         * that advertises them, and there is exactly one of each.
+         */
+        @Volatile private var pendingCmd = SpikeContract.CMD_NONE
+        @Volatile private var pendingSeq = 0L
+        @Volatile private var pendingUntil = 0L
+
+        /**
+         * Queue a command for the Mac. Returns false if the phone has no key,
+         * because an unauthenticated command is one the Mac will refuse — and
+         * a button that silently does nothing is worse than one that says why.
+         */
+        fun postCommand(context: android.content.Context, cmd: Int): Boolean {
+            if (!PresenceKey.has(SpikeContract.PRESENCE_KEY_ID)) return false
+            pendingSeq = AppStore(context).nextCommandSeq()
+            pendingCmd = cmd
+            pendingUntil = SystemClock.elapsedRealtime() + SpikeContract.COMMAND_BROADCAST_MS
+            SpikeState.event(
+                when (cmd) {
+                    SpikeContract.CMD_LOCK -> "已发出：锁定 Mac"
+                    SpikeContract.CMD_ALLOW_UNLOCK -> "已发出：允许下一次解锁"
+                    else -> "已发出指令 $cmd"
+                },
+            )
+            return true
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
     private var advertiser: BluetoothLeAdvertiser? = null
     private lateinit var beacon: PresenceBeacon
     private var advertisedCounter = Long.MIN_VALUE
+    private var advertisedCmd = SpikeContract.CMD_NONE
 
     private val heartbeat = object : Runnable {
         override fun run() {
@@ -98,10 +146,28 @@ class BleSpikeService : Service() {
     private val rotate = object : Runnable {
         override fun run() {
             val c = beacon.currentCounter()
-            if (c != advertisedCounter) refreshBeacon(c)
-            handler.postDelayed(this, ROTATE_CHECK_MS)
+            // A command has to go out now, not at the next 30s window boundary,
+            // and it has to stop going out when it expires. Both are changes to
+            // what the payload should say, so both force a refresh.
+            val cmdNow = liveCommand()
+            if (c != advertisedCounter || cmdNow != advertisedCmd) refreshBeacon(c)
+            // Poll faster while something is pending, so the press-to-air delay
+            // is not itself mistaken for the radio being slow.
+            val pending = pendingCmd != SpikeContract.CMD_NONE &&
+                SystemClock.elapsedRealtime() < pendingUntil
+            handler.postDelayed(this, if (pending) COMMAND_CHECK_MS else ROTATE_CHECK_MS)
         }
     }
+
+    /** The command that should be on air right now, or CMD_NONE once it expires. */
+    private fun liveCommand(): Int =
+        if (pendingCmd != SpikeContract.CMD_NONE &&
+            SystemClock.elapsedRealtime() < pendingUntil
+        ) {
+            pendingCmd
+        } else {
+            SpikeContract.CMD_NONE
+        }
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
@@ -161,7 +227,8 @@ class BleSpikeService : Service() {
 
     private fun refreshBeacon(counter: Long) {
         val le = advertiser ?: return
-        val payload = runCatching { beacon.payloadFor(counter) }.getOrElse { e ->
+        val cmd = liveCommand()
+        val payload = runCatching { beacon.payloadFor(counter, cmd, pendingSeq) }.getOrElse { e ->
             // A Keystore that will not sign is a phone that cannot prove who it is.
             // Falling back to an unsigned packet here would quietly turn the imposter
             // and the real phone back into the same thing, so it goes silent instead.
@@ -191,6 +258,7 @@ class BleSpikeService : Service() {
         le.startAdvertising(settings, data, advertiseCallback)
 
         advertisedCounter = counter
+        advertisedCmd = cmd
         SpikeState.beaconCounter = counter
         SpikeState.authentic = beacon.authentic
     }

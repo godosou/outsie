@@ -17,10 +17,14 @@
 // unlock hot path, roughly 1-2s against a 1.5s permit budget. The connect path is gone;
 // the authenticator now arrives inside the first advertisement, with no round trip.
 //
-// stdout: CSV only  ->  unix_ms,rssi,peer_prefix,ver,key_id,tag_hex
-//                       (ver/key_id/tag_hex are "-" when the packet carries no
+// stdout: CSV only  ->  unix_ms,rssi,peer_prefix,ver,key_id,tag_hex,cmd,seq
+//                       (every field after rssi is "-" when the packet carries no
 //                        well-formed payload -- a seen-but-unusable device is a fact
 //                        worth passing on, not a line to drop)
+//
+// cmd/seq are the phone->Mac command channel. They are passed through verbatim
+// and UNVERIFIED: this process holds no key and decides nothing. Whether a
+// command is authentic, and whether it is a replay, is presence-verify's call.
 // stderr: human-readable events
 //
 // Build: swiftc -O -o rssi-scan rssi-scan.swift -framework CoreBluetooth
@@ -33,8 +37,10 @@ import Foundation
 // dictionary lookup must use the same short CBUUID rather than the 128-bit expansion.
 let presenceUUID = CBUUID(string: "FFF0")
 
-let presenceVersion: UInt8 = 0x01
+let presenceVersion: UInt8 = 0x02
 let tagLen = 8
+/// version(1) + keyId(1) + cmd(1) + seq(4) + tag(8)
+let payloadLen = 7 + tagLen
 
 /// Scan every advertiser instead of letting the kernel filter to ours. See
 /// beginScan() for why: it is the only way to tell a quiet radio from a departed
@@ -96,13 +102,17 @@ final class Scanner: NSObject, CBCentralManagerDelegate {
         let ms = Int(Date().timeIntervalSince1970 * 1000)
         let idPrefix = String(p.identifier.uuidString.prefix(8))
 
-        var ver = "-", keyId = "-", tag = "-"
+        var ver = "-", keyId = "-", tag = "-", cmd = "-", seq = "-"
         let sd = advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data]
-        if let payload = sd?[presenceUUID], payload.count == 2 + tagLen,
+        if let payload = sd?[presenceUUID], payload.count == payloadLen,
            payload[payload.startIndex] == presenceVersion {
-            ver = String(payload[payload.startIndex])
-            keyId = String(payload[payload.startIndex + 1])
-            tag = hex(payload.subdata(in: (payload.startIndex + 2)..<payload.endIndex))
+            let b = payload.startIndex
+            ver = String(payload[b])
+            keyId = String(payload[b + 1])
+            cmd = String(payload[b + 2])
+            let seqBytes = payload.subdata(in: (b + 3)..<(b + 7))
+            seq = String(seqBytes.reduce(UInt32(0)) { ($0 << 8) | UInt32($1) })
+            tag = hex(payload.subdata(in: (b + 7)..<payload.endIndex))
             if !sawPayload {
                 sawPayload = true
                 log("PAYLOAD seen: ver=\(ver) keyId=\(keyId) tag=\(tag) — "
@@ -110,7 +120,7 @@ final class Scanner: NSObject, CBCentralManagerDelegate {
             }
         }
 
-        print("\(ms),\(RSSI.intValue),\(idPrefix),\(ver),\(keyId),\(tag)")
+        print("\(ms),\(RSSI.intValue),\(idPrefix),\(ver),\(keyId),\(tag),\(cmd),\(seq)")
     }
 }
 

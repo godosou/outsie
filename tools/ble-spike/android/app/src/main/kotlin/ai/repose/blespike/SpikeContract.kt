@@ -22,7 +22,7 @@ object SpikeContract {
     // wasted HMAC verification, nothing more, because the tag is what decides.
     val PRESENCE_SERVICE_UUID: UUID = UUID.fromString("0000FFF0-0000-1000-8000-00805F9B34FB")
 
-    const val PRESENCE_VERSION = 0x01
+    const val PRESENCE_VERSION = 0x02
     const val WINDOW_SECONDS = 30L
     const val TAG_LEN = 8
 
@@ -30,8 +30,60 @@ object SpikeContract {
      * Domain separation. Byte-identical on the Mac verifier -- if these two
      * strings ever differ the tag never verifies, which looks exactly like a
      * phone that is out of range.
+     *
+     * Bumped v1 -> v2 with the command fields below. Deliberately not left at
+     * v1: the payload grew, and a label that still matched would let the two
+     * ends agree on some fields and disagree on others. Half-compatible is
+     * harder to diagnose than plainly incompatible, so both ends ship together
+     * or nothing verifies at all.
      */
-    const val PRESENCE_BEACON_LABEL = "repose-presence-v1 beacon"
+    const val PRESENCE_BEACON_LABEL = "repose-presence-v2 beacon"
+
+    // --- phone -> Mac commands ------------------------------------------------
+    //
+    // Carried INSIDE the beacon, covered by the same HMAC, rather than over a
+    // new connection. See docs/plans/2026-09-11-phone-commands.md.
+    //
+    // The reason this shape was chosen over a connectable command service: the
+    // requirement is "only works when the phone is near the Mac", and here that
+    // is free. The Mac has to *hear* the advertisement to get the command at
+    // all, and the distance it can hear over is the distance. No separate
+    // proximity check to write, and therefore none to get wrong. The beacon
+    // also stays non-connectable, which was a deliberate property worth keeping.
+
+    const val CMD_NONE = 0
+    /** Lock this Mac now. */
+    const val CMD_LOCK = 1
+    /**
+     * Authorize the next unlock attempt.
+     *
+     * NOT "unlock the Mac" — nothing can be. `system.login.screensaver` runs
+     * only when a human submits at the lock screen, and synthetic events do not
+     * reach SecurityAgent's session. This command permits; the person still
+     * presses return. The UI has to say so.
+     */
+    const val CMD_ALLOW_UNLOCK = 2
+
+    /**
+     * How long a command keeps going out before the beacon returns to CMD_NONE.
+     *
+     * WHY 25 AND NOT 6
+     *
+     * 6 was the first guess, and it was a coin flip. The Mac does not hear every
+     * advertisement -- macOS's scan cadence for a single advertiser leaves gaps
+     * measured at p99 ~7s and max ~9.3s, and a live capture during this feature's
+     * bring-up saw three sightings in fourteen seconds. A 6s window therefore
+     * often contained zero sightings, so the lock button worked sometimes.
+     *
+     * That tail is macOS's, not the phone's: address stability, tx power and
+     * in-place payload updates were each tried and none of them moved it. See
+     * docs/validation/2026-09-10-scan-cadence.md. So the only lever is to keep
+     * repeating, and 25s is ~2.7x the worst gap measured.
+     *
+     * The cost of a longer window is bounded by the sequence number, not by
+     * this value: however many times a command is heard, it is obeyed once.
+     */
+    const val COMMAND_BROADCAST_MS = 25_000L
 
     /** The only pairing slot the spike uses. Real pairing will allocate these. */
     const val PRESENCE_KEY_ID = 1

@@ -104,6 +104,7 @@ REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while p
 
 # How presence is asserted / withdrawn on the target. Defaults assume the VM
 # harness has REPOSE_SSH exported (tools/vm-spike/vm-env.sh).
+LOCK_CMD="${REPOSE_LOCK_CMD:-launchctl asuser \$(stat -f %u /dev/console) /usr/bin/open -a /System/Library/CoreServices/ScreenSaverEngine.app}"
 PERMIT_ON_CMD="${REPOSE_PERMIT_ON_CMD:-${REPOSE_SSH:-} 'sudo mkdir -p /var/run/repose-spike && sudo chmod 755 /var/run/repose-spike && sudo touch /var/run/repose-spike/permit'}"
 PERMIT_OFF_CMD="${REPOSE_PERMIT_OFF_CMD:-${REPOSE_SSH:-} 'sudo rm -f /var/run/repose-spike/permit'}"
 
@@ -128,6 +129,52 @@ now_s() { date +%s; }
 log()   { printf 'permit-bridge: %s\n' "$*" >&2; }
 
 assert_permit() { eval "${PERMIT_ON_CMD}"  >/dev/null 2>&1 || log "warn: permit-on command failed"; }
+
+# Act on a verified phone command.
+#
+# WHY LOCKING NEEDS launchctl asuser
+#
+# This bridge runs as root, outside any GUI session. A lock request issued from
+# here reaches nobody: the screen belongs to the console user's Aqua session,
+# and root is not in it. `launchctl asuser <uid>` re-enters that session, which
+# is the same trick the pipeline already uses for anything user-facing.
+#
+# WHY THE UNLOCK COMMAND ONLY WRITES A PERMIT
+#
+# It cannot do more. `system.login.screensaver` is consulted when a human
+# submits at the lock screen; nothing can submit on their behalf, so the most a
+# phone can do is authorize the attempt that follows. The button is labelled to
+# say exactly that -- calling it 「解锁」 and having the Mac sit there would be
+# the same lie this project keeps catching in its own screens.
+run_command() {
+    case "$1" in
+        lock)
+            # ScreenSaverEngine, not `pmset displaysleepnow`.
+            #
+            # displaysleepnow only sleeps the display; whether the session locks
+            # depends on the screen-lock delay, so with a non-zero delay the Mac
+            # goes dark and stays unlocked. tools/vm-spike/vm-env.sh has the
+            # full account -- that mistake once produced a plugin log line
+            # proving the mechanism ran next to IOConsoleLocked=false, which is
+            # how a confident wrong answer gets made.
+            #
+            # Overridable so a test can prove the command reaches this branch
+            # without actually locking the tester's screen -- the same seam
+            # tools/vm-spike/vm-env.sh and tests/e2e/unlock_acceptance.sh use.
+            log "command lock -> starting the screensaver"
+            eval "${LOCK_CMD}" >/dev/null 2>&1 || log "warn: lock command failed"
+            ;;
+        allow-unlock)
+            # Deliberately the same write the proximity path makes, and it
+            # deliberately does not bypass the distance check: the Mac had to
+            # hear the advertisement to get here at all, and how far it can hear
+            # is the range. There is no separate proximity test to keep in sync.
+            log "command allow-unlock -> asserting permit"
+            assert_permit
+            last_refresh="$(now_s)"
+            ;;
+    esac
+}
 clear_permit()  { eval "${PERMIT_OFF_CMD}" >/dev/null 2>&1 || log "warn: permit-off command failed"; }
 
 # A well-formed integer dBm (negative). Anything else (header, blank, garbage)
@@ -191,9 +238,30 @@ while :; do
     now="$(now_s)"
 
     if [ -n "${line}" ]; then
-        # CSV: unix_ms,rssi,peer,ver,key_id,tag,auth
+        # CSV: unix_ms,rssi,... then presence-verify's named fields at the end,
+        # `auth=<verdict>,cmd=<n>`.
+        #
+        # Read by NAME, not by column. The verdict used to be field 7; widening
+        # the scanner's output by two columns moved it, and every row silently
+        # became unverified -- fail-safe, but a whole feature not working and
+        # nothing saying so. A row with no auth= field (the raw scanner, no
+        # verifier in the pipe) yields an empty verdict, which is refused.
         rssi="$(printf '%s' "${line}" | cut -d, -f2 | tr -d '[:space:]')"
-        auth="$(printf '%s' "${line}" | cut -d, -f7 | tr -d '[:space:]')"
+        fields="$(printf '%s' "${line}" | tr ',' '\n')"
+        auth="$(printf '%s' "${fields}" | sed -n 's/^auth=//p' | tr -d '[:space:]')"
+        vcmd="$(printf '%s' "${fields}" | sed -n 's/^cmd=//p' | tr -d '[:space:]')"
+
+        # Commands arrive already judged.
+        #
+        # presence-verify emits a non-zero command only when the tag verified
+        # AND the sequence was new, so there is nothing to re-check here and --
+        # more to the point -- nowhere else that could decide differently. A
+        # second opinion about whether a command is genuine is a second place to
+        # get it wrong.
+        case "${vcmd}" in
+            1) run_command lock ;;
+            2) run_command allow-unlock ;;
+        esac
 
         # An unverified row is not a weak signal, it is a device we cannot name.
         # It updates nothing -- not even last_sample -- so a stream of imposter

@@ -3,14 +3,20 @@ package ai.repose.blespike
 import java.security.SecureRandom
 
 /**
- * The `repose-presence-v1` rotating authenticator (design §2.2).
+ * The `repose-presence-v2` rotating authenticator (design §2.2).
  *
  * ```
  * counter = floor(unix_seconds / WINDOW_SECONDS)        // NEVER transmitted
- * msg     = "repose-presence-v1 beacon" ‖ keyId(1) ‖ counter(8, big-endian)
+ * msg     = "repose-presence-v2 beacon" ‖ keyId(1) ‖ counter(8 BE) ‖ cmd(1) ‖ seq(4 BE)
  * tag     = HMAC-SHA256(K, msg)[0 .. TAG_LEN)           // truncating an HMAC is safe
- * payload = version(1) ‖ keyId(1) ‖ tag(TAG_LEN)        // 10 bytes of service data
+ * payload = version(1) ‖ keyId(1) ‖ cmd(1) ‖ seq(4 BE) ‖ tag(TAG_LEN)   // 15 bytes
  * ```
+ *
+ * `cmd` and `seq` carry phone→Mac commands. They are inside the HMAC, so a
+ * command cannot be forged or edited in flight, and `seq` is what stops one
+ * being replayed: the Mac only accepts a strictly larger value than it has
+ * already seen. Replaying a lock is harmless; replaying an unlock permit is
+ * not, which is the whole reason the field exists.
  *
  * `counter` costs zero advertising bytes and is not spoofable, because the Mac derives
  * it from its own clock rather than reading it off the air.
@@ -36,24 +42,34 @@ class PresenceBeacon(private val keyId: Int) {
 
     fun currentPayload(): ByteArray = payloadFor(currentCounter())
 
-    fun payloadFor(counter: Long): ByteArray {
-        val msg = beaconMessage(keyId, counter)
+    fun payloadFor(
+        counter: Long,
+        cmd: Int = SpikeContract.CMD_NONE,
+        seq: Long = 0L,
+    ): ByteArray {
+        val msg = beaconMessage(keyId, counter, cmd, seq)
         val full = if (authentic) PresenceKey.hmac(keyId, msg) else hmacRaw(decoyKey, msg)
-        val out = ByteArray(2 + SpikeContract.TAG_LEN)
+        val out = ByteArray(7 + SpikeContract.TAG_LEN)
         out[0] = SpikeContract.PRESENCE_VERSION.toByte()
         out[1] = keyId.toByte()
-        full.copyInto(out, 2, 0, SpikeContract.TAG_LEN)
+        out[2] = cmd.toByte()
+        beInt(seq).copyInto(out, 3)
+        full.copyInto(out, 7, 0, SpikeContract.TAG_LEN)
         return out
     }
 
     companion object {
         /** The pre-image the tag authenticates. Byte-identical on the Mac verifier (§3.2). */
-        fun beaconMessage(keyId: Int, counter: Long): ByteArray =
+        fun beaconMessage(keyId: Int, counter: Long, cmd: Int, seq: Long): ByteArray =
             SpikeContract.PRESENCE_BEACON_LABEL.toByteArray(Charsets.US_ASCII) +
                 byteArrayOf(keyId.toByte()) +
-                beLong(counter)
+                beLong(counter) +
+                byteArrayOf(cmd.toByte()) +
+                beInt(seq)
 
         fun beLong(v: Long) = ByteArray(8) { ((v ushr (56 - 8 * it)) and 0xFF).toByte() }
+
+        fun beInt(v: Long) = ByteArray(4) { ((v ushr (24 - 8 * it)) and 0xFF).toByte() }
 
         private fun hmacRaw(key: ByteArray, msg: ByteArray): ByteArray =
             javax.crypto.Mac.getInstance("HmacSHA256").run {

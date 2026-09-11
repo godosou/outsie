@@ -46,6 +46,24 @@ class AppStore(context: Context) {
             }.apply()
         }
 
+    /**
+     * The next command sequence number, persisted.
+     *
+     * Monotonic across reboots and reinstalls-with-data, because it is the only
+     * thing standing between a recorded advertisement and someone replaying
+     * 「允许解锁」 at the Mac later. The Mac keeps a high-water mark and refuses
+     * anything that is not strictly larger.
+     *
+     * A reinstall clears it back to 1, which the Mac would then reject as a
+     * replay — that is the safe direction to fail, and re-pairing resets the
+     * Mac's mark along with the key.
+     */
+    fun nextCommandSeq(): Long {
+        val next = prefs.getLong(KEY_CMD_SEQ, 0L) + 1L
+        prefs.edit().putLong(KEY_CMD_SEQ, next).apply()
+        return next
+    }
+
     /** Stable across launches so it can be compared against what the Mac shows. */
     val pairingCode: String
         get() {
@@ -120,6 +138,7 @@ class AppStore(context: Context) {
     private companion object {
         const val KEY_PAIRED = "paired"
         const val KEY_MAC_NAME = "paired_mac_name"
+        const val KEY_CMD_SEQ = "command_seq"
         const val KEY_CODE = "pairing_code"
         const val KEY_UNLOCKS = "unlocks_today"
         const val KEY_MACS = "macs_json"

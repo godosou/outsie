@@ -16,7 +16,7 @@
 //
 //   c0 = floor(now / WINDOW)
 //   for c in [c0-1, c0, c0+1]:
-//       msg = "repose-presence-v1 beacon" ‖ key_id(1) ‖ c(8, big-endian)
+//       msg = "repose-presence-v2 beacon" ‖ key_id(1) ‖ c(8 BE) ‖ cmd(1) ‖ seq(4 BE)
 //       if constant_time_eq(HMAC-SHA256(K, msg)[0..TAG_LEN), tag): VALID
 //
 // The counter is never transmitted; both ends derive it from their own clocks. ±1
@@ -41,7 +41,7 @@
 import CryptoKit
 import Foundation
 
-let beaconLabel = "repose-presence-v1 beacon"
+let beaconLabel = "repose-presence-v2 beacon"
 let windowSeconds: Int64 = 30
 let tagLen = 8
 let defaultKeyDir = "/var/db/repose-unlock"
@@ -63,7 +63,7 @@ func hexDecode(_ s: String) -> Data? {
     return out
 }
 
-func beaconMessage(keyId: UInt8, counter: Int64) -> Data {
+func beaconMessage(keyId: UInt8, counter: Int64, cmd: UInt8 = 0, seq: UInt32 = 0) -> Data {
     var d = Data(beaconLabel.utf8)
     d.append(keyId)
     // Two's-complement big-endian, matching Kotlin's `ushr` on a signed Long. The
@@ -72,6 +72,14 @@ func beaconMessage(keyId: UInt8, counter: Int64) -> Data {
     let u = UInt64(bitPattern: counter)
     for shift in stride(from: 56, through: 0, by: -8) {
         d.append(UInt8((u >> UInt64(shift)) & 0xFF))
+    }
+    // The command fields are INSIDE the tag. That is the whole reason a command
+    // can be trusted: nothing on the air can add one, change 「锁屏」 into
+    // 「允许解锁」, or edit the sequence number to dodge the replay check,
+    // without the key.
+    d.append(cmd)
+    for shift in stride(from: 24, through: 0, by: -8) {
+        d.append(UInt8((seq >> UInt32(shift)) & 0xFF))
     }
     return d
 }
@@ -97,6 +105,16 @@ final class KeyStore {
     private var complained = Set<UInt8>()
 
     init(dir: String) { self.dir = dir }
+
+    /// For the self-test only: keys supplied directly, no file, no root.
+    ///
+    /// The permission check in load() is a real defence and must not be
+    /// bypassable from anywhere else — hence a separate initialiser rather than
+    /// a flag threaded through the loading path.
+    init(fixed: [UInt8: SymmetricKey]) {
+        self.dir = ""
+        for (id, k) in fixed { cache[id] = .key(k) }
+    }
 
     func key(for keyId: UInt8) -> SymmetricKey? {
         let loaded = cache[keyId] ?? load(keyId)
@@ -141,15 +159,49 @@ final class KeyStore {
 
 // MARK: - verification
 
-func verify(keyId: UInt8, tag: Data, now: Int64, keys: KeyStore) -> String {
+func verify(keyId: UInt8, tag: Data, now: Int64, keys: KeyStore,
+            cmd: UInt8 = 0, seq: UInt32 = 0) -> String {
     guard tag.count == tagLen else { return "MALFORMED" }
     guard let k = keys.key(for: keyId) else { return "NOKEY" }
     let c0 = now / windowSeconds
     for c in [c0 - 1, c0, c0 + 1] {
-        let full = Data(HMAC<SHA256>.authenticationCode(for: beaconMessage(keyId: keyId, counter: c), using: k))
+        let full = Data(HMAC<SHA256>.authenticationCode(
+            for: beaconMessage(keyId: keyId, counter: c, cmd: cmd, seq: seq), using: k))
         if constantTimeEqual(full.prefix(tagLen), tag) { return "VALID" }
     }
     return "INVALID"
+}
+
+// MARK: - command replay defence
+
+/// The highest command sequence accepted so far, per key.
+///
+/// A command rides in every advertisement for several seconds, so the same
+/// (cmd, seq) is seen many times legitimately — the first sighting is the
+/// command, the rest are echoes of it. Anyone with a radio can also record one
+/// and re-send it later. Both are handled the same way: strictly-greater wins,
+/// everything else is an echo.
+///
+/// Replaying a lock is harmless. Replaying 「允许解锁」 is not, and that is the
+/// only reason this exists.
+///
+/// In memory, not on disk, and that is a real limitation worth naming: restart
+/// the pipeline and the mark resets to zero, so a command recorded before the
+/// restart would be accepted once. The window check still bounds that to about
+/// a minute either side of when it was minted, so a recording is only useful to
+/// someone who is standing there at the time — which is the same person who
+/// could just watch you unlock. Persisting it is the fix if that stops being
+/// good enough.
+final class SeqGuard {
+    private var high: [UInt8: UInt32] = [:]
+
+    /// True if this command is new. Non-commands never consume a sequence.
+    func accept(keyId: UInt8, cmd: UInt8, seq: UInt32) -> Bool {
+        guard cmd != 0 else { return false }
+        if let seen = high[keyId], seq <= seen { return false }
+        high[keyId] = seq
+        return true
+    }
 }
 
 // MARK: - self test
@@ -162,16 +214,24 @@ func verify(keyId: UInt8, tag: Data, now: Int64, keys: KeyStore) -> String {
 ///
 /// Regenerate with tools/ble-spike/mac/presence-vectors.sh
 struct Vector {
-    let keyHex: String, keyId: UInt8, counter: Int64, tagHex: String
+    let keyHex: String, keyId: UInt8, counter: Int64, cmd: UInt8, seq: UInt32, tagHex: String
 }
 
+/// The last two differ only in `cmd`. That pair is the assertion that the
+/// command byte is really inside the pre-image: drop it and they collide, and
+/// the self-test says so — rather than the phone's commands quietly becoming
+/// editable by anyone with a radio.
 let vectors: [Vector] = [
     Vector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-           keyId: 1, counter: 0, tagHex: "4c38cfe50cb76d34"),
+           keyId: 1, counter: 0, cmd: 0, seq: 0, tagHex: "f5d57d0f0f6ae55b"),
     Vector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-           keyId: 1, counter: 58_000_000, tagHex: "f149ead01555ef7e"),
+           keyId: 1, counter: 58000000, cmd: 0, seq: 0, tagHex: "1e53a75e337d1052"),
     Vector(keyHex: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-           keyId: 7, counter: 1, tagHex: "3dc703e84558cc48"),
+           keyId: 7, counter: 1, cmd: 0, seq: 0, tagHex: "c5fbe02ba6aa40b1"),
+    Vector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+           keyId: 1, counter: 58000000, cmd: 1, seq: 42, tagHex: "e51fae486a2159d0"),
+    Vector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+           keyId: 1, counter: 58000000, cmd: 2, seq: 42, tagHex: "e9b003496a5b1c05"),
 ]
 
 func selfTest() -> Int32 {
@@ -179,7 +239,8 @@ func selfTest() -> Int32 {
     for (i, v) in vectors.enumerated() {
         let k = SymmetricKey(data: hexDecode(v.keyHex)!)
         let got = Data(HMAC<SHA256>.authenticationCode(
-            for: beaconMessage(keyId: v.keyId, counter: v.counter), using: k)).prefix(tagLen)
+            for: beaconMessage(keyId: v.keyId, counter: v.counter, cmd: v.cmd, seq: v.seq),
+            using: k)).prefix(tagLen)
         let gotHex = got.map { String(format: "%02x", $0) }.joined()
         if gotHex == v.tagHex {
             print("  ok   vector \(i): keyId=\(v.keyId) counter=\(v.counter) -> \(gotHex)")
@@ -250,6 +311,53 @@ func selfTest() -> Int32 {
         failures += 1
     }
 
+    // ---- the command fields are bound into the tag ----
+    //
+    // The vectors above already prove cmd is in the pre-image. These prove the
+    // verifier REJECTS a mismatch, which is the direction that matters: a
+    // verifier that computed the right tag but compared the wrong one would
+    // pass every vector and still accept 「允许解锁」 from a packet that said
+    // 「锁屏」.
+    do {
+        let k = SymmetricKey(data: hexDecode(vectors[3].keyHex)!)
+        let store = KeyStore(fixed: [1: k])
+        let now = vectors[3].counter * windowSeconds
+        let tag = hexDecode(vectors[3].tagHex)!
+
+        let right = verify(keyId: 1, tag: tag, now: now, keys: store, cmd: 1, seq: 42)
+        let wrongCmd = verify(keyId: 1, tag: tag, now: now, keys: store, cmd: 2, seq: 42)
+        let wrongSeq = verify(keyId: 1, tag: tag, now: now, keys: store, cmd: 1, seq: 43)
+        if right == "VALID", wrongCmd == "INVALID", wrongSeq == "INVALID" {
+            print("  ok   cmd and seq are covered by the tag")
+        } else {
+            print("  FAIL cmd/seq binding: right=\(right) wrongCmd=\(wrongCmd) wrongSeq=\(wrongSeq)")
+            failures += 1
+        }
+    }
+
+    // ---- replays are refused ----
+    //
+    // A command rides in every advertisement for several seconds, so the honest
+    // majority of repeat sightings are echoes, not attacks. Both are refused the
+    // same way, and that is the point: there is no way to tell them apart, so
+    // "seen this sequence already" has to be the whole answer.
+    do {
+        let g = SeqGuard()
+        let firstSighting = g.accept(keyId: 1, cmd: 2, seq: 10)
+        let echo = g.accept(keyId: 1, cmd: 2, seq: 10)
+        let older = g.accept(keyId: 1, cmd: 2, seq: 9)
+        let newer = g.accept(keyId: 1, cmd: 2, seq: 11)
+        let otherKeyUnaffected = g.accept(keyId: 2, cmd: 2, seq: 1)
+        let notACommand = g.accept(keyId: 1, cmd: 0, seq: 99)
+        if firstSighting, !echo, !older, newer, otherKeyUnaffected, !notACommand {
+            print("  ok   a replayed command sequence is refused")
+        } else {
+            print("  FAIL replay guard: first=\(firstSighting) echo=\(echo) older=\(older) "
+                  + "newer=\(newer) other=\(otherKeyUnaffected) noCmd=\(notACommand)")
+            failures += 1
+        }
+    }
+
     print(failures == 0 ? "\nself-test passed" : "\n\(failures) failed")
     return failures == 0 ? 0 : 1
 }
@@ -288,6 +396,7 @@ if let f = fixedNow {
 }
 
 let keys = KeyStore(dir: keyDir)
+let seqGuard = SeqGuard()
 setlinebuf(stdout)
 log("verifying against \(keyDir), window \(windowSeconds)s, tag \(tagLen) bytes")
 
@@ -296,7 +405,7 @@ while let line = readLine(strippingNewline: true) {
     guard f.count >= 6 else {
         // Not our CSV. Pass it through marked, rather than dropping it: a bridge that
         // silently loses lines looks the same as a phone that went quiet.
-        print("\(line),MALFORMED")
+        print("\(line),auth=MALFORMED,cmd=0")
         continue
     }
     // Judge each row against the moment it was HEARD, not the moment it is read.
@@ -318,11 +427,34 @@ while let line = readLine(strippingNewline: true) {
     let wall = Int64(Date().timeIntervalSince1970)
     let heardAt = stamped.map { min($0, wall + windowSeconds) } ?? wall
     let now = fixedNow ?? heardAt
+    // cmd/seq are optional: a row from an older scanner has six fields and is
+    // still a perfectly good presence reading.
+    let cmd = f.count > 6 ? (UInt8(f[6]) ?? 0) : 0
+    let seq = f.count > 7 ? (UInt32(f[7]) ?? 0) : 0
+
     let auth: String
     if let keyId = UInt8(f[4]), let tag = hexDecode(f[5]) {
-        auth = verify(keyId: keyId, tag: tag, now: now, keys: keys)
+        auth = verify(keyId: keyId, tag: tag, now: now, keys: keys, cmd: cmd, seq: seq)
     } else {
         auth = "MALFORMED"
     }
-    print("\(line),\(auth)")
+
+    // A command is only passed on if it verified AND is not an echo. Anything
+    // else goes downstream as cmd=0, so the bridge never has to ask whether a
+    // command it was handed is real -- there is exactly one place that decides.
+    var emitCmd: UInt8 = 0
+    if auth == "VALID", let keyId = UInt8(f[4]),
+       seqGuard.accept(keyId: keyId, cmd: cmd, seq: seq) {
+        emitCmd = cmd
+        log("command \(cmd) seq=\(seq) accepted from keyId=\(keyId)")
+    }
+
+    // Self-describing, not positional.
+    //
+    // The verdict used to be "the seventh comma-separated field", and widening
+    // the scanner's CSV by two columns silently moved it -- every row then read
+    // as unverified, which is the safe direction but is still a whole feature
+    // quietly not working. The consumer now looks for a named field, so adding
+    // columns upstream cannot move it again.
+    print("\(line),auth=\(auth),cmd=\(emitCmd)")
 }

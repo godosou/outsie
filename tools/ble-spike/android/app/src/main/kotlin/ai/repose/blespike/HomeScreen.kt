@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 
 /**
  * Screen 2 — 主屏. The daily screen. The switch IS the BLE advertiser: it starts and
@@ -159,6 +160,62 @@ fun buildHomeScreen(
         )
         column.addView(keyCard, Ui.lp(top = context.dp(14)))
 
+        // ---- Controlling the Mac from here ----
+        //
+        // Only shown once there is a key. Without one the Mac refuses every
+        // command, and a button that is guaranteed to do nothing is worse than
+        // no button: it teaches people the feature is flaky rather than that
+        // they have not finished setting it up.
+        if (healthy) {
+            val control = sectionCard(context, pal, "🖥", "从这里控制 Mac")
+            control.addView(
+                Ui.secondary(
+                    context,
+                    pal,
+                    "指令跟着信标一起发出，所以只有 Mac 听得到这台手机时才有用 —— " +
+                        "人不在电脑旁边，按了也不会生效。",
+                ),
+                Ui.lp(top = context.dp(12)),
+            )
+            control.addView(
+                Ui.primaryButton(context, pal, "锁定 Mac") {
+                    sendCommand(context, SpikeContract.CMD_LOCK)
+                },
+                Ui.lp(top = context.dp(16)),
+            )
+            control.addView(
+                Ui.ghostButton(context, pal, "允许下一次解锁") {
+                    sendCommand(context, SpikeContract.CMD_ALLOW_UNLOCK)
+                },
+                Ui.lp(top = context.dp(10)),
+            )
+            // Said next to the button, not buried in a help page.
+            //
+            // 「允许下一次解锁」 cannot open the Mac and nothing can: macOS only
+            // consults our plugin when a person submits at the lock screen, and
+            // no process can submit on their behalf. A button labelled 解锁 that
+            // left the Mac sitting there would be the seventh time a screen in
+            // this project claimed something the code does not do.
+            control.addView(
+                Ui.infoNote(
+                    context,
+                    pal,
+                    "「允许下一次解锁」不会替你把 Mac 打开 —— 它只是放行接下来的那一次登录，" +
+                        "回车还是得你按。macOS 不允许任何程序代替人在锁屏上提交。",
+                ),
+                Ui.lp(top = context.dp(12)),
+            )
+            control.addView(
+                Ui.secondary(
+                    context,
+                    pal,
+                    "手机收不到 Mac 的回音，所以这里不会显示「已锁定」。要确认，看 Mac。",
+                ),
+                Ui.lp(top = context.dp(10)),
+            )
+            column.addView(control, Ui.lp(top = context.dp(14)))
+        }
+
         // ---- Keep-alive entry ----
         val keepAlive = sectionCard(context, pal, "🔋", "让 Repose 一直醒着").apply {
             isClickable = true
@@ -258,6 +315,25 @@ fun buildHomeScreen(
         // the old thing, so rebuild; otherwise just refresh the live text.
         if (PresenceKey.has(SpikeContract.PRESENCE_KEY_ID) != healthy) nav.go(Screen.HOME) else refresh()
     })
+}
+
+/**
+ * Queue a command for the Mac and say what happened — as far as this phone can
+ * know, which is not far.
+ *
+ * The beacon is one-way. Nothing comes back, so the toast can only report that
+ * the command went out, never that the Mac did it. Drawing a tick here would be
+ * inventing the half of the story this phone cannot see.
+ */
+private fun sendCommand(context: Context, cmd: Int) {
+    val queued = BleSpikeService.postCommand(context, cmd)
+    val message = when {
+        !queued -> "还没有配对，Mac 不会接受这条指令。"
+        !SpikeState.serviceRunning -> "手机钥匙是关着的，先打开上面的开关。"
+        cmd == SpikeContract.CMD_LOCK -> "已发出。Mac 听得到这台手机的话，几秒内会锁屏。"
+        else -> "已发出。回到 Mac 前按回车即可。"
+    }
+    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
 /** A subtle, endless breathing pulse on the sage ring behind the key. */

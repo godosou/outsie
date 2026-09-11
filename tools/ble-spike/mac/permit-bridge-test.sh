@@ -42,42 +42,42 @@ off_count() { [ -f "${ACTIONS}" ] && grep -c '^OFF$' "${ACTIONS}" 2>/dev/null; t
 echo "permit-bridge.sh"
 
 # 1. A near sample enters and asserts the permit; EOF then clears it.
-p_enter() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; }
+p_enter() { printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_case p_enter
 { saw ENTER && [ "$(on_count)" -ge 1 ] && [ "$(off_count)" -ge 1 ]; } \
     && ok "near sample enters (asserts permit), stream end clears it" \
     || bad "enter/exit-clear" "stderr=$(tr '\n' '|' <"${STDERR}")"
 
 # 2. Near then far leaves and clears.
-p_leave() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; printf '0,-90,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; }
+p_leave() { printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; printf '0,-90,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_case p_leave
 { saw ENTER && saw LEAVE && [ "$(off_count)" -ge 1 ]; } \
     && ok "near then far -> LEAVE, permit cleared" \
     || bad "leave on far" "stderr=$(tr '\n' '|' <"${STDERR}")"
 
 # 3. Hysteresis: a between-thresholds sample after entering must NOT leave.
-p_hyst() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; printf '0,-78,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; }
+p_hyst() { printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; printf '0,-78,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_case p_hyst
 { saw ENTER && ! saw LEAVE; } \
     && ok "a between-thresholds sample holds state (no flap)" \
     || bad "hysteresis" "stderr=$(tr '\n' '|' <"${STDERR}")"
 
 # 4. Staleness: enter, then silence past STALE_S -> clears without any far sample.
-p_stale() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 2.6; }
+p_stale() { printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 2.6; }
 run_case p_stale
 { saw ENTER && saw STALE && [ "$(off_count)" -ge 1 ]; } \
     && ok "silence past the stale window clears the permit" \
     || bad "staleness" "stderr=$(tr '\n' '|' <"${STDERR}")"
 
 # 5. Refresh: while present, the permit is re-asserted on the timer (>1 ON).
-p_refresh() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 1.4; printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.2; }
+p_refresh() { printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 1.4; printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.2; }
 run_case p_refresh
 { [ "$(on_count)" -ge 2 ]; } \
     && ok "permit is refreshed on the timer while present ($(on_count) asserts)" \
     || bad "refresh" "on_count=$(on_count) stderr=$(tr '\n' '|' <"${STDERR}")"
 
 # 6. Far while absent: no spurious enter or clear.
-p_farfirst() { printf '0,-95,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; }
+p_farfirst() { printf '0,-95,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_case p_farfirst
 { ! saw ENTER && ! saw LEAVE; } \
     && ok "a far sample while absent does nothing" \
@@ -85,7 +85,7 @@ run_case p_farfirst
 
 # 7. Garbage lines (header, blank, non-numeric rssi) are skipped, not read as
 #    a strong signal.
-p_garbage() { printf 'unix_ms,rssi,id\n'; printf '\n'; printf '0,notanumber,aa,1,1,x,VALID\n'; sleep 0.3; }
+p_garbage() { printf 'unix_ms,rssi,id\n'; printf '\n'; printf '0,notanumber,aa,1,1,x,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_case p_garbage
 { ! saw ENTER; } \
     && ok "header / blank / non-numeric lines are skipped" \
@@ -126,7 +126,7 @@ run_case p_noverdict
 #     this, an attacker who cannot forge a tag could still hold the door open
 #     just by transmitting.
 p_flood() {
-    printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'
+    printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'
     for _ in 1 2 3 4 5 6; do printf '0,-40,bb,1,1,0000000000000000,INVALID\n'; sleep 0.5; done
 }
 run_case p_flood
@@ -193,7 +193,7 @@ fi
 # 15. Publishing is opt-in. Unset REPOSE_STATUS_FILE must change nothing.
 STATUS="${SANDBOX}/status"
 rm -f "${STATUS}"
-p_enter2() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; }
+p_enter2() { printf '0,-60,aa,1,1,deadbeefdeadbeef,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_case p_enter2
 [ ! -e "${STATUS}" ] \
     && ok "no status file is written unless one is asked for" \
@@ -225,7 +225,7 @@ stamp="$(cut -d, -f3 "${STATUS}" 2>/dev/null | tail -1)"
 # left" and "the thing that watches for your phone has exited" are different
 # facts, and a panel that shows the second as the first tells you the feature is
 # working while nothing is running.
-p_leave2() { printf '0,-60,aa,1,1,dead,VALID\n'; sleep 0.3; printf '0,-90,aa,1,1,dead,VALID\n'; sleep 0.3; }
+p_leave2() { printf '0,-60,aa,1,1,dead,auth=VALID,cmd=0\n'; sleep 0.3; printf '0,-90,aa,1,1,dead,auth=VALID,cmd=0\n'; sleep 0.3; }
 run_status_case p_leave2
 [ "$(cut -d, -f1 "${STATUS}" 2>/dev/null | tail -1)" != near ] \
     && ok "walking away stops publishing near" \
@@ -270,7 +270,7 @@ fi
 # 19. A killed bridge must close the door on its way out, not leave a live permit
 #     behind for the freshness window and a status file still saying `near`.
 : > "${ACTIONS}"; rm -f "${STATUS}"
-( while :; do printf '0,-60,aa,1,1,dead,VALID\n'; sleep 0.4; done ) \
+( while :; do printf '0,-60,aa,1,1,dead,auth=VALID,cmd=0\n'; sleep 0.4; done ) \
   | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=5 \
     REPOSE_STATUS_FILE="${STATUS}" \
     REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
@@ -308,5 +308,60 @@ for caller in "${HERE}/presence-pipeline.sh"; do
 done
 
 echo
+# 21. Phone commands: the two that exist, and the many that must not be obeyed.
+#
+#     presence-verify has already decided whether a command is authentic and
+#     whether it is a replay; this bridge only acts. So what is checked here is
+#     that it acts on exactly the two verified commands and on nothing else --
+#     in particular, not on the raw `cmd` the phone put on the air, which sits
+#     in an earlier column and is attacker-controlled until the verifier has
+#     ruled on it.
+: > "${ACTIONS}"
+printf '%s\n' \
+  '0,-60,aa,1,1,dead,1,7,auth=VALID,cmd=1' \
+  '0,-60,aa,1,1,dead,2,8,auth=VALID,cmd=2' \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+    REPOSE_LOCK_CMD="printf 'LOCK\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" >/dev/null 2>&1
+{ grep -q '^LOCK$' "${ACTIONS}" && grep -q '^ON$' "${ACTIONS}"; } \
+  && ok "a verified lock command locks and a verified unlock command permits" \
+  || bad "verified commands did not act" "$(tr '\n' ' ' <"${ACTIONS}")"
+
+# 22. The command the PHONE claimed is not the command that gets obeyed.
+#
+#     Column 7 is what came off the air. If the bridge ever read that instead of
+#     the verifier's `cmd=`, anyone with a radio could lock or pre-authorize this
+#     Mac by broadcasting a packet -- no key required. This row says cmd=2 on the
+#     air and carries a verdict of INVALID, which must produce nothing at all.
+: > "${ACTIONS}"
+printf '%s\n' '0,-60,aa,1,1,dead,2,9,auth=INVALID,cmd=0' \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+    REPOSE_LOCK_CMD="printf 'LOCK\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" >/dev/null 2>&1
+grep -qE '^(LOCK|ON)$' "${ACTIONS}" \
+  && bad "an unverified command was obeyed" "$(tr '\n' ' ' <"${ACTIONS}")" \
+  || ok "a command the verifier refused is not obeyed"
+
+# 23. The verdict is found by name, not by column.
+#
+#     This is the regression that prompted the change. The scanner's CSV grew
+#     two columns for the command channel, which moved the verdict from field 7
+#     to field 9. Every row then read as unverified: fail-safe, but the whole
+#     feature was off and nothing said so. A row with the verdict at a DIFFERENT
+#     column must still be honoured.
+: > "${ACTIONS}"
+printf '%s\n' '0,-60,aa,1,1,dead,0,0,x,y,z,auth=VALID,cmd=0' \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" >/dev/null 2>&1
+grep -q '^ON$' "${ACTIONS}" \
+  && ok "the verdict is read by name, so extra columns cannot move it" \
+  || bad "a verdict at an unexpected column was missed" "$(tr '\n' ' ' <"${ACTIONS}")"
+
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]
