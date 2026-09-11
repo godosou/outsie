@@ -96,7 +96,27 @@
 .phone-key-panel .phone-key-remove { margin-top: 16px; }
 
 /* Install / remove modal */
-.phone-key-modal { max-width: 560px; text-align: left; }
+/* Modal padding, in one place.
+ *
+ * `.modal` itself sets none -- every sheet in this app declares its own, and
+ * they had drifted to 39px, 35px and 32px from three different authors. The
+ * phone-key sheets declared nothing at all, so their text sat against the
+ * border. Read on a real screen it looks like a rendering fault rather than a
+ * design, which is a poor first impression for the one dialog in this product
+ * that asks for an administrator password.
+ *
+ * 32px / 30px, and the top is tighter than the sides because the close button
+ * already occupies that corner. Below 760px it comes in, because at phone
+ * width the same value eats a third of the line.
+ */
+.phone-key-modal {
+  max-width: 560px;
+  text-align: left;
+  padding: 30px 32px 32px;
+}
+@media (max-width: 760px) {
+  .phone-key-modal { padding: 24px 22px 26px; }
+}
 .phone-key-modal .eyebrow { color: #8a9b6a; }
 .phone-key-modal h2 { margin: 6px 0 14px; }
 .phone-key-modal .modal-intro { color: var(--subtle); }
