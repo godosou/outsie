@@ -188,6 +188,85 @@ else
         "refresh=${refresh:-?} must be < plugin freshness=${freshness:-?}"
 fi
 
+# --- the status file the Mac app reads --------------------------------------
+
+# 15. Publishing is opt-in. Unset REPOSE_STATUS_FILE must change nothing.
+STATUS="${SANDBOX}/status"
+rm -f "${STATUS}"
+p_enter2() { printf '0,-60,aa,1,1,deadbeefdeadbeef,VALID\n'; sleep 0.3; }
+run_case p_enter2
+[ ! -e "${STATUS}" ] \
+    && ok "no status file is written unless one is asked for" \
+    || bad "status opt-in" "a file appeared with REPOSE_STATUS_FILE unset"
+
+# 16. With one, near/away transitions are published, and every line carries a
+#     clock. A reader cannot otherwise tell "away" from "the bridge died an hour
+#     ago and this file stopped moving" -- and showing the second as the first is
+#     how a panel ends up confidently green for a process that has exited.
+run_status_case() {
+    : > "${ACTIONS}"; rm -f "${STATUS}"
+    STDERR="${SANDBOX}/stderr.log"
+    "$1" | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 \
+        REPOSE_STALE_S=2 REPOSE_REFRESH_S=1 REPOSE_STATUS_FILE="${STATUS}" \
+        REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+        REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+        bash "${BRIDGE}" 2> "${STDERR}"
+}
+
+run_status_case p_enter2
+state="$(cut -d, -f1 "${STATUS}" 2>/dev/null | tail -1)"
+stamp="$(cut -d, -f3 "${STATUS}" 2>/dev/null | tail -1)"
+{ [ -n "${stamp}" ] && [ "${stamp}" -gt 0 ] 2>/dev/null; } \
+    && ok "the status line carries a timestamp (state=${state})" \
+    || bad "status timestamp" "got '$(cat "${STATUS}" 2>/dev/null)'"
+
+# Walking away must stop publishing `near`. The final line is `stopped` rather
+# than `away`, and that is the point rather than a rounding error: "your phone
+# left" and "the thing that watches for your phone has exited" are different
+# facts, and a panel that shows the second as the first tells you the feature is
+# working while nothing is running.
+p_leave2() { printf '0,-60,aa,1,1,dead,VALID\n'; sleep 0.3; printf '0,-90,aa,1,1,dead,VALID\n'; sleep 0.3; }
+run_status_case p_leave2
+[ "$(cut -d, -f1 "${STATUS}" 2>/dev/null | tail -1)" != near ] \
+    && ok "walking away stops publishing near" \
+    || bad "away published" "got '$(cat "${STATUS}" 2>/dev/null)'"
+
+# A clean exit says `stopped`, which must be its own word.
+[ "$(cut -d, -f1 "${STATUS}" 2>/dev/null | tail -1)" = stopped ] \
+    && ok "a finished bridge publishes stopped, not away" \
+    || bad "stopped distinct from away" "got '$(cat "${STATUS}" 2>/dev/null)'"
+
+# 17. An INVALID beacon must never publish near -- the panel would be reporting
+#     an imposter as the user's phone.
+p_imposter2() { printf '0,-40,bb,1,1,0000000000000000,INVALID\n'; sleep 0.5; }
+run_status_case p_imposter2
+[ "$(cut -d, -f1 "${STATUS}" 2>/dev/null | tail -1)" != near ] \
+    && ok "an INVALID beacon never publishes near" \
+    || bad "imposter published near" "got '$(cat "${STATUS}" 2>/dev/null)'"
+
+# 18. The words this script publishes must be words the Mac app understands.
+#     Two languages, one file format, and nothing in either compiler checks the
+#     other -- so a rename here would silently become a panel that shows
+#     "transport unavailable" forever while the bridge is working perfectly.
+UNLOCK_RS="${HERE}/../../../src-tauri/src/unlock.rs"
+if [ -f "${UNLOCK_RS}" ]; then
+    missing=""
+    for word in near away stopped; do
+        grep -q "\"${word}\"" "${UNLOCK_RS}" || missing="${missing} ${word}"
+    done
+    [ -z "${missing}" ] \
+        && ok "every published state word is one the Mac app parses" \
+        || bad "state words agree with the app" "unlock.rs does not mention:${missing}"
+    # And the app must not be looking for a word this script never writes.
+    for word in $(grep -oE '"(near|away|stopped|starting)"' "${UNLOCK_RS}" | tr -d '"' | sort -u); do
+        grep -q "publish ${word}\|publish ${word} " "${BRIDGE}" \
+          || grep -q "\"${word}\"" "${BRIDGE}" \
+          || bad "the app parses a word the bridge never writes" "${word}"
+    done
+else
+    printf '  SKIP state words agree with the app -- unlock.rs not found\n'
+fi
+
 echo
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]

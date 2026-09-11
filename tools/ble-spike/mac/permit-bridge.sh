@@ -107,6 +107,23 @@ REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while p
 PERMIT_ON_CMD="${REPOSE_PERMIT_ON_CMD:-${REPOSE_SSH:-} 'sudo mkdir -p /var/run/repose-spike && sudo chmod 755 /var/run/repose-spike && sudo touch /var/run/repose-spike/permit'}"
 PERMIT_OFF_CMD="${REPOSE_PERMIT_OFF_CMD:-${REPOSE_SSH:-} 'sudo rm -f /var/run/repose-spike/permit'}"
 
+# Where the decision is published for anything that wants to show it -- the Mac
+# app's status panel, mainly. Unset means write nothing, so the spike keeps
+# working exactly as before.
+#
+# It carries the RSSI and a timestamp, not just a word, because a reader has to
+# be able to tell "away" from "this file is stale because the bridge died". A
+# status file with no clock is indistinguishable from a status file nobody is
+# updating, and reading the second as the first is how a panel ends up showing a
+# confident green dot for a process that exited an hour ago.
+STATUS_FILE="${REPOSE_STATUS_FILE:-}"
+
+publish() {
+    [ -n "${STATUS_FILE}" ] || return 0
+    printf '%s,%s,%s\n' "$1" "${2:--}" "$(date +%s)" > "${STATUS_FILE}.tmp" 2>/dev/null \
+        && mv -f "${STATUS_FILE}.tmp" "${STATUS_FILE}" 2>/dev/null
+}
+
 now_s() { date +%s; }
 log()   { printf 'permit-bridge: %s\n' "$*" >&2; }
 
@@ -122,6 +139,7 @@ last_sample=0
 last_refresh=0
 last_reject=""
 
+publish starting
 log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
 
 # read -t returns >128 on timeout, non-zero on EOF. On EOF we stop; on timeout we
@@ -135,6 +153,7 @@ while :; do
         # EOF (rc 1) with an empty line and no more input: the scanner exited.
         if [ "${read_rc}" -le 1 ] && [ -z "${line}" ]; then
             log "input stream ended; clearing permit and exiting"
+            publish stopped
             [ "${present}" = 1 ] && clear_permit
             exit 0
         fi
@@ -164,12 +183,14 @@ while :; do
                 if [ "${present}" = 0 ]; then
                     present=1; last_refresh="${now}"
                     log "ENTER (rssi=${rssi}) -> asserting permit"
+                    publish near "${rssi}"
                     assert_permit
                 fi
             elif [ "${rssi}" -le "${FAR_DBM}" ]; then
                 if [ "${present}" = 1 ]; then
                     present=0
                     log "LEAVE (rssi=${rssi}) -> clearing permit"
+                    publish away "${rssi}"
                     clear_permit
                 fi
             fi
@@ -182,12 +203,14 @@ while :; do
     if [ "${present}" = 1 ] && [ "$((now - last_sample))" -ge "${STALE_S}" ]; then
         present=0
         log "STALE (no sample for $((now - last_sample))s) -> clearing permit"
+        publish away
         clear_permit
     fi
 
     # Keep the permit fresh while present.
     if [ "${present}" = 1 ] && [ "$((now - last_refresh))" -ge "${REFRESH_S}" ]; then
         last_refresh="${now}"
+        publish near "${rssi:-}"
         assert_permit
     fi
 done

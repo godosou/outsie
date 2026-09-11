@@ -311,6 +311,59 @@ pub const DAEMON_LABEL: &str = "ai.repose.spike.healthcheck";
 pub const SUBRULE_NAME: &str = "ai.repose.spike";
 pub const PRESENCE_KEY_DIR: &str = "/var/db/repose-unlock";
 
+/// Where permit-bridge.sh publishes its decision, one line: `state,rssi,unix_s`.
+/// User-owned by design -- it is a display signal, not an authorization input.
+/// Nothing here can grant an unlock; the permit the plugin reads is root-only
+/// and written separately.
+pub const STATUS_FILE: &str = "presence-status";
+
+/// How stale a published line may be before it stops meaning anything.
+///
+/// The bridge re-publishes on every refresh (every REPOSE_REFRESH_S, 5s by
+/// default), so a line older than this means the bridge is not running --
+/// which is NOT the same as the phone being away, and must not render as it.
+const STATUS_MAX_AGE_S: i64 = 30;
+
+/// One reading of the bridge's status file.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PresenceReport {
+    /// No file: the bridge has never run here.
+    NeverRan,
+    /// A line older than [STATUS_MAX_AGE_S], or one saying the bridge stopped.
+    NotRunning,
+    /// Running, and this is its verdict.
+    Fresh { state: String, rssi: Option<i32> },
+    /// A file we could not parse. Treated as "not running" for the state
+    /// machine, kept distinct so the panel can say why.
+    Unreadable,
+}
+
+/// Turn a published line and its age into what the panel shows.
+///
+/// The distinction that matters: "your phone is away" and "the thing that
+/// watches for your phone is not running" both mean the password path, but only
+/// one of them means the feature is working. Collapsing them shows a calm,
+/// correct-looking Away state for a Mac where nothing is watching at all.
+pub fn read_presence(line: Option<&str>, now_s: i64) -> PresenceReport {
+    let Some(line) = line else { return PresenceReport::NeverRan };
+    let f: Vec<&str> = line.trim().split(',').collect();
+    if f.len() < 3 {
+        return PresenceReport::Unreadable;
+    }
+    let Ok(stamp) = f[2].parse::<i64>() else { return PresenceReport::Unreadable };
+    // A stamp from the future is a clock that moved, not a fresher reading.
+    if stamp > now_s + STATUS_MAX_AGE_S || now_s - stamp > STATUS_MAX_AGE_S {
+        return PresenceReport::NotRunning;
+    }
+    match f[0] {
+        "stopped" => PresenceReport::NotRunning,
+        state => PresenceReport::Fresh {
+            state: state.to_string(),
+            rssi: f[1].parse::<i32>().ok(),
+        },
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum PresenceKeyState {
     /// No key file. Nothing can authenticate, so nothing can unlock.
@@ -334,6 +387,7 @@ pub struct HostFacts {
     /// None when launchctl could not be asked at all.
     pub daemon_loaded: Option<bool>,
     pub presence_key: PresenceKeyState,
+    pub presence: PresenceReport,
 }
 
 pub struct Assessment {
@@ -433,28 +487,69 @@ pub fn assess(f: &HostFacts) -> Assessment {
         });
     }
 
-    // --- the presence key ---------------------------------------------------
-    components.push(match &f.presence_key {
-        PresenceKeyState::Ok => component(
-            ComponentId::Transport,
-            Health::Ok,
-            "已配置在场密钥。注意：这是通过 USB 下发的开发密钥，不是带防中间人校验的配对。",
-            None,
-        ),
-        PresenceKeyState::Missing => component(
+    // --- transport: the key AND whether anything is watching -----------------
+    //
+    // ONE row, not two. The first version pushed a second Transport component
+    // when the bridge was not running, so the panel listed 配对密钥 twice saying
+    // different things and the reader had to guess which one counted.
+    //
+    // Both facts share a row because they answer the same user question -- "can
+    // my phone let me in right now" -- and the row shows whichever answer is
+    // worse. A key problem outranks a bridge problem: without a key nothing can
+    // ever be recognised, whereas a stopped bridge is a thing you restart.
+    let transport = match (&f.presence_key, &f.presence) {
+        (PresenceKeyState::BadPermissions { detail }, _) => {
+            component(ComponentId::Transport, Health::Broken, detail, Some(Remediation::RePair))
+        }
+        (PresenceKeyState::Missing, _) => component(
             ComponentId::Transport,
             Health::Degraded,
-            "没有在场密钥。任何设备都无法通过认证，所以不会自动解锁 —— \
+            "没有配对密钥。任何设备都无法通过认证，所以不会自动解锁 —— \
              密码照常可用。运行 tools/ble-spike/provision-dev-key.sh 下发一把。",
             Some(Remediation::RePair),
         ),
-        PresenceKeyState::BadPermissions { detail } => component(
+        // A key exists; now, is anything actually watching? "Away" is the
+        // ordinary state of a phone in another room and must not look like a
+        // fault, but "nobody is watching" must not look like Away.
+        (PresenceKeyState::Ok, PresenceReport::NeverRan) => component(
             ComponentId::Transport,
-            Health::Broken,
-            detail,
-            Some(Remediation::RePair),
+            Health::Degraded,
+            "在场监测还没有运行过。手机钥匙不会生效，密码照常可用。",
+            Some(Remediation::ReinstallComponent),
         ),
-    });
+        (PresenceKeyState::Ok, PresenceReport::NotRunning) => component(
+            ComponentId::Transport,
+            Health::Degraded,
+            "在场监测没有在运行 —— 这不是「手机不在」，是没人在看。密码照常可用。",
+            Some(Remediation::ReinstallComponent),
+        ),
+        (PresenceKeyState::Ok, PresenceReport::Unreadable) => component(
+            ComponentId::Transport,
+            Health::Degraded,
+            "在场监测的状态读不出来，当作没有在运行处理。密码照常可用。",
+            Some(Remediation::ReinstallComponent),
+        ),
+        (PresenceKeyState::Ok, PresenceReport::Fresh { state, .. }) => component(
+            ComponentId::Transport,
+            Health::Ok,
+            if state == "near" {
+                "已配置在场密钥，监测运行中，手机在附近。注意：密钥是通过 USB 下发的开发密钥，不是带防中间人校验的配对。"
+            } else {
+                "已配置在场密钥，监测运行中，现在没看到手机。注意：密钥是通过 USB 下发的开发密钥，不是带防中间人校验的配对。"
+            },
+            None,
+        ),
+    };
+    components.push(transport);
+
+    // Presence comes from the bridge's published line, never from a guess. Three
+    // of the four reports mean transport-unavailable; the row above is where the
+    // difference between them is spelled out.
+    let presence = match &f.presence {
+        PresenceReport::Fresh { state, .. } if state == "near" => Presence::Near,
+        PresenceReport::Fresh { state, .. } if state == "away" => Presence::Away,
+        _ => Presence::TransportUnavailable,
+    };
 
     // --- overall ------------------------------------------------------------
     let state = if dangling {
@@ -469,9 +564,7 @@ pub fn assess(f: &HostFacts) -> Assessment {
         UnlockState::NotInstalled
     };
 
-    // The app does not read the radio; the bridge in tools/ble-spike does.
-    // Reporting Near/Away from here would be inventing a measurement.
-    Assessment { state, presence: Presence::TransportUnavailable, components }
+    Assessment { state, presence, components }
 }
 
 // ---- backend trait + host implementation ---------------------------------
@@ -492,11 +585,14 @@ pub struct HostMacBackend {
     /// Directory holding install.sh / uninstall.sh / healthcheck.sh / authdb-edit,
     /// resolved from the bundle's resources (or a dev fallback).
     scripts_dir: Option<PathBuf>,
+    /// Kept so the read-only snapshot can find the app's data dir, where the
+    /// presence bridge publishes. Cheap to clone; it is a handle, not the app.
+    app: AppHandle,
 }
 
 impl HostMacBackend {
     pub fn new(app: &AppHandle) -> Self {
-        Self { scripts_dir: resolve_scripts_dir(app) }
+        Self { scripts_dir: resolve_scripts_dir(app), app: app.clone() }
     }
 
     fn now_iso() -> String {
@@ -509,7 +605,21 @@ impl HostMacBackend {
     /// file's directory is traversable, so its ownership and mode can be read
     /// without reading the key -- which is the point, this process has no
     /// business holding it.
-    fn observe(rule: Option<&str>) -> HostFacts {
+    /// Read the bridge's published line, if there is one.
+    fn presence_report(app: &AppHandle) -> PresenceReport {
+        // Not a security input: this file only decides what the panel says. The
+        // permit the plugin actually reads is root-only and written elsewhere.
+        let now = run_capture("/bin/date", &["+%s"])
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
+        let Some(path) = status_path(app) else { return PresenceReport::NeverRan };
+        match std::fs::read_to_string(&path) {
+            Ok(text) => read_presence(Some(&text), now),
+            Err(_) => PresenceReport::NeverRan,
+        }
+    }
+
+    fn observe(app: &AppHandle, rule: Option<&str>) -> HostFacts {
         let bundle_present = std::path::Path::new(BUNDLE_PATH).exists();
         HostFacts {
             rule_references_us: rule.is_some_and(|r| r.contains(SUBRULE_NAME)),
@@ -526,6 +636,7 @@ impl HostMacBackend {
                     .unwrap_or(false),
             ),
             presence_key: Self::presence_key_state(),
+            presence: Self::presence_report(app),
         }
     }
 
@@ -573,7 +684,7 @@ impl UnlockBackend for HostMacBackend {
         let macos_build = run_capture("/usr/bin/sw_vers", &["-buildVersion"]).unwrap_or_default();
 
         let variant = rule.as_deref().and_then(decide_variant);
-        let assessment = assess(&Self::observe(rule.as_deref()));
+        let assessment = assess(&Self::observe(&self.app, rule.as_deref()));
 
         Ok(UnlockSnapshot {
             read_at,
@@ -713,6 +824,14 @@ fn shell_quote(s: &str) -> String {
 
 /// Find the directory holding install.sh etc. — the bundle's resource dir in a
 /// packaged app, or a repo-relative dev fallback.
+/// Where the bridge publishes, and where the app looks. One definition, so the
+/// two cannot drift into a panel that reads a file nobody writes.
+pub fn status_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join(STATUS_FILE))
+}
+
 fn resolve_scripts_dir(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(res) = app.path().resource_dir() {
         let candidate = res.join("scripts");
@@ -917,6 +1036,7 @@ mod tests {
             bundle_signature_ok: Some(true),
             daemon_loaded: Some(true),
             presence_key: PresenceKeyState::Ok,
+            presence: PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) },
         }
     }
 
@@ -944,6 +1064,7 @@ mod tests {
             bundle_signature_ok: None,
             daemon_loaded: Some(false),
             presence_key: PresenceKeyState::Missing,
+            presence: PresenceReport::NeverRan,
         });
         assert_eq!(a.state, UnlockState::NotInstalled);
         assert!(a.components.iter().all(|c| !matches!(c.id, ComponentId::Rule | ComponentId::Component)));
@@ -1031,6 +1152,134 @@ mod tests {
         let a = assess(&facts());
         let d = &find(&a, ComponentId::Transport).detail;
         assert!(d.contains("不是"), "the transport row must disclaim pairing: {d}");
+    }
+
+    // ---- presence ---------------------------------------------------------
+
+    #[test]
+    fn each_component_appears_at_most_once() {
+        // The first version pushed a second Transport row when the bridge was
+        // not running, so the panel listed 配对密钥 twice, saying two different
+        // things, and the reader had to guess which one counted.
+        for f in [
+            facts(),
+            HostFacts { presence: PresenceReport::NeverRan, ..facts() },
+            HostFacts { presence: PresenceReport::NotRunning, presence_key: PresenceKeyState::Missing, ..facts() },
+            HostFacts { bundle_present: false, bundle_signature_ok: None, ..facts() },
+        ] {
+            let a = assess(&f);
+            for id in ["Rule", "Component", "Daemon", "Transport"] {
+                let n = a.components.iter().filter(|c| format!("{:?}", c.id) == id).count();
+                assert!(n <= 1, "{id} appeared {n} times for {f:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_near_line_reads_as_near() {
+        let a = assess(&facts());
+        assert_eq!(a.presence, Presence::Near);
+    }
+
+    #[test]
+    fn an_away_line_reads_as_away_and_adds_no_warning_row() {
+        let a = assess(&HostFacts {
+            presence: PresenceReport::Fresh { state: "away".into(), rssi: None },
+            ..facts()
+        });
+        assert_eq!(a.presence, Presence::Away);
+        // Away is the ordinary state of a phone in another room. It must not
+        // also raise a degraded transport row, or every walk to the kitchen
+        // looks like a malfunction.
+        assert_eq!(find(&a, ComponentId::Transport).health, Health::Ok);
+    }
+
+    #[test]
+    fn a_bridge_that_is_not_running_is_not_the_same_as_a_phone_that_left() {
+        // Both end in the password path, but only one of them means the feature
+        // is working. Showing "nothing is watching" as a calm Away is the whole
+        // reason the status line carries a clock.
+        for report in [PresenceReport::NeverRan, PresenceReport::NotRunning, PresenceReport::Unreadable] {
+            let a = assess(&HostFacts { presence: report.clone(), ..facts() });
+            assert_eq!(a.presence, Presence::TransportUnavailable, "{report:?}");
+            let t = find(&a, ComponentId::Transport);
+            assert_eq!(t.health, Health::Degraded, "{report:?}");
+            assert!(t.detail.contains("密码照常可用") || t.detail.contains("没有在运行"), "{report:?}: {}", t.detail);
+        }
+    }
+
+    #[test]
+    fn a_stale_line_stops_counting() {
+        // The bridge republishes every few seconds, so a line from a minute ago
+        // means it died -- not that the phone is still where it last was.
+        let now = 1_800_000_000;
+        assert_eq!(read_presence(Some("near,-55,1799999995"), now),
+                   PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) });
+        assert_eq!(read_presence(Some("near,-55,1799999000"), now), PresenceReport::NotRunning);
+    }
+
+    #[test]
+    fn a_line_from_the_future_is_refused_rather_than_trusted() {
+        // A clock that jumped forward must not make a stale reading look fresh.
+        let now = 1_800_000_000;
+        assert_eq!(read_presence(Some("near,-55,1900000000"), now), PresenceReport::NotRunning);
+    }
+
+    #[test]
+    fn a_stopped_bridge_says_so_even_with_a_fresh_stamp() {
+        let now = 1_800_000_000;
+        assert_eq!(read_presence(Some("stopped,-,1799999999"), now), PresenceReport::NotRunning);
+    }
+
+    #[test]
+    fn garbage_never_reads_as_present() {
+        let now = 1_800_000_000;
+        for bad in ["", "near", "near,-55", "near,-55,notanumber"] {
+            assert_ne!(
+                read_presence(Some(bad), now),
+                PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) },
+                "{bad:?} must not read as present",
+            );
+        }
+        assert_eq!(read_presence(None, now), PresenceReport::NeverRan);
+    }
+
+    #[test]
+    fn everything_the_installer_needs_is_bundled() {
+        // resolve_scripts_dir looks for install.sh inside the app's resources.
+        // If a file the installer reaches for is not listed in tauri.conf.json it
+        // is simply absent from the built app, and the only symptom is
+        // "找不到安装脚本" on a user's machine -- nothing fails at build time,
+        // and nothing fails in `tauri dev`, where the repo fallback path hides it.
+        let conf = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tauri.conf.json"),
+        )
+        .expect("tauri.conf.json should be readable");
+        for needed in [
+            "install.sh",
+            "uninstall.sh",
+            "healthcheck.sh",
+            "authdb-edit",
+            "ai.repose.spike.healthcheck.plist",
+            // install.sh copies this into place; without it the app installs a
+            // rule pointing at a bundle that was never shipped -- the fail-open
+            // state, created by our own installer.
+            "ReposeSpike.bundle",
+        ] {
+            assert!(conf.contains(needed), "tauri.conf.json bundles no {needed}");
+        }
+    }
+
+    #[test]
+    fn the_app_declares_why_it_wants_bluetooth() {
+        // Without NSBluetoothAlwaysUsageDescription macOS does not deny the
+        // prompt, it kills the process on first CoreBluetooth use. That reads as
+        // a crash, not as a permissions problem.
+        let plist = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Info.plist"),
+        )
+        .expect("src-tauri/Info.plist should exist");
+        assert!(plist.contains("NSBluetoothAlwaysUsageDescription"));
     }
 
     #[test]

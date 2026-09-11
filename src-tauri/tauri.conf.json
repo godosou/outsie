@@ -44,6 +44,17 @@
     "shortDescription": "给日常，留一点空白。",
     "macOS": {
       "minimumSystemVersion": "14.0"
+    },
+    "resources": {
+      "../native/macos/minimal-auth-plugin/install.sh": "scripts/install.sh",
+      "../native/macos/minimal-auth-plugin/uninstall.sh": "scripts/uninstall.sh",
+      "../native/macos/minimal-auth-plugin/healthcheck.sh": "scripts/healthcheck.sh",
+      "../native/macos/minimal-auth-plugin/authdb-edit": "scripts/authdb-edit",
+      "../native/macos/minimal-auth-plugin/ai.repose.spike.healthcheck.plist": "scripts/ai.repose.spike.healthcheck.plist",
+      "../native/macos/minimal-auth-plugin/build/ReposeSpike.bundle": "scripts/build/ReposeSpike.bundle",
+      "../tools/ble-spike/mac/permit-bridge.sh": "scripts/permit-bridge.sh",
+      "../tools/ble-spike/mac/presence-pipeline.sh": "scripts/presence-pipeline.sh",
+      "../tools/lib/run-root.sh": "lib/run-root.sh"
     }
   }
 }
