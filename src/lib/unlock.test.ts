@@ -37,6 +37,7 @@ function snapshot(overrides: Partial<UnlockSnapshot> = {}): UnlockSnapshot {
     lastFailure: null,
     macosBuild: '23G93',
     macId: null,
+    radio: 'scanning',
   componentVersion: '0.1.0',
     ...overrides,
   }

@@ -323,11 +323,14 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
                   recognise. With the key deleted the monitor keeps running and
                   keeps rejecting everything, and saying 正在留意你的手机 over
                   that is the panel describing a phone that no longer exists. */}
+              {/* The radio gets its say before the phone does. A scanner held
+                  at a permission dialog takes no samples at all, and saying
+                  「正在留意你的手机」 over that describes a Mac that is doing
+                  nothing. Observed live 2026-09-12. */}
               {!enabled
                 ? '已关闭 · 现在只能用密码登录'
-                : snapshot.device
-                  ? '已开启 · 正在留意你的手机'
-                  : '已开启 · 但还没有哪部手机能用来解锁'}
+                : radioTrouble(snapshot.radio)
+                  ?? (snapshot.device ? '已开启 · 正在留意你的手机' : '已开启 · 但还没有哪部手机能用来解锁')}
             </p>
           )}
           {/* Says what you get, then reassures. It used to describe the
@@ -850,6 +853,24 @@ function PhoneList({ device, onPair, busy, armed, onArm, onRevoke, onCalibrate }
       )}
     </section>
   )
+}
+
+/**
+ * What to say when the radio, not the phone, is the problem. null when it is
+ * fine -- the caller then goes on to talk about the phone.
+ *
+ * Every one of these answers 「我还进不进得去」 first (ui-conventions 5.3): the
+ * password is unaffected in all of them, and the sentence says what is not
+ * working rather than naming a subsystem.
+ */
+function radioTrouble(radio: UnlockSnapshot['radio']): string | null {
+  switch (radio) {
+    case 'no-answer': return '已开启 · 但还没拿到蓝牙权限，可能有个弹窗在等你点'
+    case 'denied': return '已开启 · 但蓝牙被拒了，现在什么都收不到'
+    case 'off': return '已开启 · 但这台 Mac 的蓝牙关着'
+    case 'unsupported': return '已开启 · 但这台 Mac 没有能用的蓝牙'
+    default: return null
+  }
 }
 
 /** "" when unknown, so the sentence simply ends instead of showing a fake date. */

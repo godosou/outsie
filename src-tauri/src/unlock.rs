@@ -261,6 +261,8 @@ pub struct UnlockSnapshot {
     /// Four hex digits identifying this Mac in the beacon the phone hears.
     /// None until the monitor has published at least one window.
     pub mac_id: Option<String>,
+    /// What the radio is doing, separately from what the phone is doing.
+    pub radio: RadioState,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -927,6 +929,33 @@ impl HostMacBackend {
         run_capture("/bin/date", &["-u", "-r", &secs.to_string(), "+%Y-%m-%dT%H:%M:%SZ"])
     }
 
+    /// Read the scanner's log, and how long the pipeline has been up.
+    ///
+    /// The run flag is created by the pipeline as the last thing before the
+    /// privileged half starts, so its mtime is when this run began -- and it is
+    /// already the file the whole pipeline hangs on, so nothing new has to be
+    /// written to answer this.
+    fn radio(app: &AppHandle, running: bool) -> RadioState {
+        if !running {
+            return RadioState::Starting;
+        }
+        let Ok(dir) = app.path().app_data_dir() else { return RadioState::Starting };
+        let work = dir.join("presence-run");
+        let up_for = std::fs::read_dir(&work)
+            .ok()
+            .and_then(|entries| {
+                entries
+                    .flatten()
+                    .filter(|e| e.file_name().to_string_lossy().starts_with("running."))
+                    .filter_map(|e| e.metadata().ok()?.modified().ok())
+                    .max()
+            })
+            .and_then(|t| t.elapsed().ok())
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        radio_state(std::fs::read_to_string(work.join("scan.log")).ok().as_deref(), up_for)
+    }
+
     fn presence_key_state() -> PresenceKeyState {
         use std::os::unix::fs::MetadataExt;
         // Slot 1 is the only one the spike provisions. A missing file and an
@@ -1017,6 +1046,7 @@ impl UnlockBackend for HostMacBackend {
             macos_build,
             component_version: env!("CARGO_PKG_VERSION").to_string(),
             mac_id: mac_identity(&verified_csv(&self.app)),
+            radio: Self::radio(&self.app, assessment.presence_running),
         })
     }
 
@@ -1135,6 +1165,62 @@ impl UnlockBackend for HostMacBackend {
             let _ = std::fs::remove_file(dir.join("pairing").join("peer-name.saved"));
         }
         self.get_snapshot()
+    }
+}
+
+
+/// What the radio is doing, read from the scanner's own log.
+///
+/// The gap this closes: with Bluetooth not yet granted, macOS holds the scanner
+/// at a permission dialog and CoreBluetooth never delivers a state -- so the
+/// log stays completely empty, no sample is ever taken, and the panel went on
+/// saying 「已开启 · 正在留意你的手机」. Observed on this Mac 2026-09-12: four
+/// processes alive, raw.csv zero bytes, and a dialog waiting behind the window.
+///
+/// "Watching and not hearing your phone" and "not watching at all" both end in
+/// the password, and only one of them is the feature working. That is the same
+/// distinction read_presence exists to make, one layer further down.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum RadioState {
+    /// The scanner said poweredOn. Anything after this is about the phone.
+    Scanning,
+    /// Running, but too recently for silence to mean anything yet.
+    Starting,
+    /// Running, and the scanner has said nothing at all. Almost always a
+    /// permission dialog nobody has answered.
+    NoAnswer,
+    Denied,
+    Off,
+    Unsupported,
+}
+
+/// How long the scanner may say nothing before the silence is itself the news.
+/// It logs its state within a second of the radio being available; the margin
+/// is for a slow launch, not for a dialog.
+pub const RADIO_GRACE_S: i64 = 12;
+
+pub fn radio_state(scan_log: Option<&str>, running_for_s: i64) -> RadioState {
+    let log = scan_log.unwrap_or("");
+    // Most recent word wins: a radio switched off and on again logs both.
+    for line in log.lines().rev() {
+        if line.contains("STATE poweredOn") {
+            return RadioState::Scanning;
+        }
+        if line.contains("STATE unauthorized") {
+            return RadioState::Denied;
+        }
+        if line.contains("STATE poweredOff") {
+            return RadioState::Off;
+        }
+        if line.contains("STATE unsupported") {
+            return RadioState::Unsupported;
+        }
+    }
+    if running_for_s < RADIO_GRACE_S {
+        RadioState::Starting
+    } else {
+        RadioState::NoAnswer
     }
 }
 
@@ -2566,6 +2652,7 @@ mod tests {
             macos_build: "b".into(),
             component_version: "0".into(),
             mac_id: None,
+            radio: RadioState::Scanning,
         };
         let v: serde_json::Value = serde_json::to_value(&s).unwrap();
         assert!(v.get("readAt").is_some());
@@ -3013,6 +3100,38 @@ mod tests {
         };
         assert_eq!(read(&ok), Some((-55, -75)));
         assert_eq!(read(&bad), None);
+    }
+
+    #[test]
+    fn an_empty_scanner_log_past_the_grace_is_news_not_silence() {
+        // The live case: a Bluetooth dialog behind the window, CoreBluetooth
+        // never delivering a state, and a panel saying it was watching.
+        assert_eq!(radio_state(Some(""), RADIO_GRACE_S + 1), RadioState::NoAnswer);
+        assert_eq!(radio_state(None, RADIO_GRACE_S + 1), RadioState::NoAnswer);
+    }
+
+    #[test]
+    fn a_scanner_that_only_just_started_is_not_accused_of_anything() {
+        // Alarming a second after start would make the everyday case -- turning
+        // the switch on -- flash a warning that resolves itself, which is how a
+        // warning stops being read.
+        assert_eq!(radio_state(Some(""), 1), RadioState::Starting);
+    }
+
+    #[test]
+    fn the_scanners_own_words_beat_the_clock() {
+        assert_eq!(radio_state(Some("[t] STATE poweredOn\n"), 0), RadioState::Scanning);
+        assert_eq!(radio_state(Some("[t] STATE unauthorized — grant\n"), 99), RadioState::Denied);
+        assert_eq!(radio_state(Some("[t] STATE poweredOff — Bluetooth is off\n"), 99), RadioState::Off);
+        assert_eq!(radio_state(Some("[t] STATE unsupported — no BLE radio\n"), 99), RadioState::Unsupported);
+    }
+
+    #[test]
+    fn a_radio_switched_off_and_on_again_reads_as_on() {
+        // Both words are in the log; the last one is the true one. Reading the
+        // first would leave 「蓝牙关着」 on screen for a working Mac.
+        let log = "[a] STATE poweredOff — Bluetooth is off\n[b] STATE poweredOn\n";
+        assert_eq!(radio_state(Some(log), 99), RadioState::Scanning);
     }
 
     #[test]

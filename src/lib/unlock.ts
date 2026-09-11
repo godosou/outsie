@@ -88,6 +88,20 @@ export type ComponentInvocation =
   | { kind: 'observed'; at: string }
   | { kind: 'never-observed' }
 
+/** Anything unrecognised reads as 'scanning', so a shape we cannot parse never
+ *  invents an alarm. The states that matter are the ones the scanner said. */
+export type RadioState = 'scanning' | 'starting' | 'no-answer' | 'denied' | 'off' | 'unsupported'
+
+function readRadio(v: unknown): RadioState {
+  const kind = (v && typeof v === 'object' ? (v as Record<string, unknown>).kind : v)
+  switch (kind) {
+    case 'starting': case 'no-answer': case 'denied': case 'off': case 'unsupported':
+      return kind
+    default:
+      return 'scanning'
+  }
+}
+
 export type PairedDevice = {
   id: string
   name: string
@@ -117,6 +131,8 @@ export type UnlockSnapshot = {
   componentInvocation: ComponentInvocation
   device: PairedDevice | null
   macId: string | null
+  /** What the radio is doing, separately from what the phone is doing. */
+  radio: RadioState
   stats: { unlocksToday: number; lastUnlockAt: string | null }
   lastFailure: LastFailure | null
   macosBuild: string
@@ -137,6 +153,7 @@ export const UNSUPPORTED_SNAPSHOT: UnlockSnapshot = Object.freeze({
   componentInvocation: { kind: 'never-observed' as const },
   device: null,
   macId: null,
+  radio: 'scanning',
   stats: { unlocksToday: 0, lastUnlockAt: null },
   lastFailure: null,
   macosBuild: '',
@@ -253,6 +270,7 @@ export function normalizeUnlockSnapshot(
   return {
     readAt, state, presence, presenceRunning, variant, components, componentInvocation, device,
     macId: str(s.macId),
+    radio: readRadio(s.radio),
     stats, lastFailure,
     macosBuild: str(s.macosBuild) ?? '',
     componentVersion: str(s.componentVersion) ?? '',
