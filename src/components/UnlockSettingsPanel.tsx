@@ -275,7 +275,15 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
           <h3>回来就不用再输密码</h3>
           {!degraded && loaded && (
             <p className={`pk-row-state${enabled ? ' is-on' : ''}`}>
-              {enabled ? '已开启 · 正在留意你的手机' : '已关闭 · 现在只能用密码登录'}
+              {/* "Watching for your phone" is only true if there is a phone to
+                  recognise. With the key deleted the monitor keeps running and
+                  keeps rejecting everything, and saying 正在留意你的手机 over
+                  that is the panel describing a phone that no longer exists. */}
+              {!enabled
+                ? '已关闭 · 现在只能用密码登录'
+                : snapshot.device
+                  ? '已开启 · 正在留意你的手机'
+                  : '已开启 · 但还没有哪部手机能用来解锁'}
             </p>
           )}
           {/* Says what you get, then reassures. It used to describe the
@@ -484,7 +492,10 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
     {!degraded && loaded && snapshot.state !== 'not-installed' && (
       <PhoneList
         device={snapshot.device}
-        onPair={() => dispatchCommand('begin-pairing')}
+        // The panel above already offers 配对手机 as its primary action while
+        // there is no key. Two buttons for one decision made the reader stop
+        // and work out whether they were the same thing (ui-conventions 2.5).
+        onPair={view.primaryAction?.command === 'begin-pairing' ? null : () => dispatchCommand('begin-pairing')}
         busy={busy}
         armed={armedRevoke}
         onArm={setArmedRevoke}
@@ -529,7 +540,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
 // hardcoded `keys_removed: true`.
 function PhoneList({ device, onPair, busy, armed, onArm, onRevoke }: {
   device: PairedDevice | null
-  onPair: () => void
+  onPair: (() => void) | null
   busy: boolean
   armed: string | null
   onArm: (id: string | null) => void
@@ -577,7 +588,7 @@ function PhoneList({ device, onPair, busy, armed, onArm, onRevoke }: {
         // 6.4: an empty list must answer what this is, not just offer a button.
         <div className="pk-device-empty">
           <p>配一部手机之后，它会出现在这里。配对要两边同时在场，在手机上点一下「一样」才算成功。</p>
-          <button className="button primary" disabled={busy} onClick={onPair}>配对手机</button>
+          {onPair && <button className="button primary" disabled={busy} onClick={onPair}>配对手机</button>}
         </div>
       )}
 

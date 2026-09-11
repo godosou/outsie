@@ -25,6 +25,12 @@ const brand = JSON.parse(read('brand.json')) as {
 const declarationSites: Array<{ file: string; extract: (text: string) => string }> = [
   { file: 'package.json', extract: t => JSON.parse(t).productName },
   { file: 'src-tauri/tauri.conf.json', extract: t => JSON.parse(t).productName },
+  // The executable's name, not just the bundle's. macOS attributes a TCC
+  // prompt -- Bluetooth, camera, anything -- to the executable, so with the
+  // Cargo default the Bluetooth dialog read 「"repose" would like to use
+  // Bluetooth」: a name nobody installed, asking for a permission. Same class
+  // as the authorization box that used to say "osascript".
+  { file: 'src-tauri/tauri.conf.json', extract: t => JSON.parse(t).mainBinaryName },
   {
     file: 'src-tauri/src/unlock.rs',
     extract: t => t.match(/pub const BRAND: &str = "([^"]+)"/)?.[1] ?? '',
