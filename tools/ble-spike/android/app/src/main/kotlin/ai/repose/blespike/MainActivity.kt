@@ -102,6 +102,21 @@ class MainActivity : Activity(), Nav {
         }
     }
 
+    /**
+     * Rebuild the current screen when we come back to the front.
+     *
+     * Some of what the screens show is granted OUTSIDE this app -- the battery
+     * exemption, and the permissions behind it. Android has no callback for
+     * those. Without this, tapping 「去设置，别关掉它」, granting it, and coming
+     * back leaves the warning still on screen, which reads as the grant having
+     * failed (ui-conventions 2.3: an action that changes nothing on screen
+     * invites you to do it again).
+     */
+    override fun onResume() {
+        super.onResume()
+        go(current)
+    }
+
     override fun onDestroy() {
         SpikeState.removeListener(onStateChanged)
         super.onDestroy()

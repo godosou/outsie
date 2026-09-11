@@ -142,6 +142,35 @@ fun buildHomeScreen(
         }
         toggleRow.addView(toggle, Ui.lp(width = WRAP_CONTENT, left = context.dp(12)))
         toggleCard.addView(toggleRow, Ui.lp(top = context.dp(12)))
+
+        // Battery optimisation, and why this is on the main screen rather than
+        // in a settings page nobody opens.
+        //
+        // Measured on this phone 2026-09-12: the foreground service was killed
+        // about five minutes after the app went to the background, and nothing
+        // said so. The switch was not shown as off -- the app was gone. The Mac
+        // correctly reported not seeing the phone. So the feature does not look
+        // broken, it looks unreliable, and you walk to your Mac carrying a key
+        // you believe works.
+        //
+        // START_STICKY is supposed to bring it back; this OEM does not honour
+        // that, and there is no broadcast to a process that has been killed --
+        // so the only reliable fix is not being killed in the first place.
+        if (!isBatteryExempt(context)) {
+            toggleCard.addView(
+                Ui.amberNote(
+                    context,
+                    pal,
+                    "这台手机会在后台把 Outsie 关掉，到时候 Mac 就认不出你了——而且不会有任何提示。" +
+                        "把它设成不受电池优化限制，这种情况就不会发生。",
+                ),
+                Ui.lp(top = context.dp(12)),
+            )
+            toggleCard.addView(
+                Ui.ghostButton(context, pal, "去设置，别关掉它") { requestBatteryExempt(context) },
+                Ui.lp(top = context.dp(10)),
+            )
+        }
         column.addView(toggleCard, Ui.lp(top = context.dp(14)))
 
         // ---- What this phone can actually see ----
@@ -422,3 +451,40 @@ private fun startPulse(ring: View) {
 fun macLabel(macId: Int): String =
     if (macId == SpikeContract.MAC_ID_UNKNOWN) "一台没报编号的 Mac"
     else "Mac %04X".format(macId)
+
+/**
+ * Whether Android will leave this app running in the background.
+ *
+ * Read, never assumed: the answer is the user's to give, and an app that
+ * pretended otherwise would show a row that cannot be dismissed.
+ */
+fun isBatteryExempt(context: Context): Boolean =
+    context.getSystemService(android.os.PowerManager::class.java)
+        ?.isIgnoringBatteryOptimizations(context.packageName) == true
+
+/**
+ * Open the system's own dialog.
+ *
+ * From a button the person pressed, never on launch. An app that asks to be
+ * exempt from battery optimisation the moment it starts reads as malware, and
+ * the person has no context yet for deciding. Let them meet the problem first.
+ */
+@android.annotation.SuppressLint("BatteryLife")
+fun requestBatteryExempt(context: Context) {
+    runCatching {
+        context.startActivity(
+            android.content.Intent(
+                android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:${context.packageName}"),
+            ),
+        )
+    }.onFailure {
+        // Some builds hide this action entirely. The general battery page is
+        // still better than a button that does nothing.
+        runCatching {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            )
+        }
+    }
+}
