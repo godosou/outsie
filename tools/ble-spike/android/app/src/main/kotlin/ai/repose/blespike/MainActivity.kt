@@ -218,6 +218,10 @@ class MainActivity : Activity(), Nav {
         val wanted = mutableListOf(
             Manifest.permission.BLUETOOTH_ADVERTISE,
             Manifest.permission.BLUETOOTH_CONNECT,
+            // For the Mac's own state beacon. Survivable if refused -- the
+            // phone simply never learns whether the Mac is locked, and the
+            // screen says so rather than guessing.
+            Manifest.permission.BLUETOOTH_SCAN,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             wanted += Manifest.permission.POST_NOTIFICATIONS
@@ -245,7 +249,9 @@ class MainActivity : Activity(), Nav {
         // POST_NOTIFICATIONS being denied is survivable; the BLE ones are not.
         val blocked = permissions.filterIndexed { index, name ->
             grantResults.getOrNull(index) != PackageManager.PERMISSION_GRANTED &&
-                name != Manifest.permission.POST_NOTIFICATIONS
+                name != Manifest.permission.POST_NOTIFICATIONS &&
+                // Refusing this costs the Mac-state sentence, not the feature.
+                name != Manifest.permission.BLUETOOTH_SCAN
         }
         if (blocked.isEmpty()) {
             startSpike()

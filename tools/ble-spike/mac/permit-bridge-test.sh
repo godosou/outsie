@@ -377,5 +377,20 @@ grep -q '^ON$' "${ACTIONS}" \
   && ok "the verdict is read by name, so extra columns cannot move it" \
   || bad "a verdict at an unexpected column was missed" "$(tr '\n' ' ' <"${ACTIONS}")"
 
+# 27. The verifier now shares its stdout with the Mac's own state beacon, so
+#     `macstate,...` lines arrive here too. They carry no verdict, and their
+#     second field is a keyId -- a small positive number that would sail past a
+#     naive RSSI check and assert a permit. The auth gate runs first and clears
+#     rssi, which is what makes that safe; this asserts it stays that way.
+: > "${ACTIONS}"
+printf '%s\n' 'macstate,1,59637000,aabbccddeeff0011,1122334455667788' \
+  | REPOSE_NEAR_DBM=-72 REPOSE_FAR_DBM=-85 REPOSE_STALE_S=45 REPOSE_REFRESH_S=1 \
+    REPOSE_PERMIT_ON_CMD="printf 'ON\n' >> '${ACTIONS}'" \
+    REPOSE_PERMIT_OFF_CMD="printf 'OFF\n' >> '${ACTIONS}'" \
+    bash "${BRIDGE}" >/dev/null 2>&1
+grep -q '^ON$' "${ACTIONS}" \
+  && bad "a macstate line asserted a permit" "$(tr '\n' ' ' <"${ACTIONS}")" \
+  || ok "the Mac's own state lines never assert a permit"
+
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]

@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <!-- Listening for the Mac's own state beacon. neverForLocation because we
+         genuinely do not: the only thing read is one authenticated byte from a
+         device this phone is already paired with, and asking for location to
+         get it would be asking for something we have no use for. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

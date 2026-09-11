@@ -42,6 +42,13 @@ import CryptoKit
 import Foundation
 
 let beaconLabel = "repose-presence-v2 beacon"
+
+/// Domain separation for the Mac's OWN beacon -- the one that tells the phone
+/// whether this Mac is locked. A different label from the phone's, because the
+/// two directions must never be interchangeable: a tag minted for "the Mac is
+/// unlocked" must not also verify as "the phone is present", or a recording of
+/// one becomes a forgery of the other.
+let macStateLabel = "repose-macstate-v1 beacon"
 let windowSeconds: Int64 = 30
 let tagLen = 8
 let defaultKeyDir = "/var/db/repose-unlock"
@@ -199,6 +206,48 @@ func verify(keyId: UInt8, tag: Data, now: Int64, keys: KeyStore,
         if constantTimeEqual(full.prefix(tagLen), tag) { return "VALID" }
     }
     return "INVALID"
+}
+
+// MARK: - the Mac's own beacon
+
+/// The pre-image for "this Mac is locked / unlocked".
+///
+/// Same shape as the phone's, different label and a state byte instead of a
+/// command. The counter is still derived from each side's own clock and never
+/// transmitted, so a recording ages out within a window either way.
+func macStateMessage(keyId: UInt8, counter: Int64, locked: Bool) -> Data {
+    var d = Data(macStateLabel.utf8)
+    d.append(keyId)
+    let u = UInt64(bitPattern: counter)
+    for shift in stride(from: 56, through: 0, by: -8) {
+        d.append(UInt8((u >> UInt64(shift)) & 0xFF))
+    }
+    d.append(locked ? 1 : 0)
+    return d
+}
+
+/// Emit tags for BOTH states, every window, on stdout.
+///
+/// WHY BOTH, AND WHY THIS PROCESS
+///
+/// Advertising needs the Bluetooth grant, which belongs to the app; the key is
+/// root-only and must not leave this process. That is the same split that put
+/// rssi-scan outside root in the first place. So the half with the key mints
+/// the tags and the half with the radio picks one -- and minting both states
+/// up front means the radio side never has to ask, which would be a round trip
+/// on every lock and unlock.
+///
+/// Publishing the unlocked tag costs nothing: it says "this Mac is unlocked",
+/// which anyone standing in front of it can already see.
+func emitMacStateTags(keys: KeyStore, keyId: UInt8, now: Int64) {
+    guard let k = keys.key(for: keyId) else { return }
+    let c = now / windowSeconds
+    let tag = { (locked: Bool) -> String in
+        Data(HMAC<SHA256>.authenticationCode(
+            for: macStateMessage(keyId: keyId, counter: c, locked: locked), using: k))
+            .prefix(tagLen).map { String(format: "%02x", $0) }.joined()
+    }
+    print("macstate,\(keyId),\(c),\(tag(false)),\(tag(true))")
 }
 
 // MARK: - command replay defence
@@ -450,6 +499,7 @@ DispatchQueue.global().async {
 
 let keys = KeyStore(dir: keyDir)
 let seqGuard = SeqGuard()
+var lastStateWindow: Int64 = .min
 setlinebuf(stdout)
 log("verifying against \(keyDir), window \(windowSeconds)s, tag \(tagLen) bytes")
 
@@ -510,4 +560,13 @@ while let line = readLine(strippingNewline: true) {
     // quietly not working. The consumer now looks for a named field, so adding
     // columns upstream cannot move it again.
     print("\(line),auth=\(auth),cmd=\(emitCmd)")
+
+    // One macstate line per window, alongside the stream we are already in.
+    // No timer, no second process: rows arrive several times a second while the
+    // phone is anywhere near, and when they stop there is nobody to tell.
+    let window = now / windowSeconds
+    if window != lastStateWindow, let keyId = UInt8(f[4]) {
+        lastStateWindow = window
+        emitMacStateTags(keys: keys, keyId: keyId, now: now)
+    }
 }

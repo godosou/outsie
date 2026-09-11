@@ -135,6 +135,32 @@ object SpikeContract {
      */
     val PAIR_CHAR_NAME: UUID = UUID.fromString("0000FFF6-0000-1000-8000-00805F9B34FB")
 
+    // --- the Mac's own beacon (repose-macstate-v1) ----------------------------
+    //
+    // The other direction. The presence beacon is one-way, so the phone could
+    // never say anything true about the Mac -- only what it had just done. This
+    // is the Mac broadcasting one byte of its own state under the same paired
+    // key, so the phone can say「Mac 锁着，走过去按回车就能进」and mean it.
+    //
+    // A DIFFERENT label from the presence beacon, and that is load-bearing: a
+    // tag minted for "this Mac is unlocked" must never also verify as "the
+    // phone is present", or a recording of one becomes a forgery of the other.
+
+    val MAC_STATE_SERVICE_UUID: UUID = UUID.fromString("0000FFF7-0000-1000-8000-00805F9B34FB")
+    const val MAC_STATE_LABEL = "repose-macstate-v1 beacon"
+    const val MAC_STATE_VERSION = 0x01
+
+    /**
+     * How long a heard state stays believable.
+     *
+     * Well past the measured scan tail (p99 ~7s, max ~9.3s for a single
+     * advertiser) so an ordinary gap does not read as "the Mac went away", and
+     * well inside the ±1 window the tag itself is valid for. After this the
+     * phone says it does not know, which is the honest answer and the one the
+     * screen must be able to show.
+     */
+    const val MAC_STATE_STALE_MS = 20_000L
+
     /** How long a pairing window stays open. Ephemerals die with it. */
     const val PAIRING_WINDOW_SECONDS = 180L
 }

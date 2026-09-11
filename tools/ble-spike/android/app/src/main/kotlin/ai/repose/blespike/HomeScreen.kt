@@ -48,6 +48,8 @@ fun buildHomeScreen(
     lateinit var toggle: Switch
     lateinit var toggleStatus: TextView
     lateinit var keyStatus: TextView
+    var macStatus: TextView? = null
+    var macHint: TextView? = null
 
     // A green key breathing inside a soft ring reads as "everything is fine". With no
     // presence key nothing is fine, so the hero goes muted and still -- an animation
@@ -159,6 +161,24 @@ fun buildHomeScreen(
             Ui.lp(top = context.dp(8)),
         )
         column.addView(keyCard, Ui.lp(top = context.dp(14)))
+
+        // ---- What the Mac is doing, when the Mac has told us ----
+        //
+        // The one sentence this screen could never say before. Until the Mac
+        // got its own beacon the phone knew nothing about it -- every line here
+        // was either about this phone or an invention. Three states, and
+        // 「不知道」 is a real one: out of range, asleep, off, or simply not
+        // running Outsie. Picking either of the other two to stand in for it
+        // would send someone to a Mac that is fine, or keep them from one that
+        // is waiting.
+        if (healthy) {
+            val macCard = sectionCard(context, pal, "💻", "你的 Mac")
+            macStatus = Ui.body(context, pal, "")
+            macCard.addView(macStatus, Ui.lp(top = context.dp(12)))
+            macHint = Ui.secondary(context, pal, "")
+            macCard.addView(macHint, Ui.lp(top = context.dp(6)))
+            column.addView(macCard, Ui.lp(top = context.dp(14)))
+        }
 
         // ---- Controlling the Mac from here ----
         //
@@ -288,6 +308,28 @@ fun buildHomeScreen(
             else -> {
                 toggleStatus.text = "已开启，但这台设备用不了蓝牙。"
                 toggleStatus.setTextColor(pal.amberText)
+            }
+        }
+
+        when (MacState.current()) {
+            MacLockState.LOCKED -> {
+                macStatus?.text = "锁着"
+                macStatus?.setTextColor(pal.textPrimary)
+                // The payoff sentence, and it is only allowed on screen because
+                // a tag minted with the paired key said so.
+                macHint?.text = "走过去，密码框留空，按一下回车就能进。"
+            }
+            MacLockState.UNLOCKED -> {
+                macStatus?.text = "开着"
+                macStatus?.setTextColor(pal.textPrimary)
+                macHint?.text = "现在不需要解锁。"
+            }
+            MacLockState.UNKNOWN -> {
+                macStatus?.text = "不知道"
+                macStatus?.setTextColor(pal.textSecondary)
+                // Says which possibilities it cannot tell apart, rather than a
+                // bare 未知 that reads as a fault.
+                macHint?.text = "没有听到你的 Mac —— 可能不在附近、睡着了，或者没开着 Outsie。"
             }
         }
 

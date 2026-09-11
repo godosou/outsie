@@ -130,7 +130,7 @@ VERIFIED="${WORK}/verified.csv"
 : > "${RAW}"; : > "${VERIFIED}"; chmod 644 "${RAW}" "${VERIFIED}"
 : > "${RUNFLAG}"; chmod 644 "${RUNFLAG}"
 
-SCAN_PID=""; ROOT_PID=""; TAIL_PID=""
+SCAN_PID=""; ROOT_PID=""; TAIL_PID=""; STATE_PID=""
 cleanup() {
   # ORDER MATTERS AGAIN, for the same reason as the FIFOs.
   #
@@ -151,7 +151,7 @@ cleanup() {
   # The watcher polls every second; give it room to notice and unwind.
   sleep 4
   # Backstop only: by now the chain should already be gone.
-  for p in "${TAIL_PID}" "${ROOT_PID}"; do
+  for p in "${STATE_PID}" "${TAIL_PID}" "${ROOT_PID}"; do
     [ -n "${p}" ] && kill "${p}" 2>/dev/null
   done
   [ -z "${REPOSE_PIPELINE_DIR:-}" ] && rm -rf "${WORK}"
@@ -166,6 +166,23 @@ else
   "${HERE}/rssi-scan" >> "${RAW}" 2> "${WORK}/scan.log" &
 fi
 SCAN_PID=$!
+
+# 1b. The Mac's own beacon: unprivileged, for the same reason the scanner is.
+#
+# It holds no key. presence-verify mints a tag for each state once per window
+# and prints it into ${VERIFIED}; this reads them and broadcasts whichever
+# matches the current lock state. With no input it stays silent rather than
+# advertising a state it cannot authenticate.
+#
+# Optional: an older bundle without the binary still runs presence, it just
+# cannot tell the phone anything back.
+if [ -x "${HERE}/state-advertise" ]; then
+  tail -n +1 -f "${VERIFIED}" | "${HERE}/state-advertise" \
+    2>> "${WORK}/state.log" &
+  STATE_PID=$!
+else
+  STATE_PID=""
+fi
 
 # 2. Verifier: root, because the presence key is root-owned 0600 -- anyone who can
 #    read K can mint beacons and unlock this Mac. Held in the foreground of its own
@@ -199,8 +216,20 @@ if [ "${MODE}" = remote ]; then
   tail -n +1 -f "${RAW}" | "${BIN}/presence-verify" --key-dir "${KEY_DIR}" \
     >> "${VERIFIED}" 2>> "${WORK}/verify.log" &
 else
+  # tee, so the verified stream reaches TWO readers.
+  #
+  # The bridge is inside this root chain and gets it on a pipe. The Mac's own
+  # state beacon cannot be: advertising needs the Bluetooth grant, which belongs
+  # to the app, and the same binary under root reports STATE unauthorized -- the
+  # exact reason rssi-scan is unprivileged. So the second reader is outside, and
+  # the handover is this file: created 644 by us, appended to by root, tailed by
+  # the advertiser. Same shape as the remote branch already uses.
+  #
+  # A file rather than a second FIFO on purpose. An earlier version of this
+  # pipeline deadlocked on FIFO open ordering, and a file has no ordering.
   tail -n +1 -f "${RAW}" \
     | "${BIN}/presence-verify" --key-dir "${KEY_DIR}" 2>> "${WORK}/verify.log" \
+    | tee -a "${VERIFIED}" \
     | bash "${BIN}/permit-bridge.sh" 2>> "${WORK}/bridge.log" &
 fi
 

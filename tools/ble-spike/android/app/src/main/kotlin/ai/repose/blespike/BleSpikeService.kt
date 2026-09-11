@@ -102,6 +102,8 @@ class BleSpikeService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var advertiser: BluetoothLeAdvertiser? = null
+    /** Listens for the Mac's own beacon. Silent without a key or the permission. */
+    private var macStateScanner: MacStateScanner? = null
     private lateinit var beacon: PresenceBeacon
     private var advertisedCounter = Long.MIN_VALUE
     private var advertisedCmd = SpikeContract.CMD_NONE
@@ -219,6 +221,13 @@ class BleSpikeService : Service() {
         advertiser = adapter.bluetoothLeAdvertiser
         if (advertiser == null) SpikeState.event("no LE advertiser (peripheral role unsupported?)")
 
+        // Only worth listening once there is a key: an unverifiable beacon
+        // tells this phone nothing, and scanning for it would be battery spent
+        // on a sentence that could never be shown.
+        if (beacon.authentic) {
+            macStateScanner = MacStateScanner(this).also { it.start() }
+        }
+
         handler.post(rotate)
         handler.postDelayed(heartbeat, HEARTBEAT_MS)
         SpikeState.notifyListeners()
@@ -269,6 +278,8 @@ class BleSpikeService : Service() {
         handler.removeCallbacks(rotate)
         runCatching { advertiser?.stopAdvertising(advertiseCallback) }
         advertiser = null
+        macStateScanner?.stop()
+        macStateScanner = null
         SpikeState.serviceRunning = false
         SpikeState.advertising = false
         SpikeState.startedAtUptime = 0L

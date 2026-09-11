@@ -1,0 +1,140 @@
+package ai.repose.blespike
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.ParcelUuid
+import android.util.Log
+
+/**
+ * Listens for the Mac's own beacon and verifies it before believing a word.
+ *
+ * The payload rides in the advertisement's local name as hex, because
+ * CoreBluetooth on macOS does not let a peripheral publish Service Data. That
+ * is a macOS limitation, not a design choice, and it costs nothing: the bytes
+ * are the same bytes and the tag covers them.
+ *
+ *   payload = version(1) ‖ keyId(1) ‖ state(1) ‖ tag(8)
+ *   msg     = "repose-macstate-v1 beacon" ‖ keyId(1) ‖ counter(8 BE) ‖ state(1)
+ *
+ * WHY THE TAG MATTERS HERE TOO
+ *
+ * It would be tempting to treat this as cosmetic — it only drives a sentence on
+ * a screen. But the sentence is「Mac 锁着，走过去按回车就能进」, and anyone with
+ * a radio could otherwise broadcast "unlocked" to keep a person from walking
+ * over, or "locked" to send them to a Mac that is fine. Neither is catastrophic
+ * and both are the app lying on someone else's instructions, which is the thing
+ * this project refuses to ship.
+ */
+@SuppressLint("MissingPermission")
+class MacStateScanner(private val context: Context) {
+
+    private companion object {
+        const val TAG = "ReposeMacState"
+        const val PAYLOAD_LEN = 3 + SpikeContract.TAG_LEN
+    }
+
+    private var scanning = false
+
+    private val callback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val name = result.scanRecord?.deviceName ?: return
+            val payload = hexOrNull(name) ?: return
+            if (payload.size != PAYLOAD_LEN) return
+            if (payload[0].toInt() and 0xFF != SpikeContract.MAC_STATE_VERSION) return
+
+            val keyId = payload[1].toInt() and 0xFF
+            if (keyId != SpikeContract.PRESENCE_KEY_ID) return
+            val locked = (payload[2].toInt() and 0xFF) == 1
+            val tag = payload.copyOfRange(3, PAYLOAD_LEN)
+
+            if (verify(keyId, locked, tag)) {
+                MacState.heard(locked)
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            Log.w(TAG, "scan failed: $errorCode")
+            scanning = false
+        }
+    }
+
+    /**
+     * True if the tag was minted by the paired key for this state, in a window
+     * near enough to now.
+     *
+     * ±1 window, same tolerance the Mac gives the phone: two clocks that agree
+     * to within thirty seconds is all either side assumes.
+     */
+    private fun verify(keyId: Int, locked: Boolean, tag: ByteArray): Boolean {
+        if (!PresenceKey.has(keyId)) return false
+        val c0 = System.currentTimeMillis() / 1000L / SpikeContract.WINDOW_SECONDS
+        for (c in longArrayOf(c0 - 1, c0, c0 + 1)) {
+            val msg = SpikeContract.MAC_STATE_LABEL.toByteArray(Charsets.US_ASCII) +
+                byteArrayOf(keyId.toByte()) +
+                PresenceBeacon.beLong(c) +
+                byteArrayOf(if (locked) 1 else 0)
+            val full = runCatching { PresenceKey.hmac(keyId, msg) }.getOrNull() ?: return false
+            if (constantTimeEquals(full.copyOf(SpikeContract.TAG_LEN), tag)) return true
+        }
+        return false
+    }
+
+    fun start() {
+        if (scanning) return
+        // BLUETOOTH_SCAN is separate from CONNECT and ADVERTISE. Without it this
+        // throws, and a crash here would take down the beacon the whole feature
+        // rests on -- for the sake of a sentence on a screen.
+        if (context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.i(TAG, "no BLUETOOTH_SCAN permission; the Mac's state stays unknown")
+            return
+        }
+        val scanner = context.getSystemService(BluetoothManager::class.java)
+            ?.adapter?.bluetoothLeScanner ?: return
+        val filter = ScanFilter.Builder()
+            .setServiceUuid(ParcelUuid(SpikeContract.MAC_STATE_SERVICE_UUID))
+            .build()
+        // LOW_POWER, not LOW_LATENCY. This drives a sentence, not a decision:
+        // being a few seconds late to say「Mac 锁着」costs nothing, and this
+        // runs for the whole day next to a beacon that is already advertising.
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
+            .build()
+        runCatching { scanner.startScan(listOf(filter), settings, callback) }
+            .onSuccess { scanning = true; Log.i(TAG, "listening for the Mac's state") }
+            .onFailure { Log.w(TAG, "could not start scanning", it) }
+    }
+
+    fun stop() {
+        if (!scanning) return
+        runCatching {
+            context.getSystemService(BluetoothManager::class.java)
+                ?.adapter?.bluetoothLeScanner?.stopScan(callback)
+        }
+        scanning = false
+        // A belief with nothing refreshing it is a belief that will go stale on
+        // screen. Drop it now rather than let it age out looking current.
+        MacState.forget()
+    }
+
+    private fun hexOrNull(s: String): ByteArray? {
+        if (s.length % 2 != 0 || s.isEmpty()) return null
+        return runCatching {
+            ByteArray(s.length / 2) { s.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+        }.getOrNull()
+    }
+
+    private fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean {
+        if (a.size != b.size) return false
+        var diff = 0
+        for (i in a.indices) diff = diff or (a[i].toInt() xor b[i].toInt())
+        return diff == 0
+    }
+}
