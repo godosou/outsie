@@ -528,7 +528,11 @@ export function remediationLabel(remediation: Remediation): string | null {
     case 're-calibrate': return '重做校准'
     case 'fix-on-phone': return '在手机上打开'
     case 'revoke-device': return '撤销这台设备'
-    case 'uninstall-and-restore': return '移除手机钥匙并还原系统设置'
+    // 「移除并还原」 was two verbs and no object: removing what, restoring what
+    // to what? It is also the destructive twin of the switch above it, and
+    // nothing in either name said which was which. This one says what the Mac
+    // ends up as.
+    case 'uninstall-and-restore': return '不再使用，把 Mac 改回原样'
     case 'leave-it-alone': return null
   }
 }

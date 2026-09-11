@@ -509,9 +509,10 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
               <div class="panel">
                 <div class="sechead">
                   <div>
-                    <h2>回车解锁</h2>
+                    <h2>用手机解锁</h2>
                     <p class="state on" style="margin-top:7px"><span class="dot"></span>已开启 · 正在留意你的手机</p>
                   </div>
+                  <span class="toggle on"><span></span></span>
                 </div>
                 <div class="prow" style="padding-top:20px">
                   <span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.8-8.8"/><path d="m17 6 3 3"/></svg></span>
@@ -519,7 +520,15 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
                     <h3>回来就不用再输密码</h3>
                     <p>手机在身边的时候，锁屏上直接按一下回车就进来了。<b>它不会自己打开</b>——那一下回车还是要你按。</p>
                   </div>
-                  <span class="toggle on"><span></span></span>
+                </div>
+                <div class="prow">
+                  <span class="ico"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                  <div class="g">
+                    <h3>离开 30 秒就自动锁屏 · 已开启</h3>
+                    <p>这两个是一对：锁得越紧越安全，而它负责让你不为此多输一次密码。
+                      <b>关掉解锁之前，先想想会不会顺手也把自动锁屏关了</b>——那才是真正变不安全的那一步。</p>
+                  </div>
+                  <span class="tbtn">调整 ›</span>
                 </div>
               </div>
 
@@ -536,7 +545,7 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
                       <span style="display:flex;gap:22px;margin-top:11px">
                         <span style="display:flex;align-items:center;gap:9px">
                           <span class="toggle on" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px;margin-left:12px"></span></span>
-                          <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">回车解锁</span></span>
+                          <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">解锁</span></span>
                         <span style="display:flex;align-items:center;gap:9px">
                           <span class="toggle on" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px;margin-left:12px"></span></span>
                           <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">快捷控制</span></span>
@@ -551,7 +560,7 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
                       <span style="display:flex;gap:22px;margin-top:11px">
                         <span style="display:flex;align-items:center;gap:9px">
                           <span class="toggle" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px"></span></span>
-                          <span style="font-size:11px;color:var(--muted);letter-spacing:.2px">回车解锁</span></span>
+                          <span style="font-size:11px;color:var(--muted);letter-spacing:.2px">解锁</span></span>
                         <span style="display:flex;align-items:center;gap:9px">
                           <span class="toggle on" style="width:30px;height:18px;padding:2px"><span style="width:14px;height:14px;margin-left:12px"></span></span>
                           <span style="font-size:11px;color:var(--subtle);letter-spacing:.2px">快捷控制</span></span>
@@ -610,8 +619,13 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
       <h4>这一屏的判断</h4>
       <p><b>侧栏分组。</b>「休息」「手机控制」「其它」三组，快捷控制带「以后」角标——
         占位不代表能用，但也不该假装它不存在。</p>
-      <p><b>两个面板，不是一个平列表。</b>上面回答"现在在不在工作"，下面回答"谁能开"。
+      <p><b>自动锁屏挪进来了。</b>它原来在另一个安全面板里，和手机钥匙互不相识——
+        而手机钥匙存在的<em>全部理由</em>就是让人敢把自动锁屏开到最紧。
+        分开放着，人就会为了少输密码去把锁屏关掉，那正是这个功能要避免的事。</p>
+      <p><b>两个面板，不是一个平列表。</b>上面回答"锁和开这一对现在什么状态"，下面回答"谁能开"。
         组件状态、密钥指纹、移除按钮全在「技术细节」里。</p>
+      <p><b>「回车解锁」改成「用手机解锁」，每部手机上的开关叫「解锁」</b>——
+        和旁边的「快捷控制」对仗，而且说的是<em>你得到什么</em>，不是<em>你要按哪个键</em>。</p>
       <p><b>每行写"最后一次认出"</b>，不是配对时间——后者永远不变，判断一把钥匙还该不该留着时帮不上忙。</p>
       <p><b>「手机丢了」是列表上的一张卡</b>，不是藏在设置里：人最慌的时候会来找它。</p>
     </div>
@@ -657,7 +671,10 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
                   <span class="sub">锁着 · 走过去，密码框留空按回车就能进</span>
                 </span>
               </div>
-              <span class="pbtn ghost">锁定</span>
+              <div style="display:flex;gap:8px">
+                <span class="pbtn ghost" style="flex:1">锁定</span>
+                <span class="pbtn primary" style="flex:1">控制</span>
+              </div>
             </div>
 
             <div class="pcard">
@@ -668,7 +685,10 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
                   <span class="sub dim">开着 · 没锁，不用解锁</span>
                 </span>
               </div>
-              <span class="pbtn ghost">锁定</span>
+              <div style="display:flex;gap:8px">
+                <span class="pbtn ghost" style="flex:1">锁定</span>
+                <span class="pbtn primary" style="flex:1">控制</span>
+              </div>
             </div>
 
             <span class="pbtn ghost" style="margin-top:14px">＋ 添加电脑</span>
@@ -698,7 +718,10 @@ footer { margin-top:88px; padding-top:24px; border-top:1px solid var(--page-line
         <dt>分组标签</dt><dd>10 mono · +0.1em</dd>
       </dl>
       <h4>这一屏的判断</h4>
-      <p><b>一台电脑一张卡</b>：名字、当前状态、一个锁定按钮，点进去是详情。列表下面是「添加电脑」。</p>
+      <p><b>一台电脑一张卡</b>：名字、当前状态、两个按钮——<b>锁定</b>和<b>控制</b>。
+        点卡片本身进详情（重新配对、从列表移走、技术细节）。列表下面是「添加电脑」。</p>
+      <p>两个按钮对应 Mac 上那两个开关，<b>一一对上</b>：Mac 关掉哪个，手机上对应那个就变淡，
+        点下去说去哪儿开。</p>
       <p><b>卡片状态有四个</b>：</p>
       <p style="margin-left:2px">
         <b>锁着</b> — 听得到，锁着 → 走过去按回车<br>

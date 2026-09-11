@@ -269,7 +269,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
         </div>
         <button
           className={`toggle${enabled ? ' on' : ''}`}
-          type="button" role="switch" aria-checked={enabled} aria-label="回车解锁"
+          type="button" role="switch" aria-checked={enabled} aria-label="用手机解锁"
           disabled={degraded || busy}
           onClick={() => {
             if (degraded) { onToast?.('手机钥匙只能在 Outsie Mac App 中使用'); return }
@@ -378,7 +378,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
       {!degraded && snapshot.state !== 'not-installed' && (
         <div className="phone-key-remove">
           <button className="button outline full-width" disabled={busy} onClick={() => setShowManifest(true)}>
-            移除手机钥匙并还原系统设置
+            不再使用，把 Mac 改回原样
           </button>
         </div>
       )}
@@ -648,9 +648,9 @@ function PairingSheet(
 
 function RemoveConfirm({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
   return (
-    <ModalShell label="移除手机钥匙并还原系统设置" onClose={onClose} className="phone-key-modal">
+    <ModalShell label="把这台 Mac 改回原样" onClose={onClose} className="phone-key-modal">
       <button className="modal-close icon-button" aria-label="关闭" onClick={onClose}><X size={21} /></button>
-      <h2>移除手机钥匙并还原系统设置</h2>
+      <h2>把这台 Mac 改回原样</h2>
       <p className="modal-intro">Outsie 会按安装的逆序还原：从备份还原锁屏规则、删除授权规则、删除组件与 <code>/var/db/repose-unlock/</code>、删除这台 Mac 上的配对密钥。需要一次管理员密码，完成后把实际读数给你看。</p>
       <div className="pk-modal-actions">
         <button className="button primary" onClick={onConfirm}>移除并还原</button>

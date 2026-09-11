@@ -256,7 +256,7 @@ test('every remediation primitive has a label except leave-it-alone', () => {
   assert.equal(remediationLabel({ kind: 're-calibrate' }), '重做校准')
   assert.equal(remediationLabel({ kind: 'fix-on-phone', hint: 'unseen' }), '在手机上打开')
   assert.equal(remediationLabel({ kind: 'revoke-device' }), '撤销这台设备')
-  assert.equal(remediationLabel({ kind: 'uninstall-and-restore' }), '移除手机钥匙并还原系统设置')
+  assert.equal(remediationLabel({ kind: 'uninstall-and-restore' }), '不再使用，把 Mac 改回原样')
   assert.equal(remediationLabel({ kind: 'leave-it-alone' }), null)
 })
 
