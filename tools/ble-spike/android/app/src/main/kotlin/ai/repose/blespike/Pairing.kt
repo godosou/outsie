@@ -43,7 +43,26 @@ object Pairing {
         return true
     }
 
-    fun confirm(): Boolean = server?.confirmMatch() ?: false
+    /**
+     * The human said the digits match. On success the window is OVER.
+     *
+     * It used not to close. PairingServer.stop() keeps the session when the
+     * stage is Done -- so that the stage can still be read -- and this left
+     * `server` set as well, so `isOpen` stayed true and the screen rebuilt
+     * straight back into the digits, with the same two buttons. The toast said
+     * 配对完成 and nothing visibly changed, so the natural thing was to press
+     * again: the second press found a finished session, could derive nothing,
+     * and reported 配对没有完成 for a pairing that had in fact worked on the
+     * first press.
+     *
+     * A screen that does not change after a successful action is an invitation
+     * to repeat it, and this one punished that with a false failure.
+     */
+    fun confirm(): Boolean {
+        val ok = server?.confirmMatch() ?: false
+        if (ok) stop()
+        return ok
+    }
     fun reject() { server?.reject() }
 
     fun stop() {

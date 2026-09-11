@@ -24,10 +24,20 @@ object MacState {
     @Volatile private var state: MacLockState = MacLockState.UNKNOWN
     @Volatile private var heardAtUptime: Long = 0L
 
-    /** Recorded only for a tag that verified. An unverified beacon is not news. */
-    fun heard(locked: Boolean) {
+    /**
+     * Recorded only for a tag that verified. An unverified beacon is not news.
+     *
+     * The clock is a parameter for the same reason [current] takes one: a
+     * class that reads the clock itself cannot be tested without a device, and
+     * the first version of this was written that way -- its test asserted that
+     * a fresh sighting is believed, and failed, because the stubbed
+     * elapsedRealtime() in a unit test returns 0 and 0 is how this records
+     * "never heard anything".
+     */
+    fun heard(locked: Boolean, nowUptime: Long = SystemClock.elapsedRealtime()) {
         state = if (locked) MacLockState.LOCKED else MacLockState.UNLOCKED
-        heardAtUptime = SystemClock.elapsedRealtime()
+        // Guard the sentinel: a clock reading of 0 would mean "forget it".
+        heardAtUptime = if (nowUptime == 0L) 1L else nowUptime
         SpikeState.notifyListeners()
     }
 
