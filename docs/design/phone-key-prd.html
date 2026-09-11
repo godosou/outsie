@@ -1,0 +1,657 @@
+<title>手机钥匙 PRD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,300&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  --bg:#fbfcf9; --panel:#ffffff; --sage:#eff3e9; --line:#e9ece4;
+  --ink:#303b32; --subtle:#5e685b; --muted:#78806f;
+  --accent:#526a43; --accent-in:#ffffff;
+  --attn-bg:#f7f0e9; --attn-line:#ecdfc8; --attn-ink:#83693f;
+  --ok-bg:#eaf0e0; --ok-ink:#4a6039;
+  --shadow:0 14px 40px rgba(35,53,36,.06);
+  --serif:"Newsreader", Georgia, "Songti SC", serif;
+  --sans:"Manrope", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#1b241e; --panel:#232e26; --sage:#2b382f; --line:#3a473a;
+    --ink:#dde5d8; --subtle:#b3c0ab; --muted:#97a291;
+    --accent:#a9c391; --accent-in:#1b241e;
+    --attn-bg:#2e2c20; --attn-line:#4c4432; --attn-ink:#dcc593;
+    --ok-bg:#26331f; --ok-ink:#aec894;
+    --shadow:0 14px 40px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#1b241e; --panel:#232e26; --sage:#2b382f; --line:#3a473a;
+  --ink:#dde5d8; --subtle:#b3c0ab; --muted:#97a291;
+  --accent:#a9c391; --accent-in:#1b241e;
+  --attn-bg:#2e2c20; --attn-line:#4c4432; --attn-ink:#dcc593;
+  --ok-bg:#26331f; --ok-ink:#aec894;
+  --shadow:0 14px 40px rgba(0,0,0,.3);
+}
+
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans);
+       font-size:16px; line-height:1.75; -webkit-font-smoothing:antialiased; }
+.wrap { max-width:1080px; margin:0 auto; padding:0 28px 120px; }
+.col { max-width:680px; }
+
+h1,h2,h3,.lede { font-family:var(--serif); font-weight:400; }
+h1 { font-size:clamp(34px,5.2vw,52px); line-height:1.08; letter-spacing:-.015em; margin:0 0 18px; text-wrap:balance; }
+h1 em { font-style:italic; color:var(--accent); }
+h2 { font-size:clamp(24px,3.2vw,31px); line-height:1.22; margin:0 0 6px; letter-spacing:-.01em; text-wrap:balance; }
+h3 { font-size:20px; margin:34px 0 8px; }
+h4 { font-family:var(--sans); font-size:14.5px; font-weight:700; margin:24px 0 6px; }
+p { margin:0 0 14px; }
+.lede { font-size:19px; line-height:1.62; color:var(--subtle); margin:0; }
+.eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+           color:var(--muted); margin:0 0 18px; }
+header { padding:76px 0 34px; }
+section { padding-top:62px; }
+.sec-num { font-family:var(--mono); font-size:12px; color:var(--accent); letter-spacing:.08em; display:block; margin-bottom:6px; }
+.section-lede { color:var(--subtle); margin:10px 0 26px; max-width:660px; }
+
+code { font-family:var(--mono); font-size:.88em; background:var(--sage); padding:1px 5px; border-radius:4px; }
+pre { font-family:var(--mono); font-size:12.5px; line-height:1.75; background:var(--panel);
+      border:1px solid var(--line); border-radius:12px; padding:16px 18px; overflow-x:auto; }
+pre code { background:none; padding:0; font-size:inherit; }
+
+table { width:100%; border-collapse:collapse; margin:16px 0 20px; font-size:14px; }
+th,td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase;
+     color:var(--muted); font-weight:400; }
+.tbl-wrap { overflow-x:auto; }
+
+ul,ol { margin:0 0 16px; padding-left:20px; }
+li { margin-bottom:7px; }
+
+.pill { font-family:var(--mono); font-size:10.5px; letter-spacing:.05em; border-radius:20px;
+        padding:2px 9px; white-space:nowrap; display:inline-block; }
+.pill.ok { background:var(--ok-bg); color:var(--ok-ink); }
+.pill.no { background:var(--attn-bg); color:var(--attn-ink); }
+.pill.part { background:var(--sage); color:var(--accent); }
+
+.callout { border-radius:14px; padding:16px 18px; margin:18px 0; font-size:14.5px; line-height:1.72; }
+.callout.attn { background:var(--attn-bg); border:1px solid var(--attn-line); color:var(--attn-ink); }
+.callout.note { background:var(--sage); color:var(--accent); }
+.callout b { font-weight:650; }
+
+.toc { list-style:none; counter-reset:toc; margin:32px 0 0; padding:0; display:grid; gap:1px;
+       background:var(--line); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+.toc li { counter-increment:toc; background:var(--panel); display:flex; align-items:baseline;
+          gap:12px; padding:11px 16px; margin:0; }
+.toc li::before { content:counter(toc,decimal-leading-zero); font-family:var(--mono); font-size:11px;
+                  color:var(--muted); width:20px; flex:none; }
+.toc a { color:var(--ink); text-decoration:none; font-size:14.5px; font-weight:600;
+         border-bottom:1px solid transparent; }
+.toc a:hover { border-bottom-color:var(--accent); }
+.toc span { font-size:12.5px; color:var(--muted); margin-left:auto; text-align:right; }
+
+/* Screen specs: what the screen says, beside why. */
+.screen { display:grid; grid-template-columns:minmax(0,300px) minmax(0,1fr); gap:26px;
+          align-items:start; margin:22px 0 30px; }
+@media (max-width:840px) { .screen { grid-template-columns:1fr; gap:14px; } }
+.mock { background:var(--panel); border:1px solid var(--line); border-radius:14px;
+        padding:16px 18px; box-shadow:var(--shadow); font-size:13px; line-height:1.7; }
+.mock .t { font-weight:700; font-size:15px; margin-bottom:3px; }
+.mock .s { color:var(--muted); font-size:12px; }
+.mock hr { border:0; border-top:1px solid var(--line); margin:11px 0; }
+.mock .btn { display:block; text-align:center; background:var(--accent); color:var(--accent-in);
+             border-radius:10px; padding:9px; font-size:12.5px; font-weight:600; margin-top:10px; }
+.mock .btn.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+.mock .row { display:flex; gap:10px; align-items:center; padding:8px 0; }
+.mock .row .g { flex:1; min-width:0; }
+.mock .sw { width:34px; height:20px; border-radius:12px; background:var(--accent); flex:none; }
+.mock .sw.off { background:var(--line); }
+.mock .fold { color:var(--muted); font-size:11.5px; border-top:1px solid var(--line);
+              margin-top:11px; padding-top:9px; }
+.why { font-size:14.5px; line-height:1.75; color:var(--subtle); }
+.why b { color:var(--ink); }
+.why .rule { display:inline-block; font-family:var(--mono); font-size:10.5px; letter-spacing:.05em;
+             color:var(--accent); background:var(--sage); border-radius:20px; padding:2px 9px; margin-right:6px; }
+
+footer { margin-top:90px; padding-top:24px; border-top:1px solid var(--line);
+         font-size:13.5px; color:var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { animation:none!important; transition:none!important; } }
+</style>
+
+<div class="wrap">
+
+<header class="col">
+  <p class="eyebrow">Outsie · PRD · 2026-09-11</p>
+  <h1>手机钥匙</h1>
+  <p class="lede">
+    锁屏时手机在身边，密码框留空、按一下回车就能进。
+    这份文档写的是<em>已经跑通的东西</em>——每一条能力后面都标着实测状态，
+    做不到的单独列一节，不混在里面。
+  </p>
+  <ol class="toc">
+    <li><a href="#s1">它是什么</a><span>定义与非目标</span></li>
+    <li><a href="#s2">安全模型</a><span>挡得住什么，挡不住什么</span></li>
+    <li><a href="#s3">怎么搭起来的</a><span>进程、协议、信任边界</span></li>
+    <li><a href="#s4">信息架构</a><span>侧栏、tab、层级</span></li>
+    <li><a href="#s5">Mac 界面</a><span>逐屏规格</span></li>
+    <li><a href="#s6">手机界面</a><span>逐屏规格</span></li>
+    <li><a href="#s7">关键流程</a><span>安装 · 配对 · 解锁 · 丢失</span></li>
+    <li><a href="#s8">实现状态</a><span>已实测 / 未做 / 未验证</span></li>
+    <li><a href="#s9">协议规格</a><span>三条信标的字节</span></li>
+    <li><a href="#s10">验收标准</a></li>
+    <li><a href="#s11">开放问题</a></li>
+  </ol>
+</header>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">01</span>
+  <h2 id="s1">它是什么</h2>
+  <p class="section-lede">一句话：<b>你的手机在身边时，这台 Mac 的锁屏接受一次空密码回车。</b></p>
+
+  <h4>要解决的那一刻</h4>
+  <p>安全锁屏设成「立即」之后，去接杯水回来就要重新输一次密码。一天几十次。
+    于是人把锁屏延迟调长，或者干脆关掉——<b>为了少输密码而削弱了锁屏，这是这个功能真正要避免的事。</b></p>
+
+  <h4>明确不做</h4>
+  <ul>
+    <li><b>不做"走近自动打开"。</b>密码框照样出现，你只是不用输字符。走近就开是另一种产品，风险也是另一个量级。</li>
+    <li><b>不替代密码。</b>任何状态下 Mac 密码都能登录。这句话在每一屏都常驻。</li>
+    <li><b>不做身份识别。</b>它判断的是"配对过的手机在不在附近"，不是"是不是你本人"。</li>
+    <li><b>不做远程控制。</b>手机能锁屏，不能开屏（见 §2.4）。</li>
+  </ul>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">02</span>
+  <h2 id="s2">安全模型</h2>
+  <p class="section-lede">这一节写在界面之前，因为界面上的每一句话都要对得起它。</p>
+
+  <h4>2.1 它挡得住什么</h4>
+  <ul>
+    <li><b>冒充你的手机。</b>信标里带的是一个每 30 秒滚动的 HMAC，只有持配对密钥的设备算得出来。
+      拿一份本仓库的 App 走过去是不行的——那正是 E13 修掉的漏洞。</li>
+    <li><b>配对时的中间人。</b>两端各显示六位数字，由人比对。数字来自整场交换的记录，
+      中间人必须跑两场，两边必然不同。</li>
+    <li><b>重放一条指令。</b>手机→Mac 的指令带持久化序号，Mac 只接受严格更大的。</li>
+    <li><b>篡改指令。</b>指令字段在 HMAC 覆盖范围内，改一个字节标签就失效。</li>
+  </ul>
+
+  <h4>2.2 它挡不住什么</h4>
+  <div class="callout attn">
+    <b>中继攻击。</b>两个串通的无线电可以把你手机当下的真信标转发到 Mac 旁边。
+    信标是真的、时间是对的，Mac 无从分辨。<br><br>
+    <b>手机被拿走且处于解锁状态。</b>带着它靠近就能进。<br><br>
+    <b>这台 Mac 上比手机更值钱的东西。</b>那就老实输密码，或者把这个功能关掉。
+  </div>
+
+  <h4>2.3 为什么配对必须两边都点</h4>
+  <p>人是两台设备之间<b>唯一一条中间人伪造不了的通道</b>。任何「对方已确认」的消息都要走无线，
+    而中间人同时握着和两端的不同密钥，可以把它拆开、重新封好再转发。
+    所以每台设备都必须独立地从人那里收到那声"一样"——蓝牙自己的 Numeric Comparison 也是这个道理。</p>
+  <p>但这不意味着要你盯两块屏：Mac 点完之后会<b>等着听到手机用新钥匙签名的信标</b>，
+    听到才说完成。那是事实，不是转述。</p>
+
+  <h4>2.4 为什么手机能锁屏、不能开屏</h4>
+  <p><code>system.login.screensaver</code> 这条授权规则是被<b>登录尝试</b>触发的：
+    有人在锁屏上按了回车，系统才会去问我们的插件。
+    没有登录尝试，插件根本不运行；而合成事件到不了 SecurityAgent 的会话，root 也不行。</p>
+  <p>所以手机最多只能<b>预先放行</b>下一次回车，不能代替你按。
+    曾经有一个「允许下一次解锁」按钮——手机在附近时 Mac 本来就在持续放行，那个按钮
+    <b>按下去屏幕上什么都不会变</b>，所以它被删了。</p>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">03</span>
+  <h2 id="s3">怎么搭起来的</h2>
+
+  <h4>3.1 谁持密钥，谁碰无线电</h4>
+  <p>配对密钥是 <code>root:wheel 0600</code>——<b>谁能读它，谁就能伪造信标解锁这台 Mac</b>。
+    而蓝牙权限属于 App，同一个程序在 root 下会被系统报 unauthorized。
+    这两个约束把管线切成了两半：</p>
+<pre><code>非特权（有无线电，无密钥）        特权（有密钥，无无线电）
+rssi-scan        读手机的信标  ──→  presence-verify   验 HMAC，判真伪
+state-advertise  广播 Mac 状态 ←──  permit-bridge     判近/远，写 permit
+                                    （每窗口算好两个状态的标签递出来）</code></pre>
+  <p>交接是一个文件（root 追加、App tail），不是第二条 FIFO——这条管线在 FIFO 开启顺序上死锁过。</p>
+
+  <h4>3.2 特权那半边不从用户可写目录执行</h4>
+  <div class="callout attn">
+    早期版本把两个 root 程序<b>拷进 App 数据目录</b>再执行，而那个目录用户可写。
+    任何以你身份运行的进程都能替换它们，然后在下次开启监测时拿到 root——
+    而你会看到一个写着「Outsie」的密码框，安心授权。
+    <b>那等于把授权弹窗变成了洗白通道。</b>
+    现在特权脚本随 bundle 发布，运行时不产生任何可执行文件，并且拒绝以 root 执行 <code>$HOME</code> 下的东西。
+  </div>
+
+  <h4>3.3 授权弹窗必须写 Outsie</h4>
+  <p>macOS 把弹窗归给<b>发起请求的可执行文件</b>。借道 <code>/usr/bin/osascript</code> 就写 "osascript"——
+    一个用户从没安装过的名字，出现在这个产品里唯一要他输管理员密码的时刻。
+    现在由 App 自己在进程内发起（在自己的线程上，因为那条命令要跑满整个监测周期）。</p>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">04</span>
+  <h2 id="s4">信息架构</h2>
+<pre><code>Mac 侧栏
+  休息
+    今日概览 · 休息计划 · 休息偏好 · 我的记录
+  手机控制
+    手机钥匙          ← 本文档
+    快捷控制          ← 以后（另一分支已有原型）
+  偏好设置
+
+手机
+  主屏      电脑卡片列表 + 添加电脑
+  这把钥匙  钥匙本身、配过的电脑、取消配对</code></pre>
+  <p><b>锁屏放在「手机钥匙」而不是「快捷控制」</b>：锁屏是解锁的安全对位，
+    快捷控制是效率工具。按风险分组，不按"都是手机发来的指令"分组。</p>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section>
+  <div class="col">
+    <span class="sec-num">05</span>
+    <h2 id="s5">Mac 界面</h2>
+    <p class="section-lede">左边是屏幕说什么，右边是为什么。灰色胶囊里是它遵守的约定编号（见 <code>docs/design/ui-conventions.md</code>）。</p>
+  </div>
+
+  <h3>5.1 手机钥匙 tab · 主视图</h3>
+  <div class="screen">
+    <div class="mock">
+      <div class="row"><div class="g"><div class="t">手机钥匙</div>
+        <div class="s">● 已开启 · 正在留意你的手机</div></div><div class="sw"></div></div>
+      <hr>
+      <div class="s" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em">已授权的手机</div>
+      <div class="row"><div class="g"><b>真我GT5 Pro</b><div class="s">刚刚认出</div></div>
+        <span class="pill ok">可用</span><span class="s">›</span></div>
+      <div class="row"><div class="g" style="opacity:.55"><b>备用机 Pixel 6a</b><div class="s">已停用</div></div>
+        <span class="pill no">停用</span><span class="s">›</span></div>
+      <div class="btn ghost">配对新手机</div>
+      <div style="background:var(--attn-bg);border:1px solid var(--attn-line);border-radius:10px;padding:10px 12px;margin-top:12px;font-size:12px;color:var(--attn-ink)">
+        <b>手机丢了怎么办</b><br>先在这台 Mac 上停用它。<div class="btn" style="margin-top:8px">手机不见了</div></div>
+      <div class="fold">＋ 技术细节</div>
+      <div class="s" style="margin-top:8px">Mac 密码一直都能登录。</div>
+    </div>
+    <div class="why">
+      <p><span class="rule">2.2</span>最上面那一行的开关绑在<b>监测在不在跑</b>上——
+        它能改变的那个事实。曾经绑在 <code>state</code> 上，而 <code>state</code> 在跑与不跑时都一样，
+        于是开关永远显示"开"、只有关闭分支走得到。</p>
+      <p><span class="rule">5.2</span>标题写功能名，状态写下面一行。关闭时那行是
+        <b>「已关闭 · 现在只能用密码登录」</b>——说后果，不说机制。</p>
+      <p><span class="rule">3.2</span>组件、规则、密钥指纹、macOS 版本、移除按钮，全部在「技术细节」里。
+        正常运行时屏幕上不出现任何十六进制。</p>
+      <p><span class="rule">6.4</span>一部手机都没有时不是这个列表的空版本，见 5.2。</p>
+      <p>每行写的是<b>最后一次认出</b>，不是配对时间——后者永远不变，判断"这把钥匙还该不该留着"时帮不上忙。
+        监测关掉时写「没有在留意」：<b>没找到和没在找是两件事。</b></p>
+    </div>
+  </div>
+
+  <h3>5.2 空状态</h3>
+  <div class="screen">
+    <div class="mock">
+      <div class="row"><div class="g"><div class="t">手机钥匙</div>
+        <div class="s">● 已关闭 · 现在只能用密码登录</div></div><div class="sw off"></div></div>
+      <hr>
+      <div style="background:var(--sage);border-radius:12px;padding:14px">
+        <div class="t" style="font-size:14px">还没有手机能开这台 Mac</div>
+        <div class="s">配一部手机之后，锁屏时它在身边，密码框留空、按一下回车就能进。</div>
+      </div>
+      <div class="btn">配对第一部手机</div>
+      <div class="s" style="margin-top:8px">Mac 密码一直都能登录。</div>
+    </div>
+    <div class="why">
+      <p><span class="rule">6.4</span><b>空状态不是列表的缩小版。</b>
+        一个空盒子加一个「添加」按钮，回答不了站在这里的人真正的问题：
+        这是什么、它会对我的 Mac 做什么。所以先说那一句，再给按钮。</p>
+    </div>
+  </div>
+
+  <h3>5.3 刚配完</h3>
+  <div class="screen">
+    <div class="mock">
+      <div class="s" style="font-family:var(--mono);font-size:11px">① 安装 ✓ ── ② 配对 ✓ ── <b style="color:var(--accent)">③ 试一次</b></div>
+      <div style="background:var(--sage);border-radius:12px;padding:14px;margin-top:12px">
+        <div class="t" style="font-size:14px">和「真我GT5 Pro」配好了</div>
+        <div class="s">还剩一件事：锁一次屏，确认 macOS 真的在用它。</div>
+      </div>
+      <div class="btn">锁屏，试一次</div>
+      <div class="s" style="margin-top:8px">屏幕会锁上。手机在身边时，密码框留空、直接按回车就能进。进不去也不要紧——密码一直都能用。</div>
+    </div>
+    <div class="why">
+      <p>配对结束时屏幕的职责不是显示设置，而是说<b>唯一剩下的那件事</b>。
+        今天它直接掉回完整面板，「锁屏，试一次」只是其中一行——什么都没说"成了"，也没说还差什么。</p>
+      <p><span class="rule">6.3</span>编号只出现在这里，因为安装<b>真的</b>是一个序列。
+        界面里别处一个数字都没有。</p>
+      <p><span class="rule">2.1</span>这一步之前不提供「锁屏，试一次」：没有密钥时插件只会拒绝，
+        那是一个必定失败的按钮。</p>
+    </div>
+  </div>
+
+  <h3>5.4 单部手机</h3>
+  <div class="screen">
+    <div class="mock">
+      <div class="s">‹ 已授权的手机</div>
+      <div class="row" style="border-bottom:1px solid var(--line);padding-bottom:12px">
+        <div class="g"><b>真我GT5 Pro</b><div class="s">刚刚认出 · 9 月 11 日配对</div></div>
+        <span class="pill ok">可用</span></div>
+      <div class="s" style="margin-top:8px">名字是手机自己报的，方便你认，不用拿它做核对。配对时两边比对过六位数字。</div>
+      <div class="s" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;margin-top:16px">解锁</div>
+      <div class="row"><div class="g"><b>用它解锁这台 Mac</b></div><div class="sw"></div></div>
+      <div class="row"><div class="g"><b>需要它确认才解锁</b><div class="s">更严格：光在附近不放行，要在手机上点一下</div></div><div class="sw off"></div></div>
+      <div class="s" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;margin-top:14px">控制</div>
+      <div class="row"><div class="g"><b>允许它锁定这台 Mac</b></div><div class="sw"></div></div>
+      <div class="fold">＋ 技术细节 · 密钥指纹 E6A0704D</div>
+      <div class="btn ghost" style="margin-top:12px">删除这把钥匙</div>
+    </div>
+    <div class="why">
+      <p><b>权限是每部手机各自的。</b>「这部能解锁、那部只能锁屏」是合理要求，一个全局开关满足不了。</p>
+      <p><b>停用 ≠ 删除。</b>停用可逆——钥匙还在，打开开关就回来；删除不可逆——密钥作废，要重配。
+        后果差这么远就不该长得一样，所以删除单独一块、先问一次。</p>
+      <p><span class="rule">6.5</span>名字旁边写明它只是标签：那个名字<b>不在 SAS 记录里</b>，
+        是对方随便报的，用来认不是用来核对。而且只在人确认数字一致之后才保存——
+        从一次被否决的会话里留下的名字，就是冒充者的名字。</p>
+      <p>「需要它确认才解锁」是把"人在附近"这个可被中继伪造的事实，换成"人主动做了一个动作"。
+        <b>更安全，不是更方便</b>——界面上要这么写。<span class="pill no">未实现</span></p>
+    </div>
+  </div>
+
+  <h3>5.5 配对中：核对数字</h3>
+  <div class="screen">
+    <div class="mock" style="text-align:center">
+      <div class="s">手机上现在也应该显示这串数字。两边都要点一下，先点哪边都行。</div>
+      <div style="font-family:var(--mono);font-size:34px;letter-spacing:.2em;color:var(--accent);margin:14px 0 6px">165723</div>
+      <div class="s">两边一样，就说明中间没有人冒充。</div>
+      <div class="btn">和手机上一样</div>
+      <div class="btn ghost">不一样，停下</div>
+      <div class="fold" style="text-align:left">＋ 技术细节</div>
+    </div>
+    <div class="why">
+      <p><span class="rule">3.3</span><b>屏幕上永远只有一个编号。</b>
+        这六位是整个配对里唯一需要人核对的东西，所以这一屏不放任何别的号码、任何别的按钮。
+        曾经紧接着弹出一串八位十六进制「配对编号」，而<b>没有任何东西说明该核对哪一个</b>——
+        在一个防中间人的流程里，那正是攻击者需要的困惑。</p>
+      <p>「不一样，停下」是<b>一个真答案</b>，不是取消。按了之后不要就着这次重试——
+        允许重试等于让对方一直猜，六位数字就不再是六位数字。</p>
+    </div>
+  </div>
+
+  <h3>5.6 还差手机上那一下</h3>
+  <div class="screen">
+    <div class="mock">
+      <div class="t">还差手机上那一下</div>
+      <div class="s">这台 Mac 已经记住「真我GT5 Pro」。</div>
+      <div style="text-align:center;color:var(--accent);letter-spacing:.4em;margin:16px 0">• • •</div>
+      <div class="s">在手机上点「一样，完成配对」。这里会在<b>听到手机用上新钥匙</b>时自己变成完成。</div>
+    </div>
+    <div class="why">
+      <p>点完确认，Mac 只知道<b>它自己</b>那一半。它收不到「手机也确认了」——收到了也不能信。
+        但手机拿到钥匙后会用它签名信标，<b>Mac 验得过就是两边同钥匙的证明</b>。
+        所以这一屏等的是那个信标，不是一条消息，而且屏幕上直说了这个理由：
+        一个没有解释的等待界面，读起来像在耗一个形式。</p>
+      <p><span class="rule">1.1</span>它曾经点完就宣布「配对完成」——于是会出现 Mac 配好了、
+        手机没有，而两块屏幕都不说。</p>
+    </div>
+  </div>
+
+  <h3>5.7 移除之后</h3>
+  <div class="screen">
+    <div class="mock">
+      <div class="t">已移除</div>
+      <div class="s" style="margin-top:8px">✓ 锁屏规则已从备份还原<br>✓ 组件已删除<br>✓ 这台 Mac 上的配对密钥已删除</div>
+      <div class="s" style="font-family:var(--mono);font-size:11px;margin-top:10px">现在的锁屏规则：authenticate-session-owner-or-admin</div>
+      <div class="s" style="margin-top:8px">密码登录不受影响，一直都可用。</div>
+    </div>
+    <div class="why">
+      <p><span class="rule">1.2</span>每一行都是移除之后<b>重新去系统里读出来的</b>，
+        不是代码里写死的 <code>true</code>。这条规矩有来历：本项目曾经报告「密钥已删除」而密钥还在盘上。</p>
+      <p>用户刚刚交出了管理员权限，他有权看到那一下换来了什么。
+        这一屏曾经<b>完全不存在</b>——输完密码界面一动不动，成功和失败长得一模一样。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section>
+  <div class="col">
+    <span class="sec-num">06</span>
+    <h2 id="s6">手机界面</h2>
+    <p class="section-lede">配好之后你几乎没有理由打开它。所以主屏的日常职责只有三件：
+      确认它在工作、锁住电脑、偶尔关掉。</p>
+  </div>
+
+  <h3>6.1 主屏 · 电脑卡片列表</h3>
+  <div class="screen">
+    <div class="mock" style="max-width:290px">
+      <div class="s" style="font-size:11px">outsie. · 手机钥匙</div>
+      <div style="background:var(--sage);border-radius:12px;padding:14px;text-align:center;margin-top:10px">
+        <div class="t">守着你的 2 台 Mac</div><div class="s">2 台 Mac 用的是这把钥匙</div></div>
+      <div class="row"><div class="g"><b>当你的钥匙</b><div class="s">开着</div></div><div class="sw"></div></div>
+      <div class="s" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;margin-top:12px">我的电脑</div>
+      <div class="mock" style="box-shadow:none;padding:12px;margin-top:6px">
+        <div class="row" style="padding:0"><div class="g"><b>🔒 Jingmin 的 MacBook</b>
+          <div class="s">锁着 · 走过去按回车就能进</div></div></div>
+        <div class="btn ghost" style="margin-top:8px">锁定</div>
+      </div>
+      <div class="mock" style="box-shadow:none;padding:12px;margin-top:8px">
+        <div class="row" style="padding:0"><div class="g"><b>💻 工位上的 iMac</b>
+          <div class="s">开着 · 不用解锁</div></div></div>
+        <div class="btn ghost" style="margin-top:8px">锁定</div>
+      </div>
+      <div class="btn ghost" style="margin-top:10px">添加电脑</div>
+      <div class="s" style="margin-top:8px">手机钥匙用不了的时候，Mac 密码照常登录。</div>
+    </div>
+    <div class="why">
+      <p>每张卡片是一台电脑：名字、当前状态、一个锁定按钮，点进去是详情（重新配对、取消配对、技术细节）。
+        列表下面是「添加电脑」，走配对流程。</p>
+      <p><span class="rule">1.4</span>状态是三个：<b>锁着 / 开着 / 不知道</b>。
+        「不知道」是正经答案——不在附近、睡着了、关机了、没开 App 都是它，
+        而且要写出它分不清哪几种，不要只写「未知」。</p>
+      <p><span class="rule">1.1</span>「锁着 · 走过去按回车就能进」<b>只有在 Mac 用配对密钥签名说自己锁着时才能显示</b>。
+        不验签的话，任何带无线电的人都能广播"开着"把你钉在座位上，或者广播"锁着"让你白跑一趟。</p>
+      <div class="callout attn" style="font-size:13.5px">
+        <b>这一屏需要协议改动。</b>当前的 Mac 状态信标是
+        <code>[版本, keyId, 锁着]</code>——<b>不带 Mac 的身份</b>，手机分不出是哪一台在广播。
+        载荷里有空间，加一个 Mac 标识（纳入 HMAC）即可。
+        在那之前手机只能显示"附近有一台配对过的 Mac"，不能分列。
+        <span class="pill no">未实现</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>6.2 主屏的其它三个状态</h3>
+  <div class="tbl-wrap"><table>
+    <tr><th>状态</th><th>屏幕说</th><th>为什么</th></tr>
+    <tr><td><b>已关闭</b></td><td>已关闭 · 2 台 Mac 都认不出这台手机了</td>
+        <td>说后果，不说"信标未广播"</td></tr>
+    <tr><td><b>被系统暂停</b></td><td>开关是开的，但 Android 把它停在后台了<br>→ 去设置里允许后台运行</td>
+        <td><b>这个状态今天完全没有设计。</b>realme/Oppo/小米上这是头号故障，
+            表现为"明明开着却不解锁"，而屏幕上没有任何线索——因为那句"守着你的 Mac"读的是<b>开关</b>，不是<b>进程</b></td></tr>
+    <tr><td><b>还没配对</b></td><td>先和你的电脑配对</td>
+        <td><b>不给任何控制按钮</b>：没有密钥，Mac 会拒绝每一条指令，
+            一个必定失败的按钮比没有按钮更伤</td></tr>
+  </table></div>
+
+  <h3>6.3 配对：核对数字</h3>
+  <p class="col">与 Mac 5.5 对称。六位数字最大，两个按钮：「一样，完成配对」「不一样，停下」。
+    屏幕上写明<b>为什么两边都要点</b>——任何「对方已确认」的消息都要走无线，中间人能把它拆开重发；
+    你的手指是两台设备之间唯一伪造不了的通道。</p>
+  <div class="callout note col">
+    <b>窗口是空闲超时，不是倒计时。</b>它曾经是"按下开始配对后三分钟"，
+    而这三分钟里你要走到 Mac、点配对、等扫描、比对数字、点确认、输密码——很容易超时。
+    于是手机的窗口在交换进行到一半时关掉，Mac 配好了、手机没有。
+    现在每一个协议步骤都把截止时间往后推：<b>人是这条流程里最慢的一步，不该是超时的那一个。</b>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">07</span>
+  <h2 id="s7">关键流程</h2>
+
+  <h4>7.1 安装</h4>
+  <p>三条会改变用户决定的事实在折叠线上面：<b>它动哪里</b>（在锁屏授权里加一条规则）、
+    <b>怎么还原</b>（先备份，移除时照备份还原并把结果读回来给你看）、
+    <b>它挡不住什么</b>（判断的是手机在不在，不是是不是你）。其余收进「更详细的」。</p>
+  <p>然后一次管理员密码。<b>要点之前先说会看到什么</b>：弹窗标题写 Outsie，不是的话就别输。</p>
+
+  <h4>7.2 配对</h4>
+<pre><code>手机「开始配对」  →  Mac「配对手机」  →  两边各出现六位数字
+                                            ↓
+                        两边都点「一样」（顺序不限）
+                                            ↓
+                   Mac 写入密钥（一次管理员密码）
+                                            ↓
+                   Mac「还差手机上那一下」 ← 等着听见手机用新钥匙签名
+                                            ↓
+                              配对完成</code></pre>
+
+  <h4>7.3 解锁</h4>
+  <p>手机在附近 → 桥每 5 秒写一次 permit（root 拥有、带时间戳）→
+    你在锁屏按回车 → 插件看到新鲜的 permit → 返回 Allow。</p>
+  <p>permit <b>15 秒过期</b>，桥每 5 秒续一次。所以"在场"是一件<b>要持续主张的事</b>，不是一个开关：
+    桥崩了、手机走了、机器睡了，permit 自己就过期，门自动关上。</p>
+
+  <h4>7.4 手机丢了</h4>
+  <p>列表页上一张卡，不是藏在某处的设置——<b>人最慌的时候会来找它</b>。
+    第一句是你在眼前这台 Mac 上马上能做的：停用它的钥匙，立刻生效，不需要碰到手机。</p>
+  <div class="callout attn">
+    <b>远程停用还没做</b>，所以每一台配过它的 Mac 都要各做一次。
+    直说，不给含糊的安慰。
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section>
+  <div class="col">
+    <span class="sec-num">08</span>
+    <h2 id="s8">实现状态</h2>
+    <p class="section-lede">这一节是这份 PRD 里最重要的一张表。
+      <b>「设计了」和「能用」是两件事</b>，混在一起写是这个项目犯过最贵的错误。</p>
+  </div>
+  <div class="tbl-wrap"><table>
+    <tr><th style="width:34%">能力</th><th style="width:16%">状态</th><th>证据 / 缺什么</th></tr>
+    <tr><td>SAS 配对（比对六位数字）</td><td><span class="pill ok">实测通过</span></td>
+        <td>两端同时显示 <code>165723</code>；协议自检含 OpenSSL 已知答案向量</td></tr>
+    <tr><td>在场信标 + HMAC 认证</td><td><span class="pill ok">实测通过</span></td>
+        <td>真机 16/16 VALID，冒充者 0/24</td></tr>
+    <tr><td>插件在 macOS 26.6.2 上放行</td><td><span class="pill ok">实测通过</span></td>
+        <td><code>MechanismInvoke result=Allow</code>，两次。此前所有插件证据都来自 14.6.1 的 VM</td></tr>
+    <tr><td>手机 → Mac 锁屏指令</td><td><span class="pill ok">实测通过</span></td>
+        <td>25 秒窗口内 Mac 收到 21 次；序号防重放；<code>pmset displaysleepnow</code> 实测锁屏</td></tr>
+    <tr><td>Mac → 手机 状态信标</td><td><span class="pill ok">实测通过</span></td>
+        <td>手机显示「你的 Mac：开着」，标签用配对密钥验过</td></tr>
+    <tr><td>配对时交换设备名</td><td><span class="pill ok">实测通过</span></td>
+        <td>Mac 收到「真我GT5 Pro」</td></tr>
+    <tr><td>安装 / 移除并还原</td><td><span class="pill ok">实测通过</span></td>
+        <td>规则从备份还原、组件删除、密钥删除，逐条读回</td></tr>
+    <tr><td>一台 Mac 配多部手机</td><td><span class="pill part">协议支持，流程未做</span></td>
+        <td>验证器已按 <code>presence-key.&lt;keyId&gt;</code> 读，信标带 keyId。
+            差的是配对时分配空槽 + 列表 UI</td></tr>
+    <tr><td>一部手机配多台 Mac</td><td><span class="pill no">未实现</span></td>
+        <td>手机永远写第 1 槽，<b>配第二台会覆盖第一台</b>。
+            需要改成"把已有钥匙通过 SAS 通道传给新 Mac"</td></tr>
+    <tr><td>手机上按 Mac 区分状态</td><td><span class="pill no">未实现</span></td>
+        <td>状态信标不带 Mac 身份。载荷有空间，加一个标识并纳入 HMAC</td></tr>
+    <tr><td>需要手机确认才解锁（严格模式）</td><td><span class="pill no">未实现</span></td>
+        <td>指令码点 <code>2</code> 已保留</td></tr>
+    <tr><td>快捷控制 tab</td><td><span class="pill no">未实现</span></td>
+        <td>另一分支有原型</td></tr>
+    <tr><td>远程停用</td><td><span class="pill no">未实现</span></td>
+        <td>界面上直说了做不到</td></tr>
+    <tr><td>距离校准</td><td><span class="pill no">未实现</span></td>
+        <td><code>-72/-85</code> 是占位值，脚本里自己标着"不要发布这两个数字"</td></tr>
+    <tr><td>8 小时耐久 / Doze</td><td><span class="pill no">未做</span></td>
+        <td>明确推迟</td></tr>
+    <tr><td>真·中间人测试</td><td><span class="pill no">未做</span></td>
+        <td>需要第二台 Android</td></tr>
+    <tr><td>permit 缺失时正确拒绝</td><td><span class="pill part">VM 验过，本机未验</span></td>
+        <td>拒绝路径在 14.6.1 上验过（e3），26.6.2 上只验过放行</td></tr>
+  </table></div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">09</span>
+  <h2 id="s9">协议规格</h2>
+
+  <h4>9.1 在场信标 <code>repose-presence-v2</code>（手机 → Mac，不可连接）</h4>
+<pre><code>服务 UUID  0xFFF0
+载荷       version(1) ‖ keyId(1) ‖ cmd(1) ‖ seq(4 BE) ‖ tag(8)        15 字节
+预映像     "repose-presence-v2 beacon" ‖ keyId(1) ‖ counter(8 BE) ‖ cmd(1) ‖ seq(4 BE)
+tag        HMAC-SHA256(K, msg)[0..8)
+counter    floor(unix / 30)，从不传输——两端各自用自己的时钟推算，±1 窗口容差
+cmd        0 无指令 · 1 锁屏 · 2 保留（曾用于"允许解锁"，已撤回）
+seq        手机持久化递增；Mac 记住每个 keyId 的最大值，只接受严格更大的</code></pre>
+  <p><b>指令放在信标里而不是新开连接</b>：这样"必须在附近"是<b>免费</b>得到的——
+    Mac 得听得到这条广播才拿得到指令，而听得到的距离就是距离。没有第二个距离检查要维护，也就不会写错。</p>
+
+  <h4>9.2 Mac 状态信标 <code>repose-macstate-v1</code>（Mac → 手机）</h4>
+<pre><code>服务 UUID  0xFFF7
+载荷       version(1) ‖ keyId(1) ‖ state(1) ‖ tag(8)                  13 字节
+预映像     "repose-macstate-v1 beacon" ‖ keyId(1) ‖ counter(8 BE) ‖ state(1)</code></pre>
+  <p><b>标签串和在场信标不同，这是承重的</b>：一条"这台 Mac 开着"的录音，不能同时当成"手机在场"的伪造。</p>
+  <p>载荷经 local name 以十六进制携带——CoreBluetooth 在 macOS 上不允许外围发布 Service Data。
+    同样的字节，同样被标签覆盖。</p>
+
+  <h4>9.3 配对 <code>repose-pair-v2</code></h4>
+<pre><code>服务 UUID  0xFFF1（连接式，只在配对窗口内广播）
+M1  Mac → 手机   PK_M (65, SEC1 未压缩)              写 FFF2
+P1  手机 → Mac   PK_P (65) ‖ Cp (32)                 读 FFF3
+M2  Mac → 手机   Nm (16)                             写 FFF4
+P2  手机 → Mac   Np (16)                             读 FFF5
+名   双向        显示名（装饰性，不在记录里）          读写 FFF6
+
+Cp   = SHA256("repose-pair-v2 commit" ‖ PK_M ‖ PK_P ‖ Np)     先承诺后公布
+记录 = SHA256("repose-pair-v2 sas"    ‖ PK_M ‖ PK_P ‖ Nm ‖ Np)
+数字 = 记录前 4 字节 mod 1e6，补零到六位
+K    = HKDF-SHA256(ECDH_x, salt=记录, info="repose-pair-v2 presence-key")</code></pre>
+  <p><b>先承诺后公布</b>是整个协议的支点：手机必须在看到 Mac 的 nonce 之前就锁定自己的。
+    校验失败意味着有人在看到对方之后才选自己的数——<b>那正是中间人会留下的痕迹</b>，
+    所以那一刻的文案是"已中止，不要重试这次会话"，不是"出错了，再试一次"。</p>
+  <p>记录当 HKDF 的 salt：即便六位数字碰撞，中间人两边握着的也是不同的 K。</p>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="col">
+  <span class="sec-num">10</span>
+  <h2 id="s10">验收标准</h2>
+  <ol>
+    <li><b>干净安装到能解锁</b>：从没装过开始，全程只用界面，走到锁屏按回车进入。不碰命令行。</li>
+    <li><b>拒绝路径</b>：手机拿走 / 关掉信标 / 停掉监测，锁屏必须要求密码。三种都要单独验。</li>
+    <li><b>冒充</b>：另一台设备广播同样的服务 UUID，必须 0 次放行。</li>
+    <li><b>移除即还原</b>：移除之后 <code>system.login.screensaver</code> 与安装前逐字节一致。</li>
+    <li><b>每一句状态文案都指得出它读的是哪个事实</b>。指不出来的删掉。</li>
+    <li><b>任何一屏上，必定失败的按钮不存在</b>。</li>
+    <li><b>每一屏都能找到「密码一直都能登录」</b>。</li>
+  </ol>
+</section>
+
+<section class="col">
+  <span class="sec-num">11</span>
+  <h2 id="s11">开放问题</h2>
+  <ul>
+    <li><b>中继攻击</b>没有对策，也不打算有——那需要测距（UWB）或往返时延测量，蓝牙 RSSI 做不到。
+      界面上直说。</li>
+    <li><b>手机能不能真的"按回车"</b>：走蓝牙 HID 键盘理论上可行（HID 是驱动层，和合成事件不是一回事），
+      但决定成败的那一环——锁屏时一台断开的 BR/EDR 键盘能否重连并被接受——<b>零证据</b>。
+      验证顺序是先买一把普通蓝牙键盘把 Mac 侧验完，零代码；那一步不过，后面全不用做。</li>
+    <li><b>距离阈值</b>还是占位值，需要真实校准，而且校准要能失败并要求重做。</li>
+    <li><b>另一个第三方插件</b>已经在这台 Mac 的锁屏规则里，<code>k-of-n=1</code> 下两者的相互影响没单独测过。</li>
+    <li><b>字号与对比度</b>：全局 52% 的字号声明小于 11px，<code>--muted</code> 对比度 3.11:1 不足。
+      数值与建议值记在 <code>docs/design/ui-conventions.md</code> §7，等一次专门的视觉评审。</li>
+  </ul>
+</section>
+
+<footer class="col">
+  配套文档：<code>docs/design/ui-conventions.md</code>（界面约定，每条附着当时的失败现场）·
+  <code>docs/plans/2026-09-11-phone-commands.md</code>（指令通道设计）·
+  <code>docs/validation/</code>（实测记录）。
+  文中每一处<span class="pill no">未实现</span>都对应 §8 表里的一行，没有例外。
+</footer>
+
+</div>
