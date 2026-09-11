@@ -113,10 +113,15 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
     setShowInstall(false)
     if (!bridge) return
     await run('install', async () => {
-      const pre = await bridge.preflight().catch(() => null)
-      const variant = (pre && typeof pre === 'object' && 'variant' in pre)
-        ? ((pre as { variant: 'A' | 'B' | null }).variant) : null
-      return bridge.install({ variant })
+      const p = await bridge.preflight().catch(() => null)
+      const variant = (p && typeof p === 'object' && 'variant' in p)
+        ? ((p as { variant: 'A' | 'B' | null }).variant) : null
+      const snap = await bridge.install({ variant })
+      // Installing the component is not the same as watching for the phone.
+      // Leaving presence stopped here would put the panel in the one state the
+      // user cannot diagnose: installed, switched on, and nothing happening.
+      await bridge.setPresenceRunning({ enabled: true }).catch(() => null)
+      return snap
     })
   }, [bridge, run])
 
@@ -149,8 +154,21 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
           disabled={degraded || busy}
           onClick={() => {
             if (degraded) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
-            if (enabled) { void run('resume', () => bridge!.setEnabled({ enabled: false })) }
-            else {
+            if (enabled) {
+              // Stop watching first, then record the preference. The other order
+              // leaves a scanner running for a feature the panel says is off.
+              void run('resume', async () => {
+                await bridge!.setPresenceRunning({ enabled: false }).catch(() => null)
+                return bridge!.setEnabled({ enabled: false })
+              })
+            } else if (snapshot.state !== 'not-installed') {
+              // Already installed: turning it back on is just resuming, no need
+              // to re-disclose an install that already happened.
+              void run('resume', async () => {
+                await bridge!.setEnabled({ enabled: true })
+                return bridge!.setPresenceRunning({ enabled: true })
+              })
+            } else {
               // Never flip green on click; disclose, then install.
               setPre(null)
               setShowInstall(true)

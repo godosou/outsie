@@ -889,6 +889,7 @@ pub fn run() {
             unlock::unlock_repair,
             unlock::unlock_uninstall,
             unlock::unlock_set_enabled,
+            unlock::unlock_presence_set,
             unlock::unlock_pause_for,
             unlock::unlock_revoke_device,
             unlock::unlock_pair_begin,

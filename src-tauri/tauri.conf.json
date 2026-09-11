@@ -54,7 +54,9 @@
       "../native/macos/minimal-auth-plugin/build/ReposeSpike.bundle": "scripts/build/ReposeSpike.bundle",
       "../tools/ble-spike/mac/permit-bridge.sh": "scripts/permit-bridge.sh",
       "../tools/ble-spike/mac/presence-pipeline.sh": "scripts/presence-pipeline.sh",
-      "../tools/lib/run-root.sh": "lib/run-root.sh"
+      "../tools/lib/run-root.sh": "lib/run-root.sh",
+      "../tools/ble-spike/mac/rssi-scan": "scripts/rssi-scan",
+      "../tools/ble-spike/mac/presence-verify": "scripts/presence-verify"
     }
   }
 }

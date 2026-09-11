@@ -866,12 +866,139 @@ fn shell_quote(s: &str) -> String {
 
 /// Find the directory holding install.sh etc. — the bundle's resource dir in a
 /// packaged app, or a repo-relative dev fallback.
+/// Where the running pipeline's pid is recorded.
+///
+/// A pidfile rather than a handle in memory, because the pipeline outlives any
+/// single run of this app: quit Repose with presence running and something is
+/// still scanning and still writing permits. Without a record on disk the next
+/// launch cannot find it, and "start" would quietly add a second scanner
+/// fighting the first over the radio.
+pub const PID_FILE: &str = "presence.pid";
+
+/// What to do when asked to start or stop.
+#[derive(Debug, PartialEq)]
+pub enum PipelineAction {
+    Start,
+    Stop(u32),
+    /// Already in the requested state. Starting twice would put two scanners on
+    /// one radio; stopping nothing is merely pointless.
+    Nothing,
+}
+
+/// Decide from a pidfile and whether that process is alive.
+///
+/// Separated from the doing so the awkward cases are testable: a pidfile left
+/// behind by a crash, a pid that has been recycled by something else, a file
+/// full of nonsense.
+pub fn pipeline_action(pidfile: Option<&str>, alive: bool, want_running: bool) -> PipelineAction {
+    let pid = pidfile.and_then(read_pid);
+    match (pid, alive, want_running) {
+        // A pidfile whose process is gone is a crash, not a running pipeline.
+        (Some(_), false, true) | (None, _, true) => PipelineAction::Start,
+        (Some(_), true, true) => PipelineAction::Nothing,
+        (Some(p), true, false) => PipelineAction::Stop(p),
+        (Some(_), false, false) | (None, _, false) => PipelineAction::Nothing,
+    }
+}
+
+pub fn read_pid(text: &str) -> Option<u32> {
+    let t = text.trim();
+    // Refuse 0 and 1: killing pid 1 is not a mistake worth making recoverable.
+    match t.parse::<u32>() {
+        Ok(p) if p > 1 => Some(p),
+        _ => None,
+    }
+}
+
 /// Where the bridge publishes, and where the app looks. One definition, so the
 /// two cannot drift into a panel that reads a file nobody writes.
 pub fn status_path(app: &AppHandle) -> Option<PathBuf> {
     let dir = app.path().app_data_dir().ok()?;
     let _ = std::fs::create_dir_all(&dir);
     Some(dir.join(STATUS_FILE))
+}
+
+/// Where the BLE tools live: presence-pipeline.sh and the two Swift binaries.
+///
+/// Separate from the installer's directory because they come from different
+/// places in the repo, and because the dev fallback has to point somewhere
+/// different. In a packaged app both land under Resources/scripts.
+fn resolve_ble_dir(app: &AppHandle) -> Option<PathBuf> {
+    if let Ok(res) = app.path().resource_dir() {
+        let c = res.join("scripts");
+        if c.join("presence-pipeline.sh").exists() {
+            return Some(c);
+        }
+    }
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tools/ble-spike/mac");
+    dev.join("presence-pipeline.sh").exists().then_some(dev)
+}
+
+fn pid_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join(PID_FILE))
+}
+
+/// Is this pid still running? `kill -0` answers without signalling.
+fn pid_alive(pid: u32) -> bool {
+    run_status("/bin/kill", &["-0", &pid.to_string()]).unwrap_or(false)
+}
+
+/// Start or stop the presence pipeline to match `want_running`.
+///
+/// The pipeline needs one administrator authorization for its privileged half.
+/// That prompt is the user's to answer, which is why this is driven by the
+/// panel's switch and never by a background refresh.
+pub fn set_presence_running(app: &AppHandle, want_running: bool) -> Result<(), UnlockError> {
+    let pidfile = pid_path(app);
+    let text = pidfile.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+    let alive = text.as_deref().and_then(read_pid).map(pid_alive).unwrap_or(false);
+
+    match pipeline_action(text.as_deref(), alive, want_running) {
+        PipelineAction::Nothing => Ok(()),
+        PipelineAction::Stop(pid) => {
+            // TERM, so the bridge's handler gets a chance to clear the permit.
+            // If it does not reach it, the plugin ages the permit out within
+            // PERMIT_FRESHNESS_S regardless -- see permit-bridge.sh.
+            let _ = run_status("/bin/kill", &["-TERM", &pid.to_string()]);
+            if let Some(p) = pidfile {
+                let _ = std::fs::remove_file(p);
+            }
+            Ok(())
+        }
+        PipelineAction::Start => {
+            let dir = resolve_ble_dir(app).ok_or_else(|| {
+                UnlockError::new(UnlockErrorCode::Unsupported, "找不到在场监测的程序")
+            })?;
+            let status = status_path(app).ok_or_else(|| {
+                UnlockError::new(UnlockErrorCode::Unsupported, "找不到可写的应用数据目录")
+            })?;
+            let work = app
+                .path()
+                .app_data_dir()
+                .map(|d| d.join("presence-run"))
+                .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+            let _ = std::fs::create_dir_all(&work);
+
+            let child = Command::new("/bin/bash")
+                .arg(dir.join("presence-pipeline.sh"))
+                .arg("0") // run until stopped
+                .env("REPOSE_STATUS_FILE", &status)
+                .env("REPOSE_PIPELINE_DIR", &work)
+                // Local target: the plugin is on this machine, so the permit is a
+                // local root-owned file and the whole privileged half is one
+                // prompt. REPOSE_SSH being absent is what selects that.
+                .env_remove("REPOSE_SSH")
+                .spawn()
+                .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
+
+            if let Some(p) = pid_path(app) {
+                let _ = std::fs::write(p, child.id().to_string());
+            }
+            Ok(())
+        }
+    }
 }
 
 fn resolve_scripts_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -929,6 +1056,14 @@ pub fn unlock_repair(app: AppHandle, value: RepairArgs) -> Result<UnlockSnapshot
 #[tauri::command]
 pub fn unlock_uninstall(app: AppHandle) -> Result<UninstallReport, UnlockError> {
     HostMacBackend::new(&app).uninstall()
+}
+
+/// Start or stop presence monitoring. Wired to the panel's switch, because it
+/// raises an authorization prompt and a prompt must follow a deliberate action.
+#[tauri::command]
+pub fn unlock_presence_set(app: AppHandle, value: EnabledArgs) -> Result<UnlockSnapshot, UnlockError> {
+    set_presence_running(&app, value.enabled)?;
+    HostMacBackend::new(&app).get_snapshot()
 }
 
 #[tauri::command]
@@ -1194,6 +1329,54 @@ mod tests {
         let a = assess(&facts());
         let d = &find(&a, ComponentId::Transport).detail;
         assert!(d.contains("不是"), "the transport row must disclaim pairing: {d}");
+    }
+
+    // ---- pipeline lifecycle ------------------------------------------------
+
+    #[test]
+    fn nothing_recorded_means_start() {
+        assert_eq!(pipeline_action(None, false, true), PipelineAction::Start);
+    }
+
+    #[test]
+    fn a_live_pipeline_is_not_started_again() {
+        // Two scanners on one radio is not twice the presence; it is two
+        // processes taking turns missing the phone.
+        assert_eq!(pipeline_action(Some("4242"), true, true), PipelineAction::Nothing);
+    }
+
+    #[test]
+    fn a_pidfile_left_by_a_crash_starts_rather_than_blocks() {
+        // The file outlives the process. Treating a stale one as "already
+        // running" would leave presence permanently off with no way back except
+        // finding and deleting a file the user has never heard of.
+        assert_eq!(pipeline_action(Some("4242"), false, true), PipelineAction::Start);
+    }
+
+    #[test]
+    fn stopping_signals_the_recorded_pid() {
+        assert_eq!(pipeline_action(Some("4242"), true, false), PipelineAction::Stop(4242));
+    }
+
+    #[test]
+    fn stopping_something_already_gone_does_nothing() {
+        assert_eq!(pipeline_action(Some("4242"), false, false), PipelineAction::Nothing);
+        assert_eq!(pipeline_action(None, false, false), PipelineAction::Nothing);
+    }
+
+    #[test]
+    fn a_nonsense_pidfile_is_not_a_pid() {
+        // Including the two that would be catastrophic to signal.
+        for bad in ["", "  ", "nope", "-1", "0", "1", "99999999999999999999"] {
+            assert_eq!(read_pid(bad), None, "{bad:?} must not parse as a pid");
+        }
+        assert_eq!(read_pid(" 4242\n"), Some(4242));
+    }
+
+    #[test]
+    fn a_nonsense_pidfile_starts_rather_than_signalling_something_random() {
+        assert_eq!(pipeline_action(Some("nope"), true, true), PipelineAction::Start);
+        assert_eq!(pipeline_action(Some("1"), true, false), PipelineAction::Nothing);
     }
 
     // ---- presence ---------------------------------------------------------

@@ -488,6 +488,8 @@ export function reduceRevocationConfirmation(
 export type UnlockDesktopBridge = {
   getSnapshot: () => Promise<unknown>
   preflight: () => Promise<unknown>
+  /** Start or stop presence monitoring. Raises one administrator prompt on start. */
+  setPresenceRunning: (value: { enabled: boolean }) => Promise<unknown>
   install: (value: { variant: 'A' | 'B' | null }) => Promise<unknown>
   repair: (value: { target: 'rule' | 'component' | 'daemon' }) => Promise<unknown>
   uninstall: () => Promise<unknown>

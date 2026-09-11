@@ -146,6 +146,7 @@ export async function initializeDesktopBridge() {
     repair: value => invoke<unknown>('unlock_repair', { value }),
     uninstall: () => invoke<unknown>('unlock_uninstall'),
     setEnabled: value => invoke<unknown>('unlock_set_enabled', { value }),
+    setPresenceRunning: value => invoke<unknown>('unlock_presence_set', { value }),
     revokeDevice: value => invoke<unknown>('unlock_revoke_device', { value }),
     beginPairing: () => invoke<unknown>('unlock_pair_begin'),
     calibrateSample: value => invoke<unknown>('unlock_calibrate_sample', { value }),
