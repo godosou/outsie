@@ -201,7 +201,7 @@ if [ "${MODE}" = remote ]; then
 else
   tail -n +1 -f "${RAW}" \
     | "${BIN}/presence-verify" --key-dir "${KEY_DIR}" 2>> "${WORK}/verify.log" \
-    | sh "${BIN}/permit-bridge.sh" 2>> "${WORK}/bridge.log" &
+    | bash "${BIN}/permit-bridge.sh" 2>> "${WORK}/bridge.log" &
 fi
 
 while [ -e "${RUNFLAG}" ]; do sleep 1; done

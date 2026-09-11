@@ -287,6 +287,26 @@ sleep 2
            "status='$(cat "${STATUS}" 2>/dev/null)' actions='$(tr '\n' ' ' <"${ACTIONS}")'"
 kill -9 "${sig_pid}" 2>/dev/null
 
+# 20. Whatever starts this script must start it with bash.
+#
+#     It declares #!/bin/bash and relies on bash's `read -t` semantics for the
+#     staleness timer. Under /bin/sh the timer never fires: measured here, one
+#     STALE line under bash and zero under sh, same input. The permit then stays
+#     asserted after the phone has gone -- which is the one failure this script
+#     exists to prevent.
+#
+#     It was running under sh in the local pipeline while every test ran it under
+#     bash, so the tests were green and the product was not. Checking the callers
+#     is the only place that difference is visible.
+for caller in "${HERE}/presence-pipeline.sh"; do
+    name="$(basename "${caller}")"
+    if grep -E '(^|[^a-z])sh +"[^"]*permit-bridge\.sh"' "${caller}" >/dev/null 2>&1; then
+        bad "${name} starts permit-bridge.sh with bash" "found an 'sh …permit-bridge.sh' invocation"
+    else
+        ok "${name} starts permit-bridge.sh with bash"
+    fi
+done
+
 echo
 echo "${pass} passed, ${fail} failed"
 [ "${fail}" = 0 ]
