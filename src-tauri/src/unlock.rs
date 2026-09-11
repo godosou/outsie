@@ -263,20 +263,30 @@ pub struct PairingSession {
     /// The six digits, only in `Compare`.
     pub digits: Option<String>,
     /// The paired key's short fingerprint, only in `Done`.
+    ///
+    /// No longer the headline. Two opaque codes in one flow -- six digits to
+    /// compare and eight hex characters to ignore -- left people asking which
+    /// one mattered, and that is the worst question to be unsure about here.
+    /// It is still computed and still comparable; it now sits behind 技术细节.
     pub fingerprint: Option<String>,
+    /// What the phone calls itself. Cosmetic: not covered by the SAS
+    /// transcript, so it identifies nobody — it is there because a human can
+    /// hold "realme GT" in their head and cannot hold "E6A0704D".
+    pub peer_name: Option<String>,
     /// Plain-language explanation, mainly for `Failed`.
     pub detail: Option<String>,
 }
 
 impl PairingSession {
     fn stage(stage: PairingStage) -> Self {
-        Self { stage, digits: None, fingerprint: None, detail: None }
+        Self { stage, digits: None, fingerprint: None, peer_name: None, detail: None }
     }
     fn failed(detail: impl Into<String>) -> Self {
         Self {
             stage: PairingStage::Failed,
             digits: None,
             fingerprint: None,
+            peer_name: None,
             detail: Some(detail.into()),
         }
     }
@@ -321,6 +331,7 @@ pub fn pairing_stage(digits: Option<&str>, exit_code: Option<Option<i32>>) -> Pa
             stage: PairingStage::Compare,
             digits: Some(d.trim().to_string()),
             fingerprint: None,
+            peer_name: None,
             detail: None,
         },
     }
@@ -1355,6 +1366,7 @@ pub fn unlock_revoke_device(app: AppHandle, value: DeviceArgs) -> Result<UnlockS
 struct LivePairing {
     child: std::process::Child,
     digits_path: PathBuf,
+    peer_path: PathBuf,
 }
 
 static PAIRING: std::sync::Mutex<Option<LivePairing>> = std::sync::Mutex::new(None);
@@ -1419,12 +1431,16 @@ pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> 
 
     let run = pairing_dir(&app)?;
     let digits_path = run.join("sas-digits");
+    let peer_path = run.join("peer-name");
     let _ = std::fs::remove_file(&digits_path);
+    let _ = std::fs::remove_file(&peer_path);
     let log = std::fs::File::create(run.join("pair.log")).ok();
 
     let child = Command::new(&tool)
         .arg("--digits-file")
         .arg(&digits_path)
+        .arg("--peer-file")
+        .arg(&peer_path)
         // Three minutes, matching the phone's own self-closing window. A longer
         // one would leave a connectable surface up after the person walked away.
         .arg("--timeout")
@@ -1435,7 +1451,7 @@ pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> 
         .spawn()
         .map_err(|e| UnlockError::new(UnlockErrorCode::Unsupported, e.to_string()))?;
 
-    *slot = Some(LivePairing { child, digits_path });
+    *slot = Some(LivePairing { child, digits_path, peer_path });
     Ok(PairingSession::stage(PairingStage::Scanning))
 }
 
@@ -1503,34 +1519,84 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     }
 
     let fingerprint = key_fingerprint(&key);
+    let peer_name = std::fs::read_to_string(&live.peer_path)
+        .ok()
+        .map(|s| s.trim().chars().take(60).collect::<String>())
+        .filter(|s| !s.is_empty());
 
     // Install it. One administrator prompt, attributed to Repose.
     //
-    // The key is interpolated into a shell command rather than piped, so it is
-    // briefly visible to `ps` on this machine. That is worth naming: the
-    // alternative under `with administrator privileges` is a temp file the
-    // unprivileged side writes, which is readable for longer. Both are short;
-    // neither is good. Tightening this is tracked, not pretended away.
+    // The key goes via a 0600 file the unprivileged side writes, NOT
+    // interpolated into the shell command. Two reasons, one of which cost a
+    // working pairing:
+    //
+    //   - An argument list is readable by every process on the machine, and
+    //     this is the one moment the presence key exists outside a root-only
+    //     file.
+    //   - The first version built `printf '%%s\n' <key>` with format!, on the
+    //     habit that %% escapes a percent. It does not -- format! only treats
+    //     {} specially -- so the shell received `printf '%%s\n'`, which prints
+    //     the literal text "%s" and ignores its argument. The key file came out
+    //     three bytes long, the verifier refused it, and the app reported
+    //     配对完成 over a Mac that could never recognise the phone.
+    let staged = pairing_dir(&app)?.join("key.hex");
+    std::fs::write(&staged, &key)
+        .map_err(|e| UnlockError::new(UnlockErrorCode::InstallFailed, e.to_string()))?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600));
+    }
+    let staged_path = staged.display().to_string();
     let script = format!(
-        "do shell script \"mkdir -p /var/db/repose-unlock && chown root:wheel /var/db/repose-unlock \
-         && chmod 755 /var/db/repose-unlock \
-         && install -m 600 -o root -g wheel /dev/null /var/db/repose-unlock/presence-key.1 \
-         && printf '%%s\\\\n' {key} > /var/db/repose-unlock/presence-key.1 \
-         && printf 'repose-pair-v2\\\\n' > /var/db/repose-unlock/presence-key.1.provenance \
-         && chmod 644 /var/db/repose-unlock/presence-key.1.provenance\" with administrator privileges"
+        "do shell script \"mkdir -p {KEY_DIR} && chown root:wheel {KEY_DIR} && chmod 755 {KEY_DIR} \
+         && install -m 600 -o root -g wheel '{staged_path}' {KEY_DIR}/presence-key.1 \
+         && echo repose-pair-v2 > {KEY_DIR}/presence-key.1.provenance \
+         && chmod 644 {KEY_DIR}/presence-key.1.provenance\" with administrator privileges",
+        KEY_DIR = PRESENCE_KEY_DIR,
     );
-    run_privileged(&script)?;
+    let installed = run_privileged(&script);
+    // The staged copy is the key in the clear. It goes whether or not the
+    // install worked.
+    let _ = std::fs::remove_file(&staged);
+    installed?;
+
+    // Read back before claiming anything.
+    //
+    // This is the check that would have caught the printf bug at the moment it
+    // happened rather than one lock screen later. The file is root-only so its
+    // contents are unreadable from here, but its size is not -- and a key that
+    // is not 65 bytes is not a key the verifier will take.
+    //
+    // The directory is 755 on purpose, which is what makes this possible.
+    let key_path = format!("{PRESENCE_KEY_DIR}/presence-key.1");
+    let landed = std::fs::metadata(&key_path).map(|m| m.len()).unwrap_or(0);
+    if landed != (key.len() + 1) as u64 && landed != key.len() as u64 {
+        return Ok(PairingSession::failed(
+            "密钥没有正确写入这台 Mac，配对没有生效。请重新配对一次。",
+        ));
+    }
 
     // Pairing is not finished until this Mac is actually watching for the
     // phone. Stopping at "key written" hands back a paired Mac that does
     // nothing, and the panel would have said 已配对 above a dead pipeline.
     let _ = set_presence_running(&app, true);
 
+    // The nickname is cosmetic, so saving it must never be able to fail the
+    // pairing: a Mac that paired correctly but could not write a name is
+    // paired.
+    if let (Some(n), Ok(dir)) = (&peer_name, pairing_dir(&app)) {
+        let _ = std::fs::write(dir.join("peer-name.saved"), n);
+    }
+
     Ok(PairingSession {
         stage: PairingStage::Done,
         digits: None,
         fingerprint,
-        detail: Some("这台 Mac 已经认得你的手机了。".into()),
+        peer_name: peer_name.clone(),
+        detail: Some(match &peer_name {
+            Some(n) => format!("这台 Mac 现在认得「{n}」了。"),
+            None => "这台 Mac 已经认得你的手机了。".into(),
+        }),
     })
 }
 

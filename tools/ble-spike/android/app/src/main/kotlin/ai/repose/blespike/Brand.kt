@@ -265,3 +265,61 @@ fun passwordFallbackNote(context: Context, pal: Palette): TextView =
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
     }
+
+/**
+ * A collapsed 技术细节 block carrying the key fingerprint.
+ *
+ * The fingerprint used to be the headline of two screens, under the label
+ * 配对编号, immediately after a flow whose whole point was comparing six
+ * different digits. Two opaque codes, no way to tell from the screen which one
+ * mattered — and being unsure about that is exactly the confusion a man in the
+ * middle needs.
+ *
+ * It is not deleted, because it is the only way to check that two devices hold
+ * the same key after the fact. It is just no longer competing for attention
+ * with the one number a person is actually required to read.
+ */
+fun techDetails(context: Context, pal: Palette, fingerprint: String?): View {
+    val wrap = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+    val body = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        visibility = View.GONE
+    }
+    val toggle = TextView(context).apply {
+        text = "＋ 技术细节"
+        setTextColor(pal.textSecondary)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        setPadding(context.dp(4), context.dp(10), context.dp(4), context.dp(10))
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            val open = body.visibility == View.VISIBLE
+            body.visibility = if (open) View.GONE else View.VISIBLE
+            text = if (open) "＋ 技术细节" else "－ 技术细节"
+        }
+    }
+    body.addView(Ui.secondary(context, pal, "密钥指纹"), Ui.lp(top = context.dp(4)))
+    body.addView(
+        TextView(context).apply {
+            text = fingerprint ?: "????????"
+            setTextColor(pal.textPrimary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            typeface = Typeface.create("monospace", Typeface.BOLD)
+            letterSpacing = 0.14f
+            maxLines = 1
+        },
+        Ui.lp(top = context.dp(4)),
+    )
+    body.addView(
+        Ui.secondary(
+            context,
+            pal,
+            "Mac 上「配对完成 → 技术细节」里是同一串。核对它不是必须的——" +
+                "配对时那六位数字已经做完了这件事。",
+        ),
+        Ui.lp(top = context.dp(8)),
+    )
+    wrap.addView(toggle, Ui.lp(width = WRAP_CONTENT))
+    wrap.addView(body)
+    return wrap
+}

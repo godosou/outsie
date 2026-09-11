@@ -28,6 +28,10 @@ let charPKM = CBUUID(string: "FFF2")
 let charPKP = CBUUID(string: "FFF3")
 let charNM = CBUUID(string: "FFF4")
 let charNP = CBUUID(string: "FFF5")
+/// Display names, exchanged after the nonces and BEFORE the digits are shown.
+/// Cosmetic: nothing here is covered by the SAS transcript, so a name proves
+/// nothing about who is on the other end. See the note at exchangeNames().
+let charName = CBUUID(string: "FFF6")
 
 let COMMIT_LABEL = "repose-pair-v2 commit"
 let SAS_LABEL = "repose-pair-v2 sas"
@@ -37,7 +41,28 @@ let KDF_LABEL = "repose-pair-v2 presence-key"
 /// stderr instead. See the write site for why this is not stderr scraping.
 var digitsFile: String? = nil
 
+/// Where to drop the phone's self-reported name for a GUI caller.
+var peerFile: String? = nil
+
+/// What to call this Mac on the phone's screen. The user's computer name.
+func macDisplayName() -> String {
+    let host = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+    return String(host.prefix(60))
+}
+
 func say(_ s: String) { FileHandle.standardError.write("\(s)\n".data(using: .utf8)!) }
+
+/// Write via a temp file and rename, so a reader polling the path never sees a
+/// half-written value -- three digits taken for six would be worse than none.
+func atomicWrite(_ text: String, to path: String) {
+    let tmp = path + ".partial"
+    try? Data(text.utf8).write(to: URL(fileURLWithPath: tmp))
+    _ = try? FileManager.default.replaceItemAt(
+        URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))
+    if FileManager.default.fileExists(atPath: tmp) {
+        try? FileManager.default.moveItem(atPath: tmp, toPath: path)
+    }
+}
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 func ascii(_ s: String) -> Data { Data(s.utf8) }
 
@@ -110,6 +135,11 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     // Named apart from the global commitment() so neither shadows the other.
     private var phoneCommitment: Data?
 
+    /// Held between the nonce reveal and the name exchange completing.
+    private var pendingTranscript: Data?
+    /// What the phone calls itself. Cosmetic — see charName.
+    private var peerName: String?
+
     func start() { central = CBCentralManager(delegate: self, queue: nil) }
 
     func centralManagerDidUpdateState(_ c: CBCentralManager) {
@@ -159,13 +189,16 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         guard let svc = p.services?.first(where: { $0.uuid == pairingService }) else {
             say("这台设备没有配对服务"); exit(3)
         }
-        p.discoverCharacteristics([charPKM, charPKP, charNM, charNP], for: svc)
+        p.discoverCharacteristics([charPKM, charPKP, charNM, charNP, charName], for: svc)
     }
 
     func peripheral(_ p: CBPeripheral, didDiscoverCharacteristicsFor svc: CBService, error: Error?) {
         for ch in svc.characteristics ?? [] { chars[ch.uuid] = ch }
-        guard chars.count == 4, let pkmChar = chars[charPKM] else {
-            say("配对服务不完整（找到 \(chars.count)/4 个特征值）"); exit(3)
+        // Four are the protocol; the name is optional so an older phone still
+        // pairs. A cosmetic field must never be the reason a key exchange fails.
+        guard chars[charPKP] != nil, chars[charNM] != nil, chars[charNP] != nil,
+              let pkmChar = chars[charPKM] else {
+            say("配对服务不完整（找到 \(chars.count) 个特征值）"); exit(3)
         }
         // A 65-byte write has to fit. Truncation here would be silent and would
         // surface later as a curve-validation failure on the phone, which reads
@@ -191,6 +224,8 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         } else if ch.uuid == charNM {
             say("P2：读取手机公布的 nonce")
             p.readValue(for: chars[charNP]!)
+        } else if ch.uuid == charName {
+            p.readValue(for: ch)
         }
     }
 
@@ -228,53 +263,78 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
             }
 
             let transcript = sasHash(pkM: pkM, pkP: pkP, nm: nm, np: np)
-            let digits = sasDigits(transcript)
+            pendingTranscript = transcript
 
-            // Hand the digits to a GUI caller, if there is one.
+            // Trade names before showing the digits, finish after.
             //
-            // The app cannot scrape them out of the prose below: that text is
-            // written for a person and gets reworded, and a pairing UI that
-            // silently shows the wrong six digits is the exact failure this
-            // protocol exists to prevent. So the machine-readable copy is its
-            // own file, written before the prompt, and the app waits for it.
-            if let path = digitsFile {
-                let tmp = path + ".partial"
-                try? Data(digits.utf8).write(to: URL(fileURLWithPath: tmp))
-                // Rename, so a reader never sees a half-written file and takes
-                // three digits for six.
-                _ = try? FileManager.default.replaceItemAt(
-                    URL(fileURLWithPath: path), withItemAt: URL(fileURLWithPath: tmp))
-                if FileManager.default.fileExists(atPath: tmp) {
-                    try? FileManager.default.moveItem(atPath: tmp, toPath: path)
-                }
+            // Before, because the readLine() below blocks the main queue and
+            // nothing else can be delivered while it waits. After, in the sense
+            // that matters: a name is not shown next to the digits, only once
+            // the human has confirmed them. An attacker-chosen string reading
+            // "我的手机" sitting beside the one thing the user is supposed to
+            // check would be reassurance the protocol did not earn.
+            //
+            // Optional throughout. A phone without the characteristic still
+            // pairs; it just has no name to show.
+            if let nameChar = chars[charName] {
+                p.writeValue(Data(macDisplayName().utf8), for: nameChar, type: .withResponse)
+            } else {
+                finish(transcript: transcript)
             }
 
-            say("")
-            say("  手机上应当显示同样的六位数字：")
-            say("")
-            say("        \(digits)")
-            say("")
-            say("  一致就在手机上确认，然后在这里输入 y。")
-            say("  不一致说明有人在中间，直接回车中止。")
-            FileHandle.standardError.write("  一致吗？[y/N] ".data(using: .utf8)!)
+        } else if ch.uuid == charName {
+            peerName = String(data: value.prefix(120), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if let t = pendingTranscript { finish(transcript: t) }
+        }
+    }
 
-            guard let reply = readLine(strippingNewline: true)?.lowercased(),
-                  reply == "y" || reply == "yes" else {
-                say("已中止。这次的临时密钥作废。")
-                exit(6)
-            }
+    /// Show the digits, take the answer, derive the key.
+    ///
+    /// Split out of the delegate only because the name exchange has to complete
+    /// first; the sequence itself is unchanged.
+    private func finish(transcript: Data) {
+        guard let pkP else { say("状态错乱"); exit(4) }
+        let digits = sasDigits(transcript)
 
-            do {
-                let shared = try sk.sharedSecretFromKeyAgreement(
-                    with: P256.KeyAgreement.PublicKey(x963Representation: pkP))
-                let x = shared.withUnsafeBytes { Data($0) }
-                // stdout, alone, so the caller can redirect it into a file.
-                print(hex(deriveKey(ecdhX: x, salt: transcript)))
-                say("配对成功。")
-                exit(0)
-            } catch {
-                say("派生密钥失败：\(error)"); exit(4)
-            }
+        // Hand the digits to a GUI caller, if there is one.
+        //
+        // The app cannot scrape them out of the prose below: that text is
+        // written for a person and gets reworded, and a pairing UI that
+        // silently shows the wrong six digits is the exact failure this
+        // protocol exists to prevent. So the machine-readable copy is its
+        // own file, written before the prompt, and the app waits for it.
+        if let path = digitsFile { atomicWrite(digits, to: path) }
+
+        say("")
+        say("  手机上应当显示同样的六位数字：")
+        say("")
+        say("        \(digits)")
+        say("")
+        say("  一致就在手机上确认，然后在这里输入 y。")
+        say("  不一致说明有人在中间，直接回车中止。")
+        FileHandle.standardError.write("  一致吗？[y/N] ".data(using: .utf8)!)
+
+        guard let reply = readLine(strippingNewline: true)?.lowercased(),
+              reply == "y" || reply == "yes" else {
+            say("已中止。这次的临时密钥作废。")
+            exit(6)
+        }
+
+        // Only now. A name captured from a session the human rejected is the
+        // attacker's name, and writing it would put it on the success screen.
+        if let path = peerFile, let n = peerName, !n.isEmpty { atomicWrite(n, to: path) }
+
+        do {
+            let shared = try sk.sharedSecretFromKeyAgreement(
+                with: P256.KeyAgreement.PublicKey(x963Representation: pkP))
+            let x = shared.withUnsafeBytes { Data($0) }
+            // stdout, alone, so the caller can redirect it into a file.
+            print(hex(deriveKey(ecdhX: x, salt: transcript)))
+            say("配对成功。\(peerName.map { "对方设备：\($0)" } ?? "")")
+            exit(0)
+        } catch {
+            say("派生密钥失败：\(error)"); exit(4)
         }
     }
 }
@@ -364,8 +424,10 @@ while let flag = argv.first {
         timeout = v; argv.removeFirst()
     } else if flag == "--digits-file", let v = argv.first {
         digitsFile = v; argv.removeFirst()
+    } else if flag == "--peer-file", let v = argv.first {
+        peerFile = v; argv.removeFirst()
     } else {
-        say("usage: pair-with-phone [--timeout SECONDS] [--digits-file PATH] | --self-test")
+        say("usage: pair-with-phone [--timeout SECONDS] [--digits-file PATH] [--peer-file PATH] | --self-test")
         exit(64)
     }
 }

@@ -63,6 +63,23 @@ object SpikeContract {
      */
     val PAIR_CHAR_NP: UUID = UUID.fromString("0000FFF5-0000-1000-8000-00805F9B34FB")
 
+    /**
+     * Display names, exchanged after the digits match. Phone READs its name out,
+     * Mac WRITEs its own in.
+     *
+     * COSMETIC, AND THE CODE MUST KEEP TREATING IT THAT WAY. Nothing here is
+     * covered by the SAS transcript, so a name is whatever the other end chose
+     * to type -- it identifies nothing and must never be the thing a person
+     * checks. It exists because "已和 Jingmin 的 MacBook 配对" is something a
+     * human can hold in their head, and an 8-character hex fingerprint is not.
+     *
+     * The fingerprint is still computed and still comparable; it just stopped
+     * being the headline. Two opaque codes in one flow -- six digits to compare
+     * and eight hex to ignore -- made people ask which one mattered, which is
+     * the worst possible question to be unsure about in this particular flow.
+     */
+    val PAIR_CHAR_NAME: UUID = UUID.fromString("0000FFF6-0000-1000-8000-00805F9B34FB")
+
     /** How long a pairing window stays open. Ephemerals die with it. */
     const val PAIRING_WINDOW_SECONDS = 180L
 }

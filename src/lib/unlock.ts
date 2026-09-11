@@ -581,13 +581,15 @@ export type PairingSession = {
   stage: PairingStage
   /** The six SAS digits. Only ever present in `compare`. */
   digits: string | null
-  /** The paired key's short fingerprint. Only in `done`. */
+  /** The paired key's short fingerprint. Only in `done`. Behind 技术细节. */
   fingerprint: string | null
+  /** What the phone calls itself. Cosmetic — see the Rust side. */
+  peerName: string | null
   detail: string | null
 }
 
 export const IDLE_PAIRING: PairingSession = {
-  stage: 'idle', digits: null, fingerprint: null, detail: null,
+  stage: 'idle', digits: null, fingerprint: null, peerName: null, detail: null,
 }
 
 /**
@@ -602,24 +604,27 @@ export const IDLE_PAIRING: PairingSession = {
  */
 export function normalizePairing(value: unknown): PairingSession {
   if (!value || typeof value !== 'object') {
-    return { stage: 'failed', digits: null, fingerprint: null, detail: '配对没有完成。' }
+    return { stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: '配对没有完成。' }
   }
   const p = value as Record<string, unknown>
   const stage = oneOf<PairingStage>(p.stage, ['idle', 'scanning', 'compare', 'done', 'failed'] as const)
   if (!stage) {
-    return { stage: 'failed', digits: null, fingerprint: null, detail: '配对没有完成。' }
+    return { stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: '配对没有完成。' }
   }
   const rawDigits = str(p.digits)
   const digits = stage === 'compare' && rawDigits && /^\d{6}$/.test(rawDigits) ? rawDigits : null
   // A comparison stage with nothing to compare is not a comparison.
   if (stage === 'compare' && !digits) {
-    return { stage: 'failed', digits: null, fingerprint: null, detail: '没有读到要核对的数字，请重新配对。' }
+    return { stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: '没有读到要核对的数字，请重新配对。' }
   }
   const fingerprint = str(p.fingerprint)
   return {
     stage,
     digits,
     fingerprint: stage === 'done' && fingerprint && /^[0-9A-F]{8}$/.test(fingerprint) ? fingerprint : null,
+    // Rendered as a device name, so it is stripped of anything that is not one.
+    // It arrives from a stranger over a radio and identifies nobody.
+    peerName: str(p.peerName, 60)?.replace(/[\u0000-\u001f]/g, '').trim() || null,
     detail: str(p.detail)?.slice(0, 400) ?? null,
   }
 }

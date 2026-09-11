@@ -191,31 +191,30 @@ private fun renderProvisioned(
     column: LinearLayout,
     fingerprint: String?,
 ) {
+    val macName = AppStore(context).pairedMac
     column.addView(
         heroCard(
             context, pal,
             chip = "已配对",
             glyph = "🔑",
-            headline = "已经配对好了",
-            body = "配对过的 Mac 认得这台手机。",
+            headline = macName?.let { "已经和「$it」配对" } ?: "已经配对好了",
+            body = "这台 Mac 认得你的手机。",
         ),
         Ui.lp(top = context.dp(6)),
     )
 
-    val card = sectionCard(context, pal, "🔖", "配对编号")
+    val card = sectionCard(context, pal, "💻", "配对的电脑")
     card.addView(
         TextView(context).apply {
-            text = fingerprint ?: "????????"
-            setTextColor(pal.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 34f)
-            typeface = Typeface.create("monospace", Typeface.BOLD)
-            letterSpacing = 0.2f
-            maxLines = 1
+            text = macName ?: "（这台 Mac 没有报名字）"
+            setTextColor(if (macName != null) pal.textPrimary else pal.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         },
         Ui.lp(top = context.dp(12)),
     )
     card.addView(
-        Ui.secondary(context, pal, "Mac 上显示的应该是同一串。不一样就说明配的不是同一台。"),
+        Ui.secondary(context, pal, "名字是那台电脑自己报的，只是方便你认，不用拿它做核对。"),
         Ui.lp(top = context.dp(8)),
     )
     column.addView(card, Ui.lp(top = context.dp(14)))
@@ -224,11 +223,11 @@ private fun renderProvisioned(
         Ui.infoNote(
             context,
             pal,
-            "这个编号可以给别人看，它不是钥匙本身。真正的钥匙存在手机的安全芯片里，" +
-                "谁也拿不出来，包括这个 App。",
+            "钥匙存在手机的安全芯片里，谁也拿不出来，包括这个 App。",
         ),
         Ui.lp(top = context.dp(14)),
     )
+    column.addView(techDetails(context, pal, fingerprint), Ui.lp(top = context.dp(14)))
     column.addView(
         Ui.primaryButton(context, pal, "继续") {
             store.paired = true

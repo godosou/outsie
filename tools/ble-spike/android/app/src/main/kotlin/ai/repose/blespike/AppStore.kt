@@ -27,6 +27,25 @@ class AppStore(context: Context) {
         get() = prefs.getBoolean(KEY_PAIRED, false)
         set(value) { prefs.edit().putBoolean(KEY_PAIRED, value).apply() }
 
+    /**
+     * What the paired Mac calls itself, if it told us. Written only after the
+     * six digits matched.
+     *
+     * Cosmetic and attacker-controllable in principle -- see
+     * [SpikeContract.PAIR_CHAR_NAME]. It replaced the 8-character key
+     * fingerprint as the headline on this screen, not as the thing anyone
+     * verifies: a flow with two opaque codes in it made people ask which one
+     * mattered, and being unsure about that is exactly the confusion a
+     * man-in-the-middle needs.
+     */
+    var pairedMac: String?
+        get() = prefs.getString(KEY_MAC_NAME, null)
+        set(value) {
+            prefs.edit().apply {
+                if (value.isNullOrBlank()) remove(KEY_MAC_NAME) else putString(KEY_MAC_NAME, value)
+            }.apply()
+        }
+
     /** Stable across launches so it can be compared against what the Mac shows. */
     val pairingCode: String
         get() {
@@ -100,6 +119,7 @@ class AppStore(context: Context) {
 
     private companion object {
         const val KEY_PAIRED = "paired"
+        const val KEY_MAC_NAME = "paired_mac_name"
         const val KEY_CODE = "pairing_code"
         const val KEY_UNLOCKS = "unlocks_today"
         const val KEY_MACS = "macs_json"

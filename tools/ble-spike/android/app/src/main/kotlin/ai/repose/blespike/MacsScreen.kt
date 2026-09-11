@@ -40,31 +40,30 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     ) { column ->
 
         if (provisioned) {
+            val macName = store.pairedMac
             column.addView(
                 heroCard(
                     context, pal,
                     chip = "这把钥匙",
                     glyph = "🔑",
-                    headline = "已经配对好了",
+                    headline = macName?.let { "「$it」的钥匙" } ?: "已经配对好了",
                     body = "配对过的 Mac 认得这台手机。",
                 ),
                 Ui.lp(top = context.dp(6)),
             )
 
-            val card = sectionCard(context, pal, "🔖", "配对编号")
+            val card = sectionCard(context, pal, "💻", "配对的电脑")
             card.addView(
                 TextView(context).apply {
-                    text = fingerprint ?: "????????"
-                    setTextColor(pal.accent)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 32f)
-                    typeface = Typeface.create("monospace", Typeface.BOLD)
-                    letterSpacing = 0.2f
-                    maxLines = 1
+                    text = macName ?: "（这台 Mac 没有报名字）"
+                    setTextColor(if (macName != null) pal.textPrimary else pal.textSecondary)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                 },
                 Ui.lp(top = context.dp(12)),
             )
             card.addView(
-                Ui.secondary(context, pal, "Mac 上显示的应该是同一串。"),
+                Ui.secondary(context, pal, "名字是那台电脑自己报的，只是方便你认，不用拿它做核对。"),
                 Ui.lp(top = context.dp(8)),
             )
             column.addView(card, Ui.lp(top = context.dp(14)))
@@ -97,6 +96,7 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
             // nav has no PAIRING tab, so without this the exchange is reachable
             // exactly once -- and replacing a key would mean deleting it first
             // and hoping.
+            column.addView(techDetails(context, pal, fingerprint), Ui.lp(top = context.dp(14)))
             column.addView(
                 Ui.primaryButton(context, pal, "重新配对") { nav.go(Screen.PAIRING) },
                 Ui.lp(top = context.dp(20)),
@@ -112,6 +112,9 @@ fun buildMacsScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
                         .setPositiveButton("取消配对") { _, _ ->
                             PresenceKey.delete(context, SpikeContract.PRESENCE_KEY_ID)
                             store.paired = false
+                            // The name outliving the key would leave the screen
+                            // naming a Mac this phone can no longer open.
+                            store.pairedMac = null
                             Toast.makeText(context, "已取消配对。", Toast.LENGTH_LONG).show()
                             nav.go(Screen.MACS)
                         }

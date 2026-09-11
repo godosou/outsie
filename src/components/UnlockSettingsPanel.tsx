@@ -108,12 +108,12 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
   const startPairing = useCallback(async () => {
     if (!bridge) { onToast?.('手机钥匙只能在 Repose Mac App 中使用'); return }
-    setPairing({ stage: 'scanning', digits: null, fingerprint: null, detail: null })
+    setPairing({ stage: 'scanning', digits: null, fingerprint: null, peerName: null, detail: null })
     try {
       setPairing(normalizePairing(await bridge.beginPairing()))
     } catch (e) {
       const err = asUnlockError(e)
-      setPairing({ stage: 'failed', digits: null, fingerprint: null, detail: err.detail || '配对没能开始' })
+      setPairing({ stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: err.detail || '配对没能开始' })
     }
   }, [bridge, onToast])
 
@@ -136,7 +136,7 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
       }
     } catch (e) {
       const err = asUnlockError(e)
-      setPairing({ stage: 'failed', digits: null, fingerprint: null, detail: err.detail || '没有写入密钥' })
+      setPairing({ stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: err.detail || '没有写入密钥' })
     }
   }, [bridge])
 
@@ -487,12 +487,25 @@ function PairingSheet(
       {session.stage === 'done' && (
         <>
           <p className="modal-intro">{session.detail ?? '这台 Mac 已经认得你的手机了。'}</p>
+          <p className="pk-pair-hint">
+            以后锁屏时，手机在身边，密码框留空、直接按回车就能进。
+          </p>
+          {/* The fingerprint used to sit here in large type labelled 配对编号,
+              directly after a sheet whose entire point was comparing six other
+              digits. Two codes, one flow, and no way to tell from the screen
+              which one mattered -- being unsure about that is precisely the
+              confusion a man in the middle needs. It is still here, and still
+              comparable against the phone; it is just no longer competing with
+              the digits for the reader's attention. */}
           {session.fingerprint && (
-            <p className="pk-pair-fingerprint">
-              <span>配对编号</span><b>{session.fingerprint}</b>
-            </p>
+            <details className="pk-pair-tech">
+              <summary>技术细节</summary>
+              <p className="pk-pair-fingerprint">
+                <span>密钥指纹</span><b>{session.fingerprint}</b>
+              </p>
+              <p>手机上「这把钥匙 → 技术细节」里是同一串。核对它不是必须的——刚才的六位数字已经做完了这件事。</p>
+            </details>
           )}
-          <p className="pk-pair-hint">手机上的「这把钥匙」应该显示同一串编号。不一样就说明配到了别的机器。</p>
           <div className="pk-modal-actions">
             <button className="button primary" onClick={onClose}>好</button>
           </div>

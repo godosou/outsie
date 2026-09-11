@@ -62,6 +62,10 @@ class PairingServer(
     private var advertising = false
     private var session: PairingSession? = null
 
+    /** Whatever the Mac called itself, if it said. Cosmetic — see the contract. */
+    var macName: String? = null
+        private set
+
     /** Non-null only while a window is open. */
     val digits: String? get() = session?.digits
     val stage: PairingSession.Stage? get() = session?.stage
@@ -93,6 +97,13 @@ class PairingServer(
         ) {
             val s = session
             val ok = when {
+                ch.uuid == SpikeContract.PAIR_CHAR_NAME -> {
+                    // Cosmetic, and accepted at any stage -- it is not part of
+                    // the protocol and must not be able to disturb it. Bounded,
+                    // because this arrives from a stranger over a radio.
+                    macName = value.decodeToString().take(60).trim().ifEmpty { null }
+                    true
+                }
                 s == null -> false
                 ch.uuid == SpikeContract.PAIR_CHAR_PKM -> s.receiveMacKey(value)
                 ch.uuid == SpikeContract.PAIR_CHAR_NM -> s.receiveMacNonce(value)
@@ -123,6 +134,7 @@ class PairingServer(
         ) {
             val s = session
             val payload: ByteArray? = when {
+                ch.uuid == SpikeContract.PAIR_CHAR_NAME -> phoneDisplayName().encodeToByteArray()
                 s == null -> null
                 ch.uuid == SpikeContract.PAIR_CHAR_PKP -> s.keyAndCommitment()
                 ch.uuid == SpikeContract.PAIR_CHAR_NP -> s.revealNonce()
@@ -232,6 +244,15 @@ class PairingServer(
                 BluetoothGattCharacteristic.PERMISSION_READ,
             ),
         )
+        service.addCharacteristic(
+            BluetoothGattCharacteristic(
+                SpikeContract.PAIR_CHAR_NAME,
+                BluetoothGattCharacteristic.PROPERTY_READ or
+                    BluetoothGattCharacteristic.PROPERTY_WRITE,
+                BluetoothGattCharacteristic.PERMISSION_READ or
+                    BluetoothGattCharacteristic.PERMISSION_WRITE,
+            ),
+        )
         server.addService(service)
         gatt = server
 
@@ -267,6 +288,10 @@ class PairingServer(
         return runCatching {
             PresenceKey.importKey(context, SpikeContract.PRESENCE_KEY_ID, k)
             k.fill(0)
+            // Only kept once the digits matched. A name captured from a session
+            // the human rejected would be the attacker's name, sitting on the
+            // screen next to the words 已配对.
+            AppStore(context).pairedMac = macName
             session?.complete()
             SpikeState.event("配对完成，指纹 ${PresenceKey.fingerprint(context)}")
             stop()
@@ -292,6 +317,19 @@ class PairingServer(
         lastError = "两边数字不一致，已中止。不要重试同一次会话。"
         SpikeState.event(lastError!!)
         stop()
+    }
+
+    /**
+     * What to call this phone on the Mac's screen.
+     *
+     * The user's own Bluetooth name first — that is the one they recognise —
+     * falling back to the model, which is at least true.
+     */
+    private fun phoneDisplayName(): String {
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+        val bt = runCatching { adapter?.name }.getOrNull()?.trim()
+        if (!bt.isNullOrEmpty()) return bt.take(60)
+        return "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim().take(60)
     }
 
     fun stop() {
