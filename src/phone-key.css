@@ -534,3 +534,68 @@
   border-radius: 9px;
 }
 .pk-device-action .text-button { font-size: 11.5px; }
+
+/* ---- 快捷控制 --------------------------------------------------------- */
+.ks-apps { margin-top: 16px; display: grid; gap: 14px; }
+.ks-app {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 15px 17px 13px;
+}
+.ks-app-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ks-app-name { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--text); }
+/* A bundle id is a path, so it belongs with the other technical detail — but a
+   person picking between two copies of the same app needs it visible, not
+   folded. Small and quiet is the compromise (ui-conventions 3.2). */
+.ks-app-bundle { margin: 0; font-size: 11px; color: var(--muted); }
+
+.ks-actions { margin-top: 11px; display: grid; gap: 7px; }
+.ks-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.ks-action:first-child { border-top: 0; padding-top: 4px; }
+.ks-action.is-broken { opacity: .72; }
+.ks-action-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.ks-action-icon { font-size: 14px; }
+
+.ks-keys { display: flex; align-items: center; gap: 5px; flex: none; }
+.ks-keys kbd {
+  font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: #fff;
+  color: var(--text);
+}
+.ks-keys em { font-size: 11.5px; font-style: normal; color: var(--amber-ink); }
+
+.ks-try {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  font-size: 11.5px;
+  border-radius: 8px;
+}
+.ks-none { margin: 8px 0 0; font-size: 12px; color: var(--subtle); }
+
+.pk-row-note { margin: 7px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--subtle); max-width: 46em; }
+
+/* Three lines of explanation leave the icon floating at the middle of the
+   block; it belongs beside the heading it labels. */
+.ks-permission { align-items: flex-start; }
+.ks-permission .preference-icon { margin-top: 2px; }

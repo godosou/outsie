@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3, Smartphone, Command } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
+import { ShortcutsPanel } from './components/ShortcutsPanel'
 import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
 import { BRAND_NAME, BRAND_WORDMARK } from './lib/brand'
 import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
@@ -51,7 +52,7 @@ const navGroups: { label: string; items: { id: Page; label: string; icon: typeof
       // Shown, and labelled as not built. A placeholder should not pretend to
       // work; it should not pretend not to exist either, or the person who
       // wondered where it went has nowhere to look.
-      { id: 'shortcuts', label: '快捷控制', icon: Command, soon: true },
+      { id: 'shortcuts', label: '快捷控制', icon: Command },
     ],
   },
 ]
@@ -448,18 +449,7 @@ export default function App() {
       </div>}
 
       {page === 'shortcuts' && <div className="page-enter preferences-page">
-        <section className="panel preferences-panel">
-          <div className="section-heading"><div><h2>快捷控制</h2><p>能按哪些键在这里定；哪几部手机可以按，在「手机控制」里。</p></div></div>
-          {/* An empty state that says what this will be, not a spinner and not
-              a blank box. It is labelled 还没做 rather than 即将推出, because one
-              of those is a fact and the other is a promise. */}
-          <div className="security-permission" style={{ marginTop: 18 }}>
-            <Command size={15} />
-            <p>还没做。做好之后，你可以在这里为每个 App 配一组按键，
-              手机上就会出现对应的按钮——点一下，这台 Mac 就按下那组键。
-              另一个分支已有可用原型。</p>
-          </div>
-        </section>
+        <ShortcutsPanel bridge={window.repose?.console} onToast={showToast} />
       </div>}
 
       {page === 'settings' && <div className="page-enter preferences-page">

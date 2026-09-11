@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod console;
 mod unlock;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -897,6 +898,9 @@ pub fn run() {
             unlock::unlock_pair_confirm,
             unlock::unlock_pair_await_phone,
             unlock::unlock_pair_cancel,
+            console::console_status,
+            console::console_request_trust,
+            console::console_run,
             unlock::unlock_calibrate_start,
             unlock::unlock_calibrate_sample,
             unlock::unlock_calibrate_finish,

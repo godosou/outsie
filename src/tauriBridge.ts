@@ -1,6 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { UnlockDesktopBridge } from './lib/unlock'
+import type { ConsoleDesktopBridge } from './lib/console'
 
 export type DesktopCommandName =
   | 'toggle-pause'
@@ -42,6 +43,7 @@ declare global {
       postponeBreak: () => Promise<boolean>
       openSecuritySettings: () => void
       unlock?: UnlockDesktopBridge
+      console?: ConsoleDesktopBridge
     }
     webkitAudioContext?: typeof AudioContext
   }
@@ -163,8 +165,15 @@ export async function initializeDesktopBridge() {
     onPresence(callback) { unlockPresenceCallbacks.add(callback); return () => unlockPresenceCallbacks.delete(callback) },
   }
 
+  const consoleBridge: ConsoleDesktopBridge = {
+    status: () => invoke<unknown>('console_status'),
+    requestTrust: () => invoke<boolean>('console_request_trust'),
+    run: value => invoke<void>('console_run', { value }),
+  }
+
   window.repose = {
     isDesktop: true,
+    console: consoleBridge,
     onCommand(callback) {
       commandCallbacks.add(callback)
       return () => commandCallbacks.delete(callback)
