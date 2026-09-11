@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3, Smartphone, Command } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
 import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
@@ -11,7 +11,7 @@ import { getEyeCareTip } from './lib/eyeCareTips'
 import { deriveGlobalBanner, normalizeUnlockSnapshot, type UnlockSnapshot } from './lib/unlock'
 import './phone-key.css'
 
-type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'settings'
+type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phone' | 'shortcuts' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
 type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
@@ -23,17 +23,46 @@ const exercises: Exercise[] = [
   { id: 'stretch', category: '舒展身体', title: '把紧绷，轻轻放下', subtitle: '起身动一动，给肩颈一点空间。', duration: '长休息', type: 'long', art: 'stretch', color: 'peach', icon: Activity, steps: ['缓缓起身，双脚自然分开站稳。', '肩膀慢慢向后转圈，双臂轻柔向上伸展。', '按自己的节奏走动一下，以舒适为准。'] },
   { id: 'water', category: '补充水分', title: '喝口水，重新出发', subtitle: '一杯温水，也是照顾自己的小事。', duration: '短休息', type: 'short', art: 'water', color: 'blue', icon: Droplets, steps: ['离开一下座位，给自己倒杯水。', '小口慢饮，不必急着回到工作里。', '感受片刻停顿，然后再轻轻出发。'] },
 ]
-const navigation: { id: Page; label: string; icon: typeof Eye }[] = [
-  { id: 'overview', label: '今日概览', icon: LayoutDashboard },
-  { id: 'schedule', label: '休息计划', icon: SlidersHorizontal },
-  { id: 'ideas', label: '休息灵感', icon: Flower2 },
-  { id: 'activity', label: '我的记录', icon: BarChart3 },
+/**
+ * The sidebar, in groups.
+ *
+ * Grouping is by what the section is FOR, not by what it is built on. 手机控制
+ * holds two tabs that answer two different questions -- who may do what, and
+ * what can be done -- and keeping them apart is what stops the same phone from
+ * appearing twice with two switches, which is where the flat version ended up.
+ *
+ * 手机钥匙 used to live inside 偏好设置, several panels down. A feature that
+ * modifies the lock screen is not a preference.
+ */
+const navGroups: { label: string; items: { id: Page; label: string; icon: typeof Eye; soon?: boolean }[] }[] = [
+  {
+    label: '休息',
+    items: [
+      { id: 'overview', label: '今日概览', icon: LayoutDashboard },
+      { id: 'schedule', label: '休息计划', icon: SlidersHorizontal },
+      { id: 'ideas', label: '休息灵感', icon: Flower2 },
+      { id: 'activity', label: '我的记录', icon: BarChart3 },
+    ],
+  },
+  {
+    label: '手机控制',
+    items: [
+      { id: 'phone', label: '手机控制', icon: Smartphone },
+      // Shown, and labelled as not built. A placeholder should not pretend to
+      // work; it should not pretend not to exist either, or the person who
+      // wondered where it went has nowhere to look.
+      { id: 'shortcuts', label: '快捷控制', icon: Command, soon: true },
+    ],
+  },
 ]
+const navigation = navGroups.flatMap(g => g.items)
 const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }> = {
   overview: { title: '让休息，自然发生。', subtitle: '专注于热爱的事，也留一点时间，好好照顾自己。', eyebrow: 'A LITTLE PAUSE, A BETTER DAY' },
   schedule: { title: '找到自己的节奏。', subtitle: '没有唯一正确的频率，舒服的节奏就是好节奏。', eyebrow: 'MAKE ROOM FOR YOURSELF' },
   ideas: { title: '小小休息，大有不同。', subtitle: '离开屏幕的这一刻，可以用来做很多美好的小事。', eyebrow: 'SMALL MOMENTS, BIG DIFFERENCE' },
   activity: { title: '每一次停顿，都算数。', subtitle: '慢慢积累的好习惯，正在成为生活的一部分。', eyebrow: 'A KINDER WAY TO KEEP GOING' },
+  phone: { title: '手机就是钥匙。', subtitle: '哪几部手机能碰这台 Mac，各自允许做什么。', eyebrow: 'YOUR PHONE, YOUR KEY' },
+  shortcuts: { title: '一点，就到。', subtitle: '能按哪些键在这里定；哪几部手机可以按，在「手机控制」里。', eyebrow: 'ONE TAP, ONE SHORTCUT' },
   settings: { title: '让 Outsie 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
 }
 
@@ -288,8 +317,10 @@ export default function App() {
     <aside className={`sidebar ${mobileMenu ? 'mobile-open' : ''}`}>
       <button className="brand" onClick={() => navigate('overview')} aria-label={`${BRAND_NAME} 首页`}><BrandMark /><span>{BRAND_WORDMARK.replace(/\.$/, '')}<span className="brand-period">.</span></span></button>
       <p className="brand-tagline">给日常，留一点空白</p>
-      <div className="nav-label">你的日常空间</div>
-      <nav aria-label="主导航">{navigation.map(item => <button className={`nav-item ${page === item.id ? 'active' : ''}`} key={item.id} onClick={() => navigate(item.id)} aria-current={page === item.id ? 'page' : undefined}><item.icon size={19} strokeWidth={1.65} /><span>{item.label}</span>{page === item.id && <span className="nav-active-dot" />}</button>)}</nav>
+      <nav aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}>
+        <div className="nav-label">{group.label}</div>
+        {group.items.map(item => <button className={`nav-item ${page === item.id ? 'active' : ''}`} key={item.id} onClick={() => navigate(item.id)} aria-current={page === item.id ? 'page' : undefined}><item.icon size={19} strokeWidth={1.65} /><span>{item.label}</span>{item.soon && <span className="nav-soon">以后</span>}{page === item.id && <span className="nav-active-dot" />}</button>)}
+      </div>)}</nav>
       <div className="sidebar-bottom">
         <div className="sidebar-note"><Sprout size={29} strokeWidth={1.3} /><p>你不必时刻满格，<br />休息也是前进的一部分。</p><span>TAKE IT SLOW.</span></div>
         <button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><Settings2 size={19} strokeWidth={1.65} /><span>偏好设置</span></button>
@@ -302,12 +333,10 @@ export default function App() {
       <div className="topbar"><div className="topbar-left"><button className="icon-button mobile-toggle" aria-label="打开导航" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><span className="breadcrumb">我的空间</span><ChevronRight size={13} /><span>{page === 'settings' ? '偏好设置' : navigation.find(item => item.id === page)?.label}</span></div><div className="topbar-right"><span className="date-text"><CalendarDays size={14} />{today.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}</span><span className="topbar-separator" /><span className="welcome-mark"><Sun size={17} /></span></div></div>
       <header className="page-heading"><div><div className="eyebrow">{titles[page].eyebrow}</div><h1>{titles[page].title}</h1><p>{titles[page].subtitle}</p></div><button className={`reminder-status ${running ? '' : 'is-paused'}`} disabled={Boolean(postponedBreak)} onClick={() => { initAudio(); timer.toggleRunning() }}><span className={`status-dot ${running ? '' : 'paused'}`} />{postponedBreak ? '已延迟一次 · 即将休息' : running ? '休息提醒已开启' : '休息提醒已暂停'}<ChevronRight size={14} /></button></header>
 
-      {window.repose && !desktopPreferences.idleLockEnabled && <div className="security-alert" role="alert"><ShieldCheck size={19} /><div><strong>{securityError ? '安全锁屏需要系统授权' : '安全锁屏尚未开启'}</strong><p>{securityError ? '当前自动锁屏未生效。请在系统设置 → 隐私与安全性 → 辅助功能中允许 Outsie，然后重新开启 30 秒安全锁屏。' : '目前离开电脑后不会自动锁屏。请在偏好设置中开启 30 秒无操作安全锁屏。'}</p></div>{page === 'settings'
-        ? <button className="text-button" onClick={() => { setSecurityError(false); setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: true })); showToast('已开启 30 秒无操作安全锁屏') }}>立即开启<ArrowRight size={15} /></button>
-        : <button className="text-button" onClick={() => navigate('settings')}>前往设置<ArrowRight size={15} /></button>}</div>}
-      {unlockBanner && <div className={`security-alert${unlockBanner.tone === 'danger' ? ' pk-danger' : ''}`} role="alert"><KeyRound size={19} /><div><strong>{unlockBanner.title}</strong><p>{unlockBanner.body}</p></div>{page === 'settings'
-        ? <button className="text-button" onClick={() => document.querySelector('.phone-key-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>看一下<ArrowRight size={15} /></button>
-        : <button className="text-button" onClick={() => navigate('settings')}>{unlockBanner.action.label}<ArrowRight size={15} /></button>}</div>}
+      {/* The 「安全锁屏尚未开启」 banner is gone. Its 「前往设置」 pointed at the
+          page the reader was already on, and the setting now lives on 手机控制
+          directly under the switch that makes it painless. */}
+      {unlockBanner && page !== 'phone' && <div className={`security-alert${unlockBanner.tone === 'danger' ? ' pk-danger' : ''}`} role="alert"><KeyRound size={19} /><div><strong>{unlockBanner.title}</strong><p>{unlockBanner.body}</p></div><button className="text-button" onClick={() => navigate('phone')}>{unlockBanner.action.label}<ArrowRight size={15} /></button></div>}
       {page === 'overview' && <div className="page-enter">
         <div className="hero-grid">
           <section className="timer-card" aria-label="休息计时器">
@@ -401,15 +430,50 @@ export default function App() {
         </section>
       </div>}
 
+      {page === 'phone' && <div className="page-enter preferences-page">
+        <UnlockSettingsPanel
+          bridge={window.repose?.unlock}
+          onToast={showToast}
+          idleLock={{
+            enabled: desktopPreferences.idleLockEnabled,
+            error: securityError,
+            onToggle: () => {
+              if (!window.repose) { showToast('全局键鼠检测与系统锁屏需要使用 Outsie Mac App'); return }
+              setSecurityError(false)
+              setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: !previous.idleLockEnabled }))
+            },
+            onOpenSettings: () => window.repose?.openSecuritySettings(),
+          }}
+        />
+      </div>}
+
+      {page === 'shortcuts' && <div className="page-enter preferences-page">
+        <section className="panel preferences-panel">
+          <div className="section-heading"><div><h2>快捷控制</h2><p>能按哪些键在这里定；哪几部手机可以按，在「手机控制」里。</p></div></div>
+          {/* An empty state that says what this will be, not a spinner and not
+              a blank box. It is labelled 还没做 rather than 即将推出, because one
+              of those is a fact and the other is a promise. */}
+          <div className="security-permission" style={{ marginTop: 18 }}>
+            <Command size={15} />
+            <p>还没做。做好之后，你可以在这里为每个 App 配一组按键，
+              手机上就会出现对应的按钮——点一下，这台 Mac 就按下那组键。
+              另一个分支已有可用原型。</p>
+          </div>
+        </section>
+      </div>}
+
       {page === 'settings' && <div className="page-enter preferences-page">
         <section className="panel preferences-panel security-panel">
-          <div className="section-heading"><div><h2>Mac 屏幕保护</h2><p>休息时专心休息，离开时安心离开。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
+          <div className="section-heading"><div><h2>强制休息</h2><p>休息时专心休息。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
           <div className="preference-row"><span className="preference-icon"><ShieldCheck size={21} /></span><div><h3>强制休息</h3><p>覆盖全部显示器，屏蔽应用切换。每次可延迟一次；重新提醒后，倒计时完成前无法跳过、暂停或退出。</p></div><Toggle label="强制休息" enabled={desktopPreferences.strictBreaks} onChange={() => { if (!window.repose) { showToast('全屏强制休息需要打开 Outsie Mac App'); return }; setDesktopPreferences(previous => ({ ...previous, strictBreaks: !previous.strictBreaks })) }} /></div>
-          <div className="preference-row"><span className="preference-icon"><LockKeyhole size={21} /></span><div><h3>30 秒无操作，安全锁屏<span className="security-tag">系统级锁屏</span></h3><p>检测全局键盘和鼠标活动。连续 30 秒无操作后锁定 macOS，会话需正常认证解锁。暂停休息提醒不会关闭此保护。</p></div><Toggle label="30 秒无操作安全锁屏" enabled={desktopPreferences.idleLockEnabled} onChange={() => { if (!window.repose) { showToast('全局键鼠检测与系统锁屏需要使用 Outsie Mac App'); return }; setSecurityError(false); setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: !previous.idleLockEnabled })) }} /></div>
+          {/* 自动锁屏 moved to 手机控制, beside 用手机解锁.
+              The whole reason the phone key exists is so that locking
+              aggressively stops costing anything. Kept on separate pages, the
+              product invites the very thing it was built to prevent: somebody
+              lengthening or disabling their lock delay to avoid the password. */}
           <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '首次使用安全锁屏，请在系统设置中允许 Outsie 使用辅助功能；如果系统询问自动化权限，也请允许。锁屏只检测空闲时长，不读取或记录按键内容。' : '网页仅预览界面。全局活动检测、跨屏遮罩和 macOS 安全锁屏均在 Mac App 中运行。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
           <p className="security-limit">强制休息限制日常操作；系统级结束进程或关机仍由 macOS 管理。</p>
         </section>
-        <UnlockSettingsPanel bridge={window.repose?.unlock} onToast={showToast} />
 <section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Outsie · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
 
       <footer className="page-footer"><span><Leaf size={13} strokeWidth={1.5} />更好的状态，来自恰到好处的停顿。</span><span>MADE FOR A SLOWER, BETTER DAY<span className="footer-flower">✳</span></span></footer>

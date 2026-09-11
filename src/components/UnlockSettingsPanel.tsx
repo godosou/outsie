@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { KeyRound, Smartphone, ShieldCheck, X, Monitor } from 'lucide-react'
+import { KeyRound, Smartphone, ShieldCheck, X, Monitor, LockKeyhole, ArrowUpRight } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
   beginRequest, finishRequest, failRequest, canIssue, healthClass, normalizePreflight,
@@ -21,14 +21,32 @@ import {
   type UnlockDesktopBridge,
 } from '../lib/unlock'
 
-type Props = { bridge?: UnlockDesktopBridge; onToast?: (message: string) => void }
+/**
+ * 自动锁屏 arrives as a prop rather than being read here, because its state
+ * lives in App.tsx's desktopPreferences (localStorage, shared with the break
+ * machinery). What matters is that it is RENDERED here: the phone key exists so
+ * that locking aggressively stops costing anything, and on separate pages the
+ * product was inviting the very failure it was built to prevent.
+ */
+type IdleLock = {
+  enabled: boolean
+  error: boolean
+  onToggle: () => void
+  onOpenSettings: () => void
+}
+
+type Props = {
+  bridge?: UnlockDesktopBridge
+  onToast?: (message: string) => void
+  idleLock?: IdleLock
+}
 
 type SnapshotState = { snapshot: UnlockSnapshot; loaded: boolean }
 function snapshotReducer(_state: SnapshotState, next: UnlockSnapshot): SnapshotState {
   return { snapshot: next, loaded: true }
 }
 
-export function UnlockSettingsPanel({ bridge, onToast }: Props) {
+export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
   const degraded = !bridge
   const [{ snapshot, loaded }, setSnapshot] = useReducer(
     snapshotReducer,
@@ -293,6 +311,39 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
           }}
         ><span /></button>
       </div>
+
+      {/* The other half of the pair. Turning unlock off is the moment somebody
+          is most likely to reach for the lock delay next, so that is where this
+          has to be standing. */}
+      {idleLock && (
+        <div className="preference-row">
+          <span className="preference-icon"><LockKeyhole size={21} /></span>
+          <div>
+            <h3>离开 30 秒就自动锁屏</h3>
+            <p className={`pk-row-state${idleLock.enabled && !idleLock.error ? ' is-on' : ''}`}>
+              {idleLock.error
+                ? '开着，但没有生效 · 缺辅助功能权限'
+                : idleLock.enabled ? '已开启' : '已关闭 · 离开电脑不会自动锁屏'}
+            </p>
+            <p>
+              这两个是一对：锁得越紧越安全，而上面那个负责让你不为此多输一次密码。
+              {enabled
+                ? ''
+                : '关掉解锁之前，先想想会不会顺手也把这个关了——那才是真正变不安全的那一步。'}
+            </p>
+            {idleLock.error && (
+              <button className="text-button" onClick={idleLock.onOpenSettings} style={{ marginTop: 6 }}>
+                打开系统设置<ArrowUpRight size={14} />
+              </button>
+            )}
+          </div>
+          <button
+            className={`toggle${idleLock.enabled ? ' on' : ''}`}
+            type="button" role="switch" aria-checked={idleLock.enabled} aria-label="离开 30 秒就自动锁屏"
+            onClick={idleLock.onToggle}
+          ><span /></button>
+        </div>
+      )}
 
       {/* Status line (axis C). Only `near` is a green dot; `away` is neutral. */}
       {!degraded && loaded && (
