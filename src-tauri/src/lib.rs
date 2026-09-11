@@ -895,6 +895,7 @@ pub fn run() {
             unlock::unlock_pair_begin,
             unlock::unlock_pair_poll,
             unlock::unlock_pair_confirm,
+            unlock::unlock_pair_await_phone,
             unlock::unlock_pair_cancel,
             unlock::unlock_calibrate_sample,
             unlock::unlock_drill_start,

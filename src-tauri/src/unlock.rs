@@ -253,6 +253,18 @@ pub enum PairingStage {
     Scanning,
     /// Digits are on screen; waiting for the human to say whether they match.
     Compare,
+    /// This Mac has its key and is waiting to hear the phone use it.
+    ///
+    /// Both ends must be told by a human that the digits matched -- see the
+    /// note on Compare -- so confirming here cannot finish the job. It used to
+    /// say 完成 anyway, which is how someone ends up with a Mac that is paired
+    /// and a phone that is not, and no screen anywhere saying so.
+    ///
+    /// The Mac can find out, though: once the phone has its key it starts
+    /// signing beacons with it, and a beacon that verifies here is proof both
+    /// ends hold the same key. That is a fact, not a relayed claim, so it is
+    /// safe to wait on.
+    WaitingForPhone,
     /// Key derived and written to this Mac.
     Done,
     /// Over, without a key. `detail` says why in plain language.
@@ -1646,12 +1658,30 @@ pub fn unlock_pair_begin(app: AppHandle) -> Result<PairingSession, UnlockError> 
     Ok(PairingSession::stage(PairingStage::Scanning))
 }
 
+/// Has a beacon signed with the new key arrived yet?
+///
+/// Reads the verified stream the presence pipeline writes. `auth=VALID` means
+/// presence-verify recomputed the tag with the key on THIS Mac and it matched,
+/// so the phone is holding the same one. Nothing here takes the phone's word
+/// for anything; there is no word to take.
+fn phone_has_used_the_key(app: &AppHandle) -> bool {
+    let Ok(dir) = app.path().app_data_dir() else { return false };
+    let Ok(text) = std::fs::read_to_string(dir.join("presence-run/verified.csv")) else {
+        return false;
+    };
+    // Only the tail: the file spans the whole run, and a VALID row from before
+    // this pairing would answer a question nobody asked.
+    text.lines().rev().take(400).any(|l| l.contains("auth=VALID"))
+}
+
 #[tauri::command]
-pub fn unlock_pair_poll() -> Result<PairingSession, UnlockError> {
+pub fn unlock_pair_poll(app: AppHandle) -> Result<PairingSession, UnlockError> {
     let mut slot = PAIRING.lock().map_err(|_| {
         UnlockError::new(UnlockErrorCode::Unsupported, format!("配对状态异常，请重启 {BRAND}"))
     })?;
     let Some(live) = slot.as_mut() else {
+        // No exchange running. If this Mac has just written a key, the question
+        // has become "has the phone caught up", which the beacons answer.
         return Ok(PairingSession::stage(PairingStage::Idle));
     };
     let digits = std::fs::read_to_string(&live.digits_path).ok();
@@ -1665,6 +1695,27 @@ pub fn unlock_pair_poll() -> Result<PairingSession, UnlockError> {
         *slot = None;
     }
     Ok(status)
+}
+
+/// Has the phone started using the key this Mac just wrote?
+///
+/// Separate from unlock_pair_poll because by this point the exchange is over
+/// and its child is gone -- the question has moved from "what is the tool
+/// doing" to "do both ends hold the same key", and only one of those has an
+/// answer on the radio.
+#[tauri::command]
+pub fn unlock_pair_await_phone(app: AppHandle) -> Result<PairingSession, UnlockError> {
+    if phone_has_used_the_key(&app) {
+        Ok(PairingSession {
+            stage: PairingStage::Done,
+            digits: None,
+            fingerprint: None,
+            peer_name: None,
+            detail: Some("两边都确认了，这台 Mac 认得你的手机。".into()),
+        })
+    } else {
+        Ok(PairingSession::stage(PairingStage::WaitingForPhone))
+    }
 }
 
 /// The human said the digits match. This is the only path that writes a key.
@@ -1793,13 +1844,13 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     }
 
     Ok(PairingSession {
-        stage: PairingStage::Done,
+        stage: PairingStage::WaitingForPhone,
         digits: None,
         fingerprint,
         peer_name: peer_name.clone(),
         detail: Some(match &peer_name {
-            Some(n) => format!("这台 Mac 现在认得「{n}」了。"),
-            None => "这台 Mac 已经认得你的手机了。".into(),
+            Some(n) => format!("这台 Mac 已经记住「{n}」。还要在手机上也点一下「一样」。"),
+            None => "这台 Mac 已经记下了。还要在手机上也点一下「一样」。".into(),
         }),
     })
 }

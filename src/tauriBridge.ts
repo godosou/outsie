@@ -151,6 +151,7 @@ export async function initializeDesktopBridge() {
     beginPairing: () => invoke<unknown>('unlock_pair_begin'),
     pollPairing: () => invoke<unknown>('unlock_pair_poll'),
     confirmPairing: () => invoke<unknown>('unlock_pair_confirm'),
+    awaitPhonePairing: () => invoke<unknown>('unlock_pair_await_phone'),
     async cancelPairing() { await invoke('unlock_pair_cancel') },
     calibrateSample: value => invoke<unknown>('unlock_calibrate_sample', { value }),
     startDrill: value => invoke<unknown>('unlock_drill_start', { value }),

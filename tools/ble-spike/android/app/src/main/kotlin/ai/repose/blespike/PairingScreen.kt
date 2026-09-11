@@ -40,12 +40,37 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
     val fingerprint = PresenceKey.fingerprint(context)
     val windowOpen = Pairing.isOpen || Pairing.digits != null
 
+    // 已配对 answers "is there a key in the Keystore", which is NOT "did the
+    // pairing you just did work". A failed pairing leaves an older key
+    // untouched, so this screen went on saying 已经配对好了 to somebody who had
+    // just watched it fail -- and who had, in their words, done nothing at all.
+    val justFailed = Pairing.lastError != null && !windowOpen
+
     val root = screenScaffold(
         context = context,
         pal = pal,
         title = "",
         showTitle = false,
     ) { column ->
+        // Said first, and said plainly: this is the screen where somebody finds
+        // out whether the thing they just did worked.
+        if (justFailed) {
+            column.addView(
+                Ui.amberNote(
+                    context,
+                    pal,
+                    (Pairing.lastError ?: "这次配对没有完成。") +
+                        if (provisioned) {
+                            "\n\n下面那把是上一次留下的钥匙，本身还能用 —— " +
+                                "但如果 Mac 刚刚重新配过，它就对不上了，得再配一次。"
+                        } else {
+                            ""
+                        },
+                ),
+                Ui.lp(top = context.dp(6)),
+            )
+        }
+
         when {
             windowOpen -> renderPairingWindow(context, pal, store, nav, column)
             provisioned -> renderProvisioned(context, pal, store, nav, column, fingerprint)
@@ -198,7 +223,11 @@ private fun renderProvisioned(
             context, pal,
             chip = "已配对",
             glyph = "🔑",
-            headline = macName?.let { "已经和「$it」配对" } ?: "已经配对好了",
+            headline = if (Pairing.lastError != null) {
+                "这次没配成"
+            } else {
+                macName?.let { "已经和「$it」配对" } ?: "已经配对好了"
+            },
             body = "这台 Mac 认得你的手机。",
         ),
         Ui.lp(top = context.dp(6)),

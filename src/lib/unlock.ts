@@ -507,6 +507,8 @@ export type UnlockDesktopBridge = {
   pollPairing: () => Promise<unknown>
   /** The human says the six digits match. The only path that writes a key. */
   confirmPairing: () => Promise<unknown>
+  /** Poll for the phone actually using the key this Mac wrote. */
+  awaitPhonePairing: () => Promise<unknown>
   cancelPairing: () => Promise<void>
   calibrateSample: (value: { kind: 'near' | 'far' }) => Promise<unknown>
   startDrill: (value: { kind: 'password-drill' | 'phone-drill' }) => Promise<unknown>
@@ -583,7 +585,11 @@ export function normalizePreflight(value: unknown): PreflightReport {
 
 // ---- Pairing (repose-pair-v2) ----------------------------------------------
 
-export type PairingStage = 'idle' | 'scanning' | 'compare' | 'done' | 'failed'
+export type PairingStage =
+  | 'idle' | 'scanning' | 'compare'
+  /** This Mac has its key; the phone has not used it yet. */
+  | 'waiting-for-phone'
+  | 'done' | 'failed'
 
 export type PairingSession = {
   stage: PairingStage
@@ -615,7 +621,10 @@ export function normalizePairing(value: unknown): PairingSession {
     return { stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: '配对没有完成。' }
   }
   const p = value as Record<string, unknown>
-  const stage = oneOf<PairingStage>(p.stage, ['idle', 'scanning', 'compare', 'done', 'failed'] as const)
+  const stage = oneOf<PairingStage>(
+    p.stage,
+    ['idle', 'scanning', 'compare', 'waiting-for-phone', 'done', 'failed'] as const,
+  )
   if (!stage) {
     return { stage: 'failed', digits: null, fingerprint: null, peerName: null, detail: '配对没有完成。' }
   }

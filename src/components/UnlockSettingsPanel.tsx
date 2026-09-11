@@ -152,10 +152,17 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   // Poll only while something is actually in flight.
   useEffect(() => {
     if (!bridge) return
-    if (pairing.stage !== 'scanning' && pairing.stage !== 'compare') return
+    const live = ['scanning', 'compare', 'waiting-for-phone']
+    if (!live.includes(pairing.stage)) return
     let alive = true
     const timer = window.setInterval(() => {
-      void bridge.pollPairing()
+      // Two different questions. Before the key is written, "what is the
+      // pairing tool doing"; after, "have both ends got the same key" -- and
+      // only the second one has an answer once the tool has exited.
+      const ask = pairing.stage === 'waiting-for-phone'
+        ? bridge.awaitPhonePairing()
+        : bridge.pollPairing()
+      void ask
         .then(raw => { if (alive) setPairing(normalizePairing(raw)) })
         .catch(() => undefined)
     }, 700)
@@ -528,6 +535,7 @@ function PairingSheet(
 ) {
   const title = session.stage === 'done' ? '配对完成'
     : session.stage === 'failed' ? '配对没有完成'
+    : session.stage === 'waiting-for-phone' ? '还差手机上那一下'
     : session.stage === 'compare' ? '核对这六位数字'
     : '正在找你的手机'
 
@@ -568,6 +576,26 @@ function PairingSheet(
           <div className="pk-modal-actions">
             <button className="button primary" onClick={onConfirm}>和手机上一样</button>
             <button className="button light" onClick={onClose}>不一样，停下</button>
+          </div>
+        </>
+      )}
+
+      {session.stage === 'waiting-for-phone' && (
+        <>
+          <p className="modal-intro">{session.detail ?? '这台 Mac 已经记下了。'}</p>
+          <div className="pk-pair-waiting" role="status" aria-live="polite">
+            <span className="pk-pair-dot" /><span className="pk-pair-dot" /><span className="pk-pair-dot" />
+          </div>
+          {/* Not a formality being waited out. The Mac cannot be told that the
+              phone confirmed -- a man in the middle would simply say it did --
+              so it waits to HEAR the phone sign something with the new key.
+              That is why this screen exists instead of a tick. */}
+          <p className="pk-pair-hint">
+            在手机上点「一样，完成配对」。这里会在听到手机用上新钥匙时自己变成完成——
+            <b>Mac 不会听信「手机已确认」这种消息</b>，中间人也能那么说。
+          </p>
+          <div className="pk-modal-actions">
+            <button className="button light" onClick={onClose}>先关掉</button>
           </div>
         </>
       )}
