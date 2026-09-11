@@ -79,6 +79,24 @@ object SpikeContract {
     const val CMD_SHORTCUT_BASE = 16
 
     /**
+     * "Send me your button list."
+     *
+     * Below the shortcut base, because it is a protocol command and not an
+     * action: it asks the Mac to do something to this phone, not to itself.
+     */
+    const val CMD_REQUEST_CATALOGUE = 3
+
+    // --- the shortcut catalogue (repose-console-v1) ---------------------------
+    //
+    // A separate service from pairing, and connectable only while the user is
+    // waiting for a list. The presence beacon stays non-connectable: nothing can
+    // reach into this phone through it, and that property is worth fencing
+    // rather than spending.
+
+    val CONSOLE_SERVICE_UUID: UUID = UUID.fromString("0000FFF9-0000-1000-8000-00805F9B34FB")
+    val CONSOLE_CHAR_CATALOGUE: UUID = UUID.fromString("0000FFFA-0000-1000-8000-00805F9B34FB")
+
+    /**
      * How long a command keeps going out before the beacon returns to CMD_NONE.
      *
      * WHY 25 AND NOT 6

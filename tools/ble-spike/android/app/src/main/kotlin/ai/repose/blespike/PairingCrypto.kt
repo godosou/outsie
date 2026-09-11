@@ -46,6 +46,19 @@ object PairingCrypto {
     const val SAS_LABEL = "repose-pair-v3 sas"
     const val KDF_LABEL = "repose-pair-v3 presence-key"
 
+    /**
+     * A SECOND key from the same exchange, for checking the shortcut catalogue.
+     *
+     * The Mac's presence key is root-only by design, so its app cannot sign
+     * with it -- and a catalogue this phone cannot check is a catalogue that can
+     * mislabel every button on it: a button reading 锁屏 sending a byte that
+     * means something else entirely on the Mac.
+     *
+     * Same transcript, different HKDF info, so the two keys are unrelated: this
+     * one verifies a button list and could never mint a presence beacon.
+     */
+    const val CONSOLE_KDF_LABEL = "repose-pair-v3 console-key"
+
     private const val CURVE = "secp256r1"
     private const val FIELD_LEN = 32
 
@@ -117,9 +130,9 @@ object PairingCrypto {
     }
 
     /** HKDF-SHA256 with the transcript hash as salt, one block out. */
-    fun deriveKey(ecdhX: ByteArray, salt: ByteArray): ByteArray {
+    fun deriveKey(ecdhX: ByteArray, salt: ByteArray, label: String = KDF_LABEL): ByteArray {
         val prk = hmacSha256(salt, ecdhX)
-        return hmacSha256(prk, ascii(KDF_LABEL), byteArrayOf(0x01))
+        return hmacSha256(prk, ascii(label), byteArrayOf(0x01))
     }
 
     // ---- keys --------------------------------------------------------------

@@ -60,6 +60,7 @@
       "../tools/ble-spike/mac/presence-verify": "scripts/presence-verify",
       "../tools/ble-spike/mac/pair-with-phone": "scripts/pair-with-phone",
       "../tools/ble-spike/mac/state-advertise": "scripts/state-advertise",
+      "../tools/ble-spike/mac/send-catalogue": "scripts/send-catalogue",
       "../tools/ble-spike/mac/presence-privileged.sh": "scripts/presence-privileged.sh"
     }
   }

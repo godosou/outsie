@@ -46,6 +46,14 @@ object PresenceKey {
 
     private fun alias(keyId: Int) = "$ALIAS_PREFIX$keyId"
 
+    /**
+     * The catalogue-checking key for the same Mac.
+     *
+     * A separate alias, so the two can never be confused at the call site: this
+     * one only ever verifies a button list, and the other opens a Mac.
+     */
+    private fun consoleAlias(keyId: Int) = "$ALIAS_PREFIX$keyId.console"
+
     private fun store(): KeyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
 
     /**
@@ -92,8 +100,36 @@ object PresenceKey {
             .putString(PREF_FINGERPRINT, fingerprintOf(k)).apply()
     }
 
+    /** Store the catalogue key for a Mac. Non-exportable, like the other one. */
+    fun importConsoleKey(keyId: Int, k: ByteArray) {
+        require(k.size == 32) { "console key must be 32 bytes, got ${k.size}" }
+        val ks = store()
+        if (ks.containsAlias(consoleAlias(keyId))) ks.deleteEntry(consoleAlias(keyId))
+        ks.setEntry(
+            consoleAlias(keyId),
+            KeyStore.SecretKeyEntry(
+                SecretKeySpec(k, KeyProperties.KEY_ALGORITHM_HMAC_SHA256) as SecretKey,
+            ),
+            KeyProtection.Builder(KeyProperties.PURPOSE_SIGN).build(),
+        )
+    }
+
+    fun hasConsoleKey(keyId: Int): Boolean =
+        runCatching { store().containsAlias(consoleAlias(keyId)) }.getOrDefault(false)
+
+    /** HMAC under the catalogue key. Throws if this Mac never sent one. */
+    fun consoleHmac(keyId: Int, message: ByteArray): ByteArray {
+        val key = store().getKey(consoleAlias(keyId), null) as SecretKey
+        return Mac.getInstance("HmacSHA256").apply { init(key) }.doFinal(message)
+    }
+
     fun delete(context: Context, keyId: Int) {
         runCatching { store().apply { if (containsAlias(alias(keyId))) deleteEntry(alias(keyId)) } }
+        // Both, always. Leaving the catalogue key behind would let a Mac this
+        // phone no longer trusts go on labelling its buttons.
+        runCatching {
+            store().apply { if (containsAlias(consoleAlias(keyId))) deleteEntry(consoleAlias(keyId)) }
+        }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove(PREF_FINGERPRINT).apply()
     }

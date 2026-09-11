@@ -108,6 +108,21 @@ class PairingSession(
         return PairingCrypto.deriveKey(x, salt)
     }
 
+    /**
+     * The catalogue-checking key, from the same exchange.
+     *
+     * Separate from [deriveKey] for the same reason the labels differ: this one
+     * only ever checks a button list, and could not mint a presence beacon if it
+     * leaked.
+     */
+    fun deriveConsoleKey(): ByteArray? {
+        val mac = pkM ?: return null
+        val salt = sasHash ?: return null
+        if (stage != Stage.AwaitingHuman) return null
+        val x = PairingCrypto.ecdhX(keyPair.private, PairingCrypto.decodePublicKey(mac))
+        return PairingCrypto.deriveKey(x, salt, PairingCrypto.CONSOLE_KDF_LABEL)
+    }
+
     fun complete() { stage = Stage.Done }
     fun fail() { stage = Stage.Failed }
 }

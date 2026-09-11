@@ -10,7 +10,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /** The four product screens. */
-enum class Screen { PAIRING, HOME, KEEPALIVE, MACS }
+enum class Screen { PAIRING, HOME, KEEPALIVE, MACS, CONTROL }
 
 /** How screens ask the host to move between screens. */
 interface Nav {

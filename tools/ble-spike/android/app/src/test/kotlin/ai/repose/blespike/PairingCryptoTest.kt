@@ -144,4 +144,18 @@ class PairingCryptoTest {
             assertTrue("$label still says v2", label.contains("v3"))
         }
     }
+
+    @Test fun theConsoleKeyIsADifferentKeyFromTheSameExchange() {
+        // The separation is the point: one checks a button list, the other
+        // opens a Mac. If they were equal, leaking the catalogue key -- which
+        // lives in the app's data directory on the Mac, not in root's -- would
+        // hand over the presence key with it.
+        val x = hex(wantEcdhX)
+        val t = PairingCrypto.sasHash(pkM, pkP, nm, np, keyId, phoneId)
+        val presence = hex(PairingCrypto.deriveKey(x, t))
+        val console = hex(PairingCrypto.deriveKey(x, t, PairingCrypto.CONSOLE_KDF_LABEL))
+        assertEquals(wantKey, presence)
+        assertEquals("ba6797f63dd6a57b39bcd0bb509e14481303d8ef505d35e27e7d21a8fd37181d", console)
+        assertNotEquals(presence, console)
+    }
 }

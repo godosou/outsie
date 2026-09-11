@@ -339,6 +339,13 @@ class PairingServer(
             val id = session?.keyId ?: SpikeContract.PRESENCE_KEY_ID
             PresenceKey.importKey(context, id, k)
             k.fill(0)
+            // The catalogue key from the same exchange. Kept only now, with the
+            // other one: a key from a session the human rejected would let that
+            // session's Mac label this phone's buttons.
+            session?.deriveConsoleKey()?.let { ck ->
+                runCatching { PresenceKey.importConsoleKey(id, ck) }
+                ck.fill(0)
+            }
             // Recorded only now, for the same reason the name is: an id kept
             // from a session the human rejected would have this phone
             // advertising under a slot it never actually paired into.

@@ -203,7 +203,7 @@ pub struct PairedDevice {
 /// silently became empty, would install something the verifier refuses while
 /// the panel reported 配对完成 -- which is precisely how the printf bug got as
 /// far as a lock screen.
-pub fn parse_pair_output(line: &str) -> Option<(u8, String, String)> {
+pub fn parse_pair_output(line: &str) -> Option<(u8, String, String, String)> {
     let mut parts = line.trim().split_whitespace();
     let key_id: u8 = parts.next()?.parse().ok()?;
     if key_id == 0 {
@@ -213,16 +213,21 @@ pub fn parse_pair_output(line: &str) -> Option<(u8, String, String)> {
     if phone_id.len() != 16 || !phone_id.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    let key = parts.next()?.to_string();
-    if key.len() != 64 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    // Anything after the key is not something this version understands, and
+    let hex32 = |p: Option<&str>| -> Option<String> {
+        let v = p?.to_string();
+        (v.len() == 64 && v.chars().all(|c| c.is_ascii_hexdigit())).then_some(v)
+    };
+    let key = hex32(parts.next())?;
+    // The catalogue key. Required, not optional: without it the phone cannot
+    // check a button list, and a button list it cannot check is one that can
+    // mislabel every button on it.
+    let console_key = hex32(parts.next())?;
+    // Anything after that is not something this version understands, and
     // guessing at it is how a format change becomes a silent misinstall.
     if parts.next().is_some() {
         return None;
     }
-    Some((key_id, phone_id, key))
+    Some((key_id, phone_id, key, console_key))
 }
 
 /// The shell that deletes one device's key. Pure so the quoting and the fact
@@ -2063,7 +2068,7 @@ pub fn status_path(app: &AppHandle) -> Option<PathBuf> {
 /// Separate from the installer's directory because they come from different
 /// places in the repo, and because the dev fallback has to point somewhere
 /// different. In a packaged app both land under Resources/scripts.
-fn resolve_ble_dir(app: &AppHandle) -> Option<PathBuf> {
+pub(crate) fn resolve_ble_dir(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(res) = app.path().resource_dir() {
         let c = res.join("scripts");
         if c.join("presence-pipeline.sh").exists() {
@@ -2615,7 +2620,7 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     // identity decides which older key it replaces. Both were covered by the
     // digits the human just compared, so trusting them here is trusting that
     // comparison and nothing more.
-    let Some((key_id, phone_id, key)) = parse_pair_output(&key) else {
+    let Some((key_id, phone_id, key, console_key)) = parse_pair_output(&key) else {
         return Ok(PairingSession::failed(pairing_failure(code)));
     };
     if code != Some(0) {
@@ -2725,6 +2730,19 @@ pub fn unlock_pair_confirm(app: AppHandle) -> Result<PairingSession, UnlockError
     // The nickname is cosmetic, so saving it must never be able to fail the
     // pairing: a Mac that paired correctly but could not write a name is
     // paired.
+    // The catalogue key, app-side and 0600.
+    //
+    // NOT next to the presence key: that one is root-only on purpose, and this
+    // one has to be readable by the app that signs catalogues. Whoever gets
+    // this file can forge a button list for this Mac; they cannot open it.
+    if let Ok(dir) = pairing_dir(&app) {
+        let path = dir.join(format!("console-key.{key_id}"));
+        if std::fs::write(&path, &console_key).is_ok() {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+
     if let (Some(n), Ok(dir)) = (&peer_name, pairing_dir(&app)) {
         // Against the slot it belongs to. The shared file was correct only
         // while there was one slot; a second phone would have taken the first
@@ -3620,11 +3638,16 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
     fn the_pairing_tools_line_is_parsed_strictly() {
         let key = "a".repeat(64);
         assert_eq!(
-            parse_pair_output(&format!("37 0badc0de0badc0de {key}\n")),
-            Some((37, "0badc0de0badc0de".to_string(), key.clone())),
+            parse_pair_output(&format!("37 0badc0de0badc0de {key} {ck}\n", ck = "b".repeat(64))),
+            Some((37, "0badc0de0badc0de".to_string(), key.clone(), "b".repeat(64))),
         );
         // Uppercase from either side means the same phone.
-        assert_eq!(parse_pair_output(&format!("37 0BADC0DE0BADC0DE {key}")).unwrap().1, "0badc0de0badc0de");
+        assert_eq!(
+            parse_pair_output(&format!("37 0BADC0DE0BADC0DE {key} {ck}", ck = "b".repeat(64)))
+                .unwrap()
+                .1,
+            "0badc0de0badc0de",
+        );
     }
 
     #[test]
@@ -3633,15 +3656,18 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
         // will refuse while the panel says 配对完成 -- which is exactly how the
         // printf bug reached a lock screen.
         let key = "a".repeat(64);
+        let ck = "b".repeat(64);
         for bad in [
             "".to_string(),
-            key.clone(),                                   // the old one-field format
-            format!("0 0badc0de0badc0de {key}"),           // slot 0 is not a slot
-            format!("37 0badc0de {key}"),                  // short identity
-            format!("37 0badc0de0badc0dez {key}"),         // not hex
-            format!("37 0badc0de0badc0de {}", "a".repeat(63)),
-            format!("37 0badc0de0badc0de {key} extra"),    // a field we do not understand
-            format!("999 0badc0de0badc0de {key}"),         // out of range
+            key.clone(),                                        // the old one-field format
+            format!("37 0badc0de0badc0de {key}"),               // the v3 form without the console key
+            format!("0 0badc0de0badc0de {key} {ck}"),           // slot 0 is not a slot
+            format!("37 0badc0de {key} {ck}"),                  // short identity
+            format!("37 0badc0de0badc0dez {key} {ck}"),         // not hex
+            format!("37 0badc0de0badc0de {} {ck}", "a".repeat(63)),
+            format!("37 0badc0de0badc0de {key} {}", "b".repeat(63)),
+            format!("37 0badc0de0badc0de {key} {ck} extra"),    // a field we do not understand
+            format!("999 0badc0de0badc0de {key} {ck}"),         // out of range
         ] {
             assert!(parse_pair_output(&bad).is_none(), "accepted: {bad:?}");
         }

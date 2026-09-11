@@ -11,3 +11,4 @@ src-tauri/target/
 .env
 .env.*
 !.env.example
+tools/ble-spike/mac/send-catalogue

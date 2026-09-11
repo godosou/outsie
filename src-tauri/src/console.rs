@@ -383,6 +383,37 @@ pub fn console_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64)> {
         .collect()
 }
 
+/// The byte a phone sends to ask for the catalogue. Below the shortcut base
+/// because it asks the Mac to do something TO the phone, not to itself.
+pub const CONSOLE_CMD_REQUEST: u8 = 3;
+
+/// Catalogue requests new to us, with the key id of the phone that asked.
+///
+/// The key id matters: the catalogue is signed with THAT phone's key, and
+/// sending it under another phone's would produce a list it must reject.
+pub fn console_requests_since(csv: &str, after_ms: i64) -> Vec<(u8, i64)> {
+    csv.lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() < 9 {
+                return None;
+            }
+            let field = |name: &str| {
+                fields.iter().find_map(|f| f.trim().strip_prefix(name).map(str::trim))
+            };
+            if field("auth=") != Some("VALID") {
+                return None;
+            }
+            if field("cmd=")?.parse::<u8>().ok()? != CONSOLE_CMD_REQUEST {
+                return None;
+            }
+            let at: i64 = fields[0].trim().parse().ok()?;
+            let key_id: u8 = fields[4].trim().parse().ok()?;
+            (at > after_ms).then_some((key_id, at))
+        })
+        .collect()
+}
+
 // ---- storage --------------------------------------------------------------
 
 fn config_path(app: &AppHandle) -> Option<std::path::PathBuf> {
@@ -399,6 +430,93 @@ pub fn load_config(app: &AppHandle) -> ConsoleConfig {
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
+}
+
+/// The buttons the phone may show, as compact JSON.
+///
+/// Short keys because it goes over BLE a few hundred bytes at a time, and only
+/// what the phone needs: it cannot edit any of this. Actions without a command
+/// byte, and actions that cannot work, are left out -- a button that is certain
+/// to do nothing is worse on a phone than on the Mac, because there is nothing
+/// on the phone that can explain why.
+pub fn catalogue_json(config: &ConsoleConfig) -> String {
+    let apps: Vec<serde_json::Value> = config
+        .apps
+        .iter()
+        .filter_map(|app| {
+            let actions: Vec<serde_json::Value> = app
+                .actions
+                .iter()
+                .filter(|a| action_health(a) == ActionHealth::Ok)
+                .filter_map(|a| {
+                    let b = a.cmd_byte?;
+                    if b < CONSOLE_CMD_BASE {
+                        return None;
+                    }
+                    let mut o = serde_json::Map::new();
+                    o.insert("b".into(), b.into());
+                    o.insert("n".into(), a.name.clone().into());
+                    if let Some(icon) = a.icon.as_deref().filter(|s| !s.is_empty()) {
+                        o.insert("i".into(), icon.into());
+                    }
+                    // Spelled by the same function the Mac's own screen uses, so
+                    // one shortcut is not two different strings on two screens.
+                    let keys: Vec<String> = a.steps.iter().map(step_label).collect();
+                    o.insert("k".into(), keys.join(" ").into());
+                    Some(serde_json::Value::Object(o))
+                })
+                .collect();
+            (!actions.is_empty()).then(|| {
+                serde_json::json!({ "n": app.name, "a": actions })
+            })
+        })
+        .collect();
+    serde_json::json!({ "apps": apps }).to_string()
+}
+
+/// The catalogue key for a phone, written beside the pairing state at pairing.
+fn console_key(app: &AppHandle, key_id: u8) -> Option<String> {
+    let dir = app.path().app_data_dir().ok()?.join("pairing");
+    let raw = std::fs::read_to_string(dir.join(format!("console-key.{key_id}"))).ok()?;
+    let k = raw.trim().to_string();
+    (k.len() == 64 && k.chars().all(|c| c.is_ascii_hexdigit())).then_some(k)
+}
+
+/// Hand the phone the catalogue, over a connection it opened by asking.
+///
+/// Blocking, and called off the UI thread. The phone's window is sixty seconds;
+/// giving up before that would report failure while it was still listening.
+fn send_catalogue(app: &AppHandle, key_id: u8) -> Result<(), String> {
+    let key = console_key(app, key_id)
+        .ok_or("这部手机配对时没有留下用来签名的钥匙，重新配对一次就有了")?;
+    let config = ensure_cmd_bytes(app);
+    let json = catalogue_json(&config);
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let staged = dir.join("catalogue.json");
+    std::fs::write(&staged, &json).map_err(|e| e.to_string())?;
+
+    let bin = crate::unlock::resolve_ble_dir(app)
+        .ok_or("找不到发送列表的程序")?
+        .join("send-catalogue");
+    let out = std::process::Command::new(bin)
+        .arg("--key").arg(&key)
+        .arg("--revision").arg(config.revision.to_string())
+        .arg("--json").arg(&staged)
+        .output()
+        .map_err(|e| e.to_string())?;
+    // The key is on an argument list, which every process on this machine can
+    // read. It signs a button list and cannot open this Mac -- that is exactly
+    // why the presence key is never passed this way and this one may be.
+    if out.status.success() {
+        return Ok(());
+    }
+    let why = String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("没有说明原因")
+        .to_string();
+    Err(why)
 }
 
 // ---- the watcher ----------------------------------------------------------
@@ -430,6 +548,21 @@ pub fn start_command_watcher(app: AppHandle) {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(700));
             let Ok(csv) = std::fs::read_to_string(&path) else { continue };
+            for (byte, at) in console_requests_since(&csv, mark) {
+                mark = at.max(mark);
+                let outcome = send_catalogue(&app, byte);
+                let _ = app.emit(
+                    "console-command",
+                    serde_json::json!({
+                        "action": serde_json::Value::Null,
+                        "ok": outcome.is_ok(),
+                        "detail": match &outcome {
+                            Ok(()) => Some("手机已经拿到按钮列表".to_string()),
+                            Err(e) => Some(format!("没能把列表送到手机：{e}")),
+                        },
+                    }),
+                );
+            }
             for (byte, at) in console_commands_since(&csv, mark) {
                 mark = at.max(mark);
                 let config = ensure_cmd_bytes(&app);
@@ -753,6 +886,58 @@ mod tests {
                     .collect(),
             }],
         }
+    }
+
+    #[test]
+    fn the_catalogue_carries_only_what_the_phone_can_use() {
+        let mut c = cfg(&[("one", Some(16)), ("two", None), ("broken", Some(18))]);
+        c.apps[0].actions[2].steps.clear();          // nothing to press
+        c.apps[0].name = "Terminal".into();
+        let json = catalogue_json(&c);
+        // Byte 16 is complete; "two" has no byte and "broken" has no keys, and a
+        // button on a phone that does nothing has nothing there to explain why.
+        assert!(json.contains("\"b\":16"), "{json}");
+        assert!(!json.contains("\"b\":18"), "an unusable action reached the phone: {json}");
+        assert!(json.contains("Terminal"));
+    }
+
+    #[test]
+    fn the_keys_are_spelled_the_way_the_macs_own_screen_spells_them() {
+        // Two spellings of one shortcut on two screens is the same confusion as
+        // two codes in one pairing flow.
+        let mut c = cfg(&[("one", Some(16))]);
+        c.apps[0].actions[0].steps = vec![step("b", &["ctrl"]), step("%", &[])];
+        let json = catalogue_json(&c);
+        assert!(json.contains("⌃b %"), "{json}");
+    }
+
+    #[test]
+    fn an_app_with_nothing_usable_is_left_out_entirely() {
+        let mut c = cfg(&[("one", None)]);
+        c.apps[0].actions[0].cmd_byte = None;
+        assert_eq!(catalogue_json(&c), r#"{"apps":[]}"#);
+    }
+
+    #[test]
+    fn a_request_carries_the_key_id_of_the_phone_that_asked() {
+        // The catalogue is signed with THAT phone's key; signing with another
+        // phone's would produce a list it is right to reject.
+        let csv = "\
+1000,-53,ABC,2,15,tag,0,7,auth=VALID,cmd=3
+2000,-53,ABC,2,9,tag,0,8,auth=VALID,cmd=3
+3000,-53,ABC,2,15,tag,0,9,auth=BAD,cmd=3
+";
+        assert_eq!(console_requests_since(csv, 0), vec![(15, 1000), (9, 2000)]);
+        assert_eq!(console_requests_since(csv, 1000), vec![(9, 2000)]);
+    }
+
+    #[test]
+    fn a_catalogue_request_is_not_a_shortcut_press() {
+        // cmd=3 asks the Mac to send a list. If it also matched an action it
+        // would press a key as well.
+        let csv = "1000,-53,ABC,2,15,tag,0,7,auth=VALID,cmd=3";
+        assert_eq!(console_commands_since(csv, 0), vec![]);
+        assert_eq!(console_requests_since(csv, 0), vec![(15, 1000)]);
     }
 
     #[test]

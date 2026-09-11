@@ -43,6 +43,16 @@ let COMMIT_LABEL = "repose-pair-v3 commit"
 let SAS_LABEL = "repose-pair-v3 sas"
 let KDF_LABEL = "repose-pair-v3 presence-key"
 
+/// A SECOND key from the same exchange, for signing the shortcut catalogue.
+///
+/// The presence key is root-only by design, so the app cannot sign with it --
+/// and a catalogue the phone cannot check is a catalogue that can mislabel every
+/// button on it. Same transcript, different HKDF info, so this key can sign a
+/// catalogue and cannot mint a presence beacon. It lives in the app's data
+/// directory: whoever steals it can forge a button list and still cannot open
+/// this Mac.
+let CONSOLE_KDF_LABEL = "repose-pair-v3 console-key"
+
 /// Where to drop the six digits for a GUI caller. nil when a person is reading
 /// stderr instead. See the write site for why this is not stderr scraping.
 var digitsFile: String? = nil
@@ -97,10 +107,10 @@ func sasDigits(_ hash: Data) -> String {
 
 /// HKDF-SHA256, salted with the transcript hash so that even a digit collision
 /// leaves the two halves of a MITM holding different keys.
-func deriveKey(ecdhX: Data, salt: Data) -> Data {
+func deriveKey(ecdhX: Data, salt: Data, label: String = KDF_LABEL) -> Data {
     let prk = HMAC<SHA256>.authenticationCode(for: ecdhX, using: SymmetricKey(data: salt))
     return Data(HMAC<SHA256>.authenticationCode(
-        for: ascii(KDF_LABEL) + Data([0x01]),
+        for: ascii(label) + Data([0x01]),
         using: SymmetricKey(data: Data(prk))))
 }
 
@@ -369,7 +379,7 @@ final class Pairer: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
             // decides where the key is installed and the identity decides which
             // older key, if any, this one replaces. Both were covered by the
             // digits the human just compared.
-            print("\(keyId) \(hex(phoneId)) \(hex(deriveKey(ecdhX: x, salt: transcript)))")
+            print("\(keyId) \(hex(phoneId)) \(hex(deriveKey(ecdhX: x, salt: transcript))) \(hex(deriveKey(ecdhX: x, salt: transcript, label: CONSOLE_KDF_LABEL)))")
             say("配对成功。\(peerName.map { "对方设备：\($0)" } ?? "")")
             exit(0)
         } catch {
@@ -400,6 +410,7 @@ enum Vec {
     static let digits = "336549"
     static let ecdhX = "8264224d7eb11f8f5240fe1b94a14c7202a9c493cdfc5fd406f6a46d681f6f94"
     static let key = "1c58d63ba975bb90784b4bc442d79b6841ccf58c5a446b2a679f015502f4edcb"
+    static let consoleKey = "ba6797f63dd6a57b39bcd0bb509e14481303d8ef505d35e27e7d21a8fd37181d"
 }
 
 func selfTest() -> Int32 {
@@ -421,6 +432,14 @@ func selfTest() -> Int32 {
         let x = try sk.sharedSecretFromKeyAgreement(with: peer).withUnsafeBytes { Data($0) }
         check("ECDH x", hex(x), Vec.ecdhX)
         check("derived key", hex(deriveKey(ecdhX: x, salt: t)), Vec.key)
+        check("console key", hex(deriveKey(ecdhX: x, salt: t, label: CONSOLE_KDF_LABEL)), Vec.consoleKey)
+        // The separation is the whole point: one signs catalogues, the other
+        // opens the Mac, and neither can stand in for the other.
+        if hex(deriveKey(ecdhX: x, salt: t)) == hex(deriveKey(ecdhX: x, salt: t, label: CONSOLE_KDF_LABEL)) {
+            say("  FAIL the console key is the presence key"); f += 1
+        } else {
+            say("  ok   the console key is a different key")
+        }
     } catch {
         say("  FAIL ECDH threw: \(error)"); f += 1
     }
