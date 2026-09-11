@@ -424,6 +424,30 @@ if let f = fixedNow {
     log("TEST MODE: clock pinned to \(f). Replay protection is disabled in this run.")
 }
 
+// Die with whoever started us.
+//
+// rssi-scan has had this guard for a while; the privileged half did not, and it
+// is the half where an orphan actually matters. Observed: the watcher that owns
+// this stage died, and presence-verify and permit-bridge were reparented to
+// launchd -- two ROOT processes, holding a pipe open, verifying against a key
+// directory that had just been deleted, and unkillable by the app that started
+// them (it runs as the user). Uninstall could not reap them. Nothing could,
+// short of a reboot or a password.
+//
+// EOF on stdin is the ordinary way this exits and still is. This is for the
+// case where the writer is gone but the pipe is not, which is exactly what
+// reparenting produces.
+let parentAtStart = getppid()
+DispatchQueue.global().async {
+    while true {
+        Thread.sleep(forTimeInterval: 5)
+        if getppid() != parentAtStart {
+            log("parent went away, exiting rather than verifying for nobody")
+            exit(0)
+        }
+    }
+}
+
 let keys = KeyStore(dir: keyDir)
 let seqGuard = SeqGuard()
 setlinebuf(stdout)

@@ -628,3 +628,42 @@ export function normalizePairing(value: unknown): PairingSession {
     detail: str(p.detail)?.slice(0, 400) ?? null,
   }
 }
+
+// ---- Uninstall ------------------------------------------------------------
+
+/**
+ * What a removal actually read back off the machine.
+ *
+ * Every field here was once a literal `true` in the Rust, which is how this
+ * project once reported `keys_removed: true` over a key that was still on
+ * disk. They are readings now, and the panel shows them rather than
+ * summarising — "已移除" is a claim; a list of what is and is not still there
+ * is evidence.
+ */
+export type UninstallSummary = {
+  ruleNow: string
+  backupUsed: boolean
+  rightRemoved: boolean
+  bundleRemoved: boolean
+  keysRemoved: boolean
+  residual: string[]
+}
+
+export function normalizeUninstall(value: unknown): UninstallSummary {
+  const safe: UninstallSummary = {
+    ruleNow: '', backupUsed: false, rightRemoved: false,
+    bundleRemoved: false, keysRemoved: false, residual: [],
+  }
+  if (!value || typeof value !== 'object') return safe
+  const r = value as Record<string, unknown>
+  return {
+    ruleNow: str(r.ruleNow)?.slice(0, 400) ?? '',
+    backupUsed: r.backupUsed === true,
+    rightRemoved: r.rightRemoved === true,
+    bundleRemoved: r.bundleRemoved === true,
+    keysRemoved: r.keysRemoved === true,
+    residual: Array.isArray(r.residual)
+      ? r.residual.filter((e): e is string => typeof e === 'string' && e.length <= 200).slice(0, 12)
+      : [],
+  }
+}

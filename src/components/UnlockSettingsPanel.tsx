@@ -15,9 +15,9 @@ import { KeyRound, Smartphone, ShieldCheck, X, Monitor } from 'lucide-react'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
   beginRequest, finishRequest, failRequest, canIssue, healthClass, normalizePreflight,
-  INITIAL_REQUEST_STATE, normalizePairing, IDLE_PAIRING,
+  INITIAL_REQUEST_STATE, normalizePairing, IDLE_PAIRING, normalizeUninstall,
   type UnlockSnapshot, type UnlockError, type PanelCommand, type RequestState,
-  type PreflightReport, type PairingSession,
+  type PreflightReport, type PairingSession, type UninstallSummary,
   type UnlockDesktopBridge,
 } from '../lib/unlock'
 
@@ -44,6 +44,10 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
   const [armedRevoke, setArmedRevoke] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [pairing, setPairing] = useState<PairingSession>(IDLE_PAIRING)
+  // What the last removal actually read back off the machine. Shown rather than
+  // summarised: "已移除" is a claim, a list of what is and is not still there
+  // is a reading.
+  const [removal, setRemoval] = useState<UninstallSummary | null>(null)
   const requestRef = useRef(request)
   requestRef.current = request
   // Keep a ref so the presence listener can patch just the presence axis without
@@ -162,7 +166,18 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
       case 'install': setShowInstall(true); break
       case 'repair-rule': void run(command, () => bridge.repair({ target: 'rule' })); break
       case 'reinstall-component': void run(command, () => bridge.repair({ target: 'component' })); break
-      case 'uninstall': void run(command, () => bridge.uninstall()); break
+      // Uninstall returns an UninstallReport, which has no `state` field -- so
+      // `run` never refreshed the snapshot and the panel sat there still
+      // claiming the feature was installed, after a removal that had actually
+      // succeeded and had already asked for an administrator password. Ask for
+      // a fresh snapshot explicitly; the report is what the toast reads.
+      case 'uninstall':
+        void run(command, async () => {
+          const report = await bridge.uninstall()
+          setRemoval(normalizeUninstall(report))
+          return bridge.getSnapshot()
+        })
+        break
       case 'resume': void run(command, () => bridge.setEnabled({ enabled: true })); break
       case 'open-bluetooth-settings': void bridge.openBluetoothSettings(); break
       case 'start-password-drill': void bridge.startDrill({ kind: 'password-drill' }); break
@@ -332,6 +347,31 @@ export function UnlockSettingsPanel({ bridge, onToast }: Props) {
 
       {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} pre={pre} />}
       {showManifest && <RemoveConfirm onClose={() => setShowManifest(false)} onConfirm={() => { setShowManifest(false); dispatchCommand('uninstall') }} />}
+      {/* What the removal actually read back, not a claim that it worked.
+          Clicking 移除 used to leave the panel completely unchanged after a
+          successful uninstall and an administrator password -- indistinguishable
+          from nothing having happened. */}
+      {removal && (
+        <div className="pk-removal" role="status">
+          <div className="pk-removal-head">
+            <b>已移除</b>
+            <button className="pk-removal-close" aria-label="关闭" onClick={() => setRemoval(null)}>
+              <X size={16} />
+            </button>
+          </div>
+          <ul>
+            <li>{removal.rightRemoved ? '✓' : '·'} 锁屏规则{removal.backupUsed ? '已从备份还原' : '已改回只认密码'}</li>
+            <li>{removal.bundleRemoved ? '✓' : '·'} 组件{removal.bundleRemoved ? '已删除' : '仍在'}</li>
+            <li>{removal.keysRemoved ? '✓' : '·'} 这台 Mac 上的配对密钥{removal.keysRemoved ? '已删除' : '仍在'}</li>
+          </ul>
+          {removal.ruleNow && <p className="pk-removal-rule">现在的锁屏规则：<code>{removal.ruleNow}</code></p>}
+          {removal.residual.length > 0 && (
+            <p className="pk-removal-left">还剩下：{removal.residual.join('、')}</p>
+          )}
+          <p className="pk-removal-note">密码登录不受影响，一直都可用。</p>
+        </div>
+      )}
+
       {pairing.stage !== 'idle' && (
         <PairingSheet
           session={pairing}

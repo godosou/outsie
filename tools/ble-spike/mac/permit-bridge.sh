@@ -215,6 +215,8 @@ on_signal() {
 # not. Immediate teardown would be nicer. It is not what keeps the door shut.
 trap on_signal TERM INT HUP EXIT
 
+PARENT_AT_START="$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')"
+
 publish starting
 log "starting: auth=VALID required, near>=${NEAR_DBM} far<=${FAR_DBM} stale=${STALE_S}s refresh=${REFRESH_S}s"
 
@@ -236,6 +238,24 @@ while :; do
     fi
 
     now="$(now_s)"
+
+    # Die with whoever started us.
+    #
+    # This runs as root, and when its parent died it was reparented to launchd:
+    # a root process holding the permit logic open, which the app -- running as
+    # the user -- cannot signal. Uninstall could not reap it. EOF on stdin is
+    # still the ordinary exit; this covers the case where the writer is gone but
+    # the pipe is not, which is what reparenting produces.
+    #
+    # Checked here rather than on a timer because the loop already wakes every
+    # REFRESH_S, and going through the normal exit path matters: the handler
+    # clears the permit on the way out.
+    if [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != "${PARENT_AT_START}" ]; then
+        log "parent went away; clearing permit and exiting"
+        publish stopped
+        [ "${present}" = 1 ] && clear_permit
+        exit 0
+    fi
 
     if [ -n "${line}" ]; then
         # CSV: unix_ms,rssi,... then presence-verify's named fields at the end,

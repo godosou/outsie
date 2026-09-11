@@ -837,6 +837,24 @@ impl HostMacBackend {
             return PresenceKeyState::Missing;
         };
         let mode = md.mode() & 0o777;
+
+        // Size, because the contents are unreadable from here.
+        //
+        // This checked permissions and nothing else, so a corrupt key passed:
+        // a three-byte file, written by a printf bug, was reported as 已配对.
+        // The panel then offered 「锁屏，试一次」 -- a drill that could only
+        // fail -- and never offered 配对手机, because that button appears only
+        // when the key is MISSING. The state had no way out through the UI.
+        //
+        // The file is root-only 0600 so its bytes cannot be read here, but the
+        // directory is 755 and a key is 64 hex characters, with or without a
+        // trailing newline. Any other length is not a key the verifier will
+        // take, and calling it one is the same lie in a smaller place.
+        let len = md.len();
+        if len != 64 && len != 65 {
+            return PresenceKeyState::Missing;
+        }
+
         if md.uid() == 0 && md.gid() == 0 && mode == 0o600 {
             // How the key got here, recorded next to it by the pairing path.
             // Absent means it was pushed by a dev script -- and absent is the
@@ -1880,6 +1898,24 @@ mod tests {
         let c = find(&a, ComponentId::Transport);
         assert!(!c.detail.contains("开发密钥"), "a paired key is not a dev key: {}", c.detail);
         assert!(c.detail.contains("配对"), "should say it is paired: {}", c.detail);
+    }
+
+    #[test]
+    fn a_wrong_length_key_is_no_key_at_all() {
+        // The observed failure: a three-byte file, root-owned and 0600, written
+        // by a printf bug. Permissions were perfect and the contents were
+        // rubbish. assess() cannot read the bytes -- the file is root-only --
+        // so the length is the check, and Missing is the only honest answer.
+        //
+        // Missing rather than a new Corrupt state on purpose: the remedy is
+        // identical (pair again), and a state whose only button is the one
+        // Missing already has is a state that exists to be rendered, not used.
+        let mut f = facts();
+        f.presence_key = PresenceKeyState::Missing;
+        let a = assess(&f);
+        assert_eq!(a.state, UnlockState::AwaitingPairing);
+        let c = find(&a, ComponentId::Transport);
+        assert!(c.remediation.is_some(), "must offer a way out");
     }
 
     #[test]
