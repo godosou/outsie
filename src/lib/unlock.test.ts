@@ -32,7 +32,7 @@ function snapshot(overrides: Partial<UnlockSnapshot> = {}): UnlockSnapshot {
       { id: 'transport', health: 'ok', detail: '蓝牙已开' },
     ],
     componentInvocation: { kind: 'observed', at: '2026-09-09T14:22:00Z' },
-    device: { id: '1', name: 'realme RMX3888', platform: 'Android', pairedAt: '2026-09-09', paired: true, canUnlock: true, blockedReason: null },
+    devices: [{ id: '1', name: 'realme RMX3888', platform: 'Android', pairedAt: '2026-09-09', paired: true, canUnlock: true, blockedReason: null }],
     stats: { unlocksToday: 4, lastUnlockAt: '2026-09-09T14:22:00Z' },
     lastFailure: null,
     macosBuild: '23G93',
@@ -75,7 +75,7 @@ test('normalize round-trips a valid snapshot', () => {
   assert.equal(s.presence, 'near')
   assert.equal(s.variant, 'A')
   assert.equal(s.components.length, 4)
-  assert.equal(s.device?.name, 'realme RMX3888')
+  assert.equal(s.devices[0]?.name, 'realme RMX3888')
   assert.equal(s.stats.unlocksToday, 4)
 })
 

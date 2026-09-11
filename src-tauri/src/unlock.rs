@@ -201,6 +201,85 @@ pub fn revoke_script(key_path: &str) -> String {
     )
 }
 
+/// One key file on this Mac, and what it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct KeySlot {
+    /// The slot number in `presence-key.<id>`. Chosen by the phone from v3 on;
+    /// every key written before that is in slot 1.
+    pub id: u8,
+    pub state: PresenceKeyState,
+    /// ISO time the file was written, i.e. when pairing finished.
+    pub written_at: Option<String>,
+}
+
+/// What the panel's health model should say about a Mac holding these slots.
+///
+/// A Mac with two phones is healthy when either key is usable; it is in trouble
+/// when one is misowned, because that one will be refused by the verifier while
+/// the panel goes on saying 已配对. So a single bad slot wins over any number of
+/// good ones -- the bad one is the news.
+pub fn aggregate_key_state(slots: &[KeySlot]) -> PresenceKeyState {
+    if let Some(bad) = slots.iter().find(|s| matches!(s.state, PresenceKeyState::BadPermissions { .. })) {
+        return bad.state.clone();
+    }
+    match slots.iter().find(|s| matches!(s.state, PresenceKeyState::Ok { .. })) {
+        // `paired` is true only if EVERY usable key came from a real pairing.
+        // One dev key among them and the panel must not vouch for the set.
+        Some(_) => PresenceKeyState::Ok {
+            paired: slots
+                .iter()
+                .filter(|s| matches!(s.state, PresenceKeyState::Ok { .. }))
+                .all(|s| matches!(s.state, PresenceKeyState::Ok { paired: true })),
+        },
+        None => PresenceKeyState::Missing,
+    }
+}
+
+/// Every phone that can open this Mac, one row each.
+pub fn paired_devices(
+    slots: &[KeySlot],
+    name_for: &dyn Fn(u8) -> Option<String>,
+    watching: bool,
+) -> Vec<PairedDevice> {
+    let mut out: Vec<PairedDevice> = slots
+        .iter()
+        .filter_map(|slot| {
+            let paired = match &slot.state {
+                PresenceKeyState::Missing | PresenceKeyState::BadPermissions { .. } => return None,
+                PresenceKeyState::Ok { paired } => *paired,
+            };
+            Some(device_row(slot.id, paired, name_for(slot.id), slot.written_at.clone(), watching))
+        })
+        .collect();
+    // Stable order, so a list of phones does not reshuffle between two reads of
+    // a directory.
+    out.sort_by_key(|d| d.id.parse::<u8>().unwrap_or(0));
+    out
+}
+
+fn device_row(
+    id: u8,
+    paired: bool,
+    saved_name: Option<String>,
+    paired_at: Option<String>,
+    watching: bool,
+) -> PairedDevice {
+    let name = match (paired, saved_name.as_deref().map(str::trim).filter(|n| !n.is_empty())) {
+        (true, Some(n)) => n.to_string(),
+        (true, None) => "已配对的手机".to_string(),
+        (false, _) => "USB 下发的开发密钥".to_string(),
+    };
+    PairedDevice {
+        id: id.to_string(),
+        name,
+        platform: if paired { "Android" } else { "开发用" }.to_string(),
+        paired_at: paired_at.unwrap_or_default(),
+        paired,
+        can_unlock: watching,
+        blocked_reason: (!watching).then(|| "上面的开关关着，现在谁都解不了锁".to_string()),
+    }
+}
+
 /// Build the row from the facts that exist. There is deliberately no
 /// "last seen" field: the bridge publishes its current verdict and keeps no
 /// history, so any timestamp here would be invented.
@@ -253,7 +332,9 @@ pub struct UnlockSnapshot {
     pub variant: Option<RuleVariant>,
     pub components: Vec<UnlockComponent>,
     pub component_invocation: ComponentInvocation,
-    pub device: Option<PairedDevice>,
+    /// Every phone that can open this Mac. Was a single Option, which was
+    /// correct only while one key slot existed.
+    pub devices: Vec<PairedDevice>,
     pub stats: UnlockStats,
     pub last_failure: Option<serde_json::Value>,
     pub macos_build: String,
@@ -907,7 +988,7 @@ impl HostMacBackend {
                 run_status("/bin/launchctl", &["print", &format!("system/{DAEMON_LABEL}")])
                     .unwrap_or(false),
             ),
-            presence_key: Self::presence_key_state(),
+            presence_key: aggregate_key_state(&Self::key_slots()),
             presence: Self::presence_report(app),
         }
     }
@@ -915,14 +996,19 @@ impl HostMacBackend {
     /// The nickname the phone reported during pairing, saved next to the
     /// pairing state. Cosmetic, and absent on a Mac paired before it was
     /// recorded -- both are fine; the card falls back to a generic label.
-    fn saved_peer_name(app: &AppHandle) -> Option<String> {
+    fn saved_peer_name(app: &AppHandle, id: u8) -> Option<String> {
         let dir = app.path().app_data_dir().ok()?.join("pairing");
-        std::fs::read_to_string(dir.join("peer-name.saved")).ok()
+        // Per-slot first; `peer-name.saved` is where every pairing before v3
+        // put it, and that one belongs to slot 1. Reading it for any other slot
+        // would label a second phone with the first one's name.
+        std::fs::read_to_string(dir.join(format!("peer-name.{id}.saved")))
+            .ok()
+            .or_else(|| (id == 1).then(|| std::fs::read_to_string(dir.join("peer-name.saved")).ok()).flatten())
     }
 
     /// When the key file was written, which is when pairing finished.
-    fn key_written_at() -> Option<String> {
-        let md = std::fs::metadata(format!("{PRESENCE_KEY_DIR}/presence-key.1")).ok()?;
+    fn key_written_at(id: u8) -> Option<String> {
+        let md = std::fs::metadata(format!("{PRESENCE_KEY_DIR}/presence-key.{id}")).ok()?;
         let secs = md.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
         // Same idiom as now_iso: shell to `date` rather than pull a date crate
         // in for two call sites.
@@ -956,11 +1042,34 @@ impl HostMacBackend {
         radio_state(std::fs::read_to_string(work.join("scan.log")).ok().as_deref(), up_for)
     }
 
-    fn presence_key_state() -> PresenceKeyState {
+    /// Every `presence-key.<n>` on this Mac.
+    ///
+    /// A directory scan rather than a hardcoded slot 1: the phone chooses its
+    /// own id from protocol v3 on, so the Mac cannot know in advance which
+    /// files exist. Unreadable directory means no keys, which fails closed.
+    fn key_slots() -> Vec<KeySlot> {
+        let Ok(entries) = std::fs::read_dir(PRESENCE_KEY_DIR) else { return Vec::new() };
+        let mut slots: Vec<KeySlot> = entries
+            .flatten()
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                // `.provenance` files live beside the keys and must not be read
+                // as keys themselves.
+                let id: u8 = name.strip_prefix("presence-key.")?.parse().ok()?;
+                Some(KeySlot {
+                    id,
+                    state: Self::slot_state(id),
+                    written_at: Self::key_written_at(id),
+                })
+            })
+            .collect();
+        slots.sort_by_key(|s| s.id);
+        slots
+    }
+
+    fn slot_state(id: u8) -> PresenceKeyState {
         use std::os::unix::fs::MetadataExt;
-        // Slot 1 is the only one the spike provisions. A missing file and an
-        // unreadable directory are both "no usable key", and both fail closed.
-        let path = format!("{PRESENCE_KEY_DIR}/presence-key.1");
+        let path = format!("{PRESENCE_KEY_DIR}/presence-key.{id}");
         let Ok(md) = std::fs::metadata(&path) else {
             return PresenceKeyState::Missing;
         };
@@ -989,7 +1098,10 @@ impl HostMacBackend {
             // safe reading: claiming a key was verified when we cannot tell
             // would be the one wrong direction to guess in.
             let paired = std::fs::read_to_string(format!("{path}.provenance"))
-                .map(|s| s.trim() == "repose-pair-v2")
+                .map(|s| {
+                    let s = s.trim();
+                    s == "repose-pair-v2" || s == "repose-pair-v3"
+                })
                 .unwrap_or(false);
             PresenceKeyState::Ok { paired }
         } else {
@@ -1035,10 +1147,9 @@ impl UnlockBackend for HostMacBackend {
             variant,
             components: assessment.components,
             component_invocation: ComponentInvocation::NeverObserved,
-            device: paired_device(
-                &Self::presence_key_state(),
-                Self::saved_peer_name(&self.app).as_deref(),
-                Self::key_written_at(),
+            devices: paired_devices(
+                &Self::key_slots(),
+                &|id| Self::saved_peer_name(&self.app, id),
                 assessment.presence_running,
             ),
             stats: UnlockStats { unlocks_today: 0, last_unlock_at: None },
@@ -1141,15 +1252,19 @@ impl UnlockBackend for HostMacBackend {
     /// removed -- revoking a key and uninstalling the whole feature are
     /// genuinely different things to want.
     fn revoke_device(&self, device_id: &str) -> Result<UnlockSnapshot, UnlockError> {
-        // Slot 1 is the only slot that exists. Accepting any id and deleting
-        // slot 1 would delete the wrong key the day a second one exists.
-        if device_id != "1" {
+        // The id names a real slot, or nothing is deleted. Accepting anything
+        // and deleting slot 1 was safe only while slot 1 was the only slot;
+        // with two phones it would delete whichever one is not being revoked.
+        let id: u8 = device_id.parse().map_err(|_| {
+            UnlockError::new(UnlockErrorCode::Unsupported, format!("不是一个钥匙编号：{device_id}"))
+        })?;
+        if !Self::key_slots().iter().any(|s| s.id == id) {
             return Err(UnlockError::new(
                 UnlockErrorCode::Unsupported,
-                format!("这台 Mac 上没有编号 {device_id} 的钥匙"),
+                format!("这台 Mac 上没有编号 {id} 的钥匙"),
             ));
         }
-        let key = format!("{PRESENCE_KEY_DIR}/presence-key.1");
+        let key = format!("{PRESENCE_KEY_DIR}/presence-key.{id}");
         run_privileged(&revoke_script(&key))?;
 
         // Read back before reporting. The password prompt was the user's, and
@@ -1160,9 +1275,15 @@ impl UnlockBackend for HostMacBackend {
                 format!("{key} 还在。这部手机仍然可以解锁这台 Mac。"),
             ));
         }
-        // The nickname is only meaningful next to the key it named.
+        // The nickname is only meaningful next to the key it named -- and only
+        // THAT key's nickname: removing the shared pre-v3 file while revoking
+        // slot 7 would strip slot 1's name too.
         if let Ok(dir) = self.app.path().app_data_dir() {
-            let _ = std::fs::remove_file(dir.join("pairing").join("peer-name.saved"));
+            let pairing = dir.join("pairing");
+            let _ = std::fs::remove_file(pairing.join(format!("peer-name.{id}.saved")));
+            if id == 1 {
+                let _ = std::fs::remove_file(pairing.join("peer-name.saved"));
+            }
         }
         self.get_snapshot()
     }
@@ -2646,7 +2767,7 @@ mod tests {
             variant: None,
             components: vec![],
             component_invocation: ComponentInvocation::NeverObserved,
-            device: None,
+            devices: Vec::new(),
             stats: UnlockStats { unlocks_today: 0, last_unlock_at: None },
             last_failure: None,
             macos_build: "b".into(),
@@ -3287,56 +3408,102 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
         assert_eq!(calibration_samples(csv, 0, 1), vec![(-53, 1001)]);
     }
 
+    fn slot(id: u8, state: PresenceKeyState) -> KeySlot {
+        KeySlot { id, state, written_at: None }
+    }
+
     #[test]
     fn no_usable_key_means_an_empty_list() {
         // A device row is a promise that something can unlock this Mac. With no
         // key, or a key the verifier refuses, nothing can -- and a row saying
         // otherwise is the bug this whole file is written against.
-        assert!(paired_device(&PresenceKeyState::Missing, Some("realme GT5 Pro"), None, true).is_none());
-        assert!(paired_device(
-            &PresenceKeyState::BadPermissions { detail: String::new() },
-            Some("realme GT5 Pro"),
-            None,
+        let names = |_: u8| Some("realme GT5 Pro".to_string());
+        assert!(paired_devices(&[], &names, true).is_empty());
+        assert!(paired_devices(&[slot(1, PresenceKeyState::Missing)], &names, true).is_empty());
+        assert!(paired_devices(
+            &[slot(1, PresenceKeyState::BadPermissions { detail: String::new() })],
+            &names,
             true
         )
-        .is_none());
+        .is_empty());
+    }
+
+    #[test]
+    fn every_slot_becomes_a_row_of_its_own() {
+        // The point of the whole change: two phones are two rows, each with the
+        // name recorded against ITS slot. One shared name would put the first
+        // phone's label on the second one's key.
+        let names = |id: u8| Some(format!("手机 {id}"));
+        let rows = paired_devices(
+            &[
+                slot(7, PresenceKeyState::Ok { paired: true }),
+                slot(1, PresenceKeyState::Ok { paired: true }),
+            ],
+            &names,
+            true,
+        );
+        assert_eq!(rows.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["1", "7"]);
+        assert_eq!(rows[0].name, "手机 1");
+        assert_eq!(rows[1].name, "手机 7");
     }
 
     #[test]
     fn a_dev_key_is_listed_but_not_called_a_paired_phone() {
         // It really can unlock this Mac, so hiding it would be a lie by
         // omission; calling it a paired phone would be the opposite lie.
-        let d = paired_device(&PresenceKeyState::Ok { paired: false }, Some("realme GT5 Pro"), None, true)
-            .expect("a usable key is a device that can unlock");
-        assert!(!d.paired);
-        assert!(!d.name.contains("realme"), "a name from a previous pairing must not label a dev key: {}", d.name);
-    }
-
-    #[test]
-    fn a_paired_phone_wears_the_name_it_reported() {
-        let d = paired_device(&PresenceKeyState::Ok { paired: true }, Some("  realme GT5 Pro "), None, true).unwrap();
-        assert_eq!(d.name, "realme GT5 Pro");
-        assert!(d.paired);
-        assert!(d.can_unlock);
-        assert!(d.blocked_reason.is_none());
+        let rows = paired_devices(
+            &[slot(1, PresenceKeyState::Ok { paired: false })],
+            &|_| Some("realme GT5 Pro".into()),
+            true,
+        );
+        assert!(!rows[0].paired);
+        assert!(!rows[0].name.contains("realme"), "a saved name must not label a dev key: {}", rows[0].name);
     }
 
     #[test]
     fn a_paired_phone_without_a_saved_name_still_gets_a_row() {
-        // The nickname is cosmetic and its absence must not delete the device.
-        for name in [None, Some(""), Some("   ")] {
-            let d = paired_device(&PresenceKeyState::Ok { paired: true }, name, None, true).unwrap();
-            assert_eq!(d.name, "已配对的手机");
+        for name in [None, Some(String::new()), Some("   ".to_string())] {
+            let rows = paired_devices(&[slot(1, PresenceKeyState::Ok { paired: true })], &|_| name.clone(), true);
+            assert_eq!(rows[0].name, "已配对的手机");
         }
     }
 
     #[test]
     fn a_phone_that_cannot_unlock_says_why() {
-        // ui-conventions 1.1: the row shows what is true now, not what pairing
-        // once achieved. With the monitor stopped, this phone opens nothing.
-        let d = paired_device(&PresenceKeyState::Ok { paired: true }, Some("realme"), None, false).unwrap();
-        assert!(!d.can_unlock);
-        assert!(d.blocked_reason.is_some(), "a disabled row must carry its reason");
+        let rows = paired_devices(&[slot(1, PresenceKeyState::Ok { paired: true })], &|_| None, false);
+        assert!(!rows[0].can_unlock);
+        assert!(rows[0].blocked_reason.is_some(), "a disabled row must carry its reason");
+    }
+
+    #[test]
+    fn one_misowned_key_is_the_news_even_beside_good_ones() {
+        // The verifier will refuse that key, so the phone it belongs to will
+        // silently stop working while the panel reports 已配对 on the strength
+        // of the other one.
+        let state = aggregate_key_state(&[
+            slot(1, PresenceKeyState::Ok { paired: true }),
+            slot(9, PresenceKeyState::BadPermissions { detail: "x".into() }),
+        ]);
+        assert!(matches!(state, PresenceKeyState::BadPermissions { .. }));
+    }
+
+    #[test]
+    fn the_panel_only_vouches_for_a_set_where_every_key_was_paired() {
+        assert_eq!(
+            aggregate_key_state(&[
+                slot(1, PresenceKeyState::Ok { paired: true }),
+                slot(2, PresenceKeyState::Ok { paired: false }),
+            ]),
+            PresenceKeyState::Ok { paired: false },
+        );
+        assert_eq!(
+            aggregate_key_state(&[
+                slot(1, PresenceKeyState::Ok { paired: true }),
+                slot(2, PresenceKeyState::Ok { paired: true }),
+            ]),
+            PresenceKeyState::Ok { paired: true },
+        );
+        assert_eq!(aggregate_key_state(&[]), PresenceKeyState::Missing);
     }
 
     #[test]

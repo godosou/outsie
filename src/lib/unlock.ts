@@ -129,7 +129,7 @@ export type UnlockSnapshot = {
   variant: RuleVariant
   components: UnlockComponent[]
   componentInvocation: ComponentInvocation
-  device: PairedDevice | null
+  devices: PairedDevice[]
   macId: string | null
   /** What the radio is doing, separately from what the phone is doing. */
   radio: RadioState
@@ -151,7 +151,7 @@ export const UNSUPPORTED_SNAPSHOT: UnlockSnapshot = Object.freeze({
   variant: null,
   components: [],
   componentInvocation: { kind: 'never-observed' as const },
-  device: null,
+  devices: [],
   macId: null,
   radio: 'scanning',
   stats: { unlocksToday: 0, lastUnlockAt: null },
@@ -234,24 +234,25 @@ export function normalizeUnlockSnapshot(
     if (at !== null) componentInvocation = { kind: 'observed', at }
   }
 
-  let device: PairedDevice | null = null
-  if (s.device && typeof s.device === 'object') {
-    const d = s.device as Record<string, unknown>
+  // Every phone that can open this Mac. Was a single optional device, which was
+  // right only while the Mac had one key slot.
+  const devices: PairedDevice[] = (Array.isArray(s.devices) ? s.devices : []).flatMap(raw => {
+    if (!raw || typeof raw !== 'object') return []
+    const d = raw as Record<string, unknown>
     const id = str(d.id), name = str(d.name), platform = str(d.platform)
     // pairedAt is deliberately NOT required: an unreadable mtime means one
     // missing line on the card, not a phone that disappears from the list.
-    if (id && name && platform) {
-      device = {
-        id,
-        name,
-        platform,
-        pairedAt: str(d.pairedAt) ?? '',
-        paired: d.paired === true,
-        canUnlock: d.canUnlock === true,
-        blockedReason: str(d.blockedReason),
-      }
-    }
-  }
+    if (!id || !name || !platform) return []
+    return [{
+      id,
+      name,
+      platform,
+      pairedAt: str(d.pairedAt) ?? '',
+      paired: d.paired === true,
+      canUnlock: d.canUnlock === true,
+      blockedReason: str(d.blockedReason),
+    }]
+  })
 
   const stats = {
     unlocksToday: typeof (s.stats as Record<string, unknown>)?.unlocksToday === 'number'
@@ -268,7 +269,7 @@ export function normalizeUnlockSnapshot(
   }
 
   return {
-    readAt, state, presence, presenceRunning, variant, components, componentInvocation, device,
+    readAt, state, presence, presenceRunning, variant, components, componentInvocation, devices,
     macId: str(s.macId),
     radio: readRadio(s.radio),
     stats, lastFailure,
@@ -457,7 +458,9 @@ export function deriveUnlockView(snapshot: UnlockSnapshot): UnlockView {
 }
 
 function deriveReadyView(snapshot: UnlockSnapshot): UnlockView {
-  const name = snapshot.device?.name ?? '你的手机'
+  // With several phones there is no single one to name, so the sentence
+  // goes generic rather than picking one of them to speak for the rest.
+  const name = snapshot.devices.length === 1 ? snapshot.devices[0].name : '你的手机'
   // §3.4 invariant 2: only "near" is a green dot. "away" is neutral, not a warning.
   if (snapshot.presence === 'near') {
     return {

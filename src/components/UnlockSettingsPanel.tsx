@@ -330,7 +330,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
               {!enabled
                 ? '已关闭 · 现在只能用密码登录'
                 : radioTrouble(snapshot.radio)
-                  ?? (snapshot.device ? '已开启 · 正在留意你的手机' : '已开启 · 但还没有哪部手机能用来解锁')}
+                  ?? (snapshot.devices.length ? '已开启 · 正在留意你的手机' : '已开启 · 但还没有哪部手机能用来解锁')}
             </p>
           )}
           {/* Says what you get, then reassures. It used to describe the
@@ -561,7 +561,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
 
     {!degraded && loaded && snapshot.state !== 'not-installed' && (
       <PhoneList
-        device={snapshot.device}
+        devices={snapshot.devices}
         // The panel above already offers 配对手机 as its primary action while
         // there is no key. Two buttons for one decision made the reader stop
         // and work out whether they were the same thing (ui-conventions 2.5).
@@ -786,8 +786,8 @@ function CalibrationVerdict({ result, onRedo, onClose }: {
 // Also deliberately not here: a 快捷控制 switch. Nothing reads such a flag yet,
 // and a switch that stores a preference no code enforces is the same lie as a
 // hardcoded `keys_removed: true`.
-function PhoneList({ device, onPair, busy, armed, onArm, onRevoke, onCalibrate }: {
-  device: PairedDevice | null
+function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate }: {
+  devices: PairedDevice[]
   onPair: (() => void) | null
   busy: boolean
   armed: string | null
@@ -798,11 +798,20 @@ function PhoneList({ device, onPair, busy, armed, onArm, onRevoke, onCalibrate }
   return (
     <section className="panel preferences-panel">
       <div className="section-heading">
-        <div><h2>能打开这台 Mac 的</h2><p>{device ? '现在只有它。' : '还没有。'}</p></div>
+        <div>
+          <h2>能打开这台 Mac 的</h2>
+          <p>{devices.length === 0 ? '还没有。' : devices.length === 1 ? '现在只有它。' : `一共 ${devices.length} 部。`}</p>
+        </div>
       </div>
 
-      {device ? (
-        <div className={`pk-device${device.canUnlock ? '' : ' is-off'}`}>
+      {devices.length === 0 ? (
+        // 6.4: an empty list must answer what this is, not just offer a button.
+        <div className="pk-device-empty">
+          <p>配一部手机之后，它会出现在这里。配对要两边同时在场，在手机上点一下「一样」才算成功。</p>
+          {onPair && <button className="button primary" disabled={busy} onClick={onPair}>配对手机</button>}
+        </div>
+      ) : devices.map(device => (
+        <div className={`pk-device${device.canUnlock ? '' : ' is-off'}`} key={device.id}>
           <div className="pk-device-icon"><Smartphone size={19} /></div>
           <div className="pk-device-body">
             <p className="pk-device-name">{device.name}</p>
@@ -825,7 +834,9 @@ function PhoneList({ device, onPair, busy, armed, onArm, onRevoke, onCalibrate }
             )}
             {armed === device.id ? (
               <>
-                <p className="pk-device-warn">删掉钥匙之后，这部手机要重新配对一次才能再解锁。</p>
+                {/* Names the phone: with several listed, 「这把钥匙」 alone does
+                    not say which row you armed. */}
+                <p className="pk-device-warn">删掉之后，「{device.name}」要重新配对一次才能再解锁。</p>
                 <span className="pk-revoke-confirm">
                   <button className="text-button" onClick={() => onArm(null)}>算了</button>
                   <button className="text-button danger-text" disabled={busy} onClick={() => onRevoke(device.id)}>
@@ -838,17 +849,13 @@ function PhoneList({ device, onPair, busy, armed, onArm, onRevoke, onCalibrate }
             )}
           </div>
         </div>
-      ) : (
-        // 6.4: an empty list must answer what this is, not just offer a button.
-        <div className="pk-device-empty">
-          <p>配一部手机之后，它会出现在这里。配对要两边同时在场，在手机上点一下「一样」才算成功。</p>
-          {onPair && <button className="button primary" disabled={busy} onClick={onPair}>配对手机</button>}
-        </div>
-      )}
+      ))}
 
-      {device && (
+      {devices.length > 0 && (
         <p className="security-limit" style={{ marginTop: 16 }}>
-          再配一部手机、以及给每部手机单独开关，还没做。
+          {/* Honest about what is and is not built: the Mac can hold several
+              keys now, but nothing yet gives a second phone its own. */}
+          给每部手机单独开关，还没做。再配一部手机要等配对协议的下一版。
         </p>
       )}
     </section>
