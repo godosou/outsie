@@ -23,6 +23,22 @@ class AppStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("repose_key", Context.MODE_PRIVATE)
 
+    /**
+     * Whether the user has this phone acting as a key.
+     *
+     * Persisted, because the alternative was an in-memory flag on SpikeState --
+     * so the beacon stopped whenever Android reclaimed the process, and the
+     * only signal was a Mac that quietly went back to asking for a password.
+     * For a product whose whole claim is「手机就是钥匙」, a key that silently
+     * stops being one is the worst failure it has.
+     *
+     * The service itself is still the truth about whether it is running; this
+     * records the user's decision, so the app can put it back.
+     */
+    var advertiseWanted: Boolean
+        get() = prefs.getBoolean(KEY_ADVERTISE, false)
+        set(value) { prefs.edit().putBoolean(KEY_ADVERTISE, value).apply() }
+
     var paired: Boolean
         get() = prefs.getBoolean(KEY_PAIRED, false)
         set(value) { prefs.edit().putBoolean(KEY_PAIRED, value).apply() }
@@ -137,6 +153,7 @@ class AppStore(context: Context) {
 
     private companion object {
         const val KEY_PAIRED = "paired"
+        const val KEY_ADVERTISE = "advertise_wanted"
         const val KEY_MAC_NAME = "paired_mac_name"
         const val KEY_CMD_SEQ = "command_seq"
         const val KEY_CODE = "pairing_code"

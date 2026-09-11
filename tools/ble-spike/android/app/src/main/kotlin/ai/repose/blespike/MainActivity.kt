@@ -71,6 +71,8 @@ class MainActivity : Activity(), Nav {
 
         go(if (store.paired) Screen.HOME else Screen.PAIRING)
 
+        restoreAdvertisingIfWanted()
+
         // A test seam, not a feature: `am start ... --ez autostart true` begins
         // advertising without a human finding a toggle. The impersonation test has to
         // drive both this app and its imposter twin identically, and locating a button
@@ -206,7 +208,35 @@ class MainActivity : Activity(), Nav {
     // ---- Advertise toggle -> BleSpikeService ----
 
     private fun onAdvertiseChange(enable: Boolean) {
+        // Record the decision before acting on it. The service can be killed by
+        // the system at any time; what must survive is that the user wanted
+        // their phone to be a key.
+        store.advertiseWanted = enable
         if (enable) requestPermissionsThenStart() else stopAdvertising()
+    }
+
+    /**
+     * Put the beacon back if the user had it on.
+     *
+     * Android reclaims processes, and until now the toggle lived only in memory
+     * -- so a phone that had been sitting in a pocket came back with its key
+     * switched off and nothing on screen having changed its mind. The Mac just
+     * went back to asking for a password, which is safe and completely silent.
+     *
+     * Only when the permissions are already granted: waking up and throwing a
+     * permission dialog at someone who merely opened the app is worse than not
+     * restarting, and the toggle then shows off, which is true.
+     */
+    private fun restoreAdvertisingIfWanted() {
+        if (!store.advertiseWanted) return
+        if (SpikeState.advertising) return
+        if (missingPermissions().any { it != Manifest.permission.POST_NOTIFICATIONS &&
+                it != Manifest.permission.BLUETOOTH_SCAN }) {
+            SpikeState.event("was on, but a permission is missing; not restarting")
+            return
+        }
+        SpikeState.event("restarting the beacon: it was on before")
+        startSpike()
     }
 
     private fun stopAdvertising() {
