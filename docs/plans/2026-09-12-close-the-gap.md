@@ -171,3 +171,18 @@ APK；走一遍量距离（远处站到听不见的地方）；控制页看按�
 - **点 App 名字切 App**（用户明确要的：「点 APP 的时候切到 app，这个 APP 的快捷键才有用」）：每个 App 自己一个字节，
   同一个池子；列表带 `b`；手机点名字发它；Mac 只切前台不按键。cargo 150 · gradle 86 全绿，两端已装。
   **待真机**：控制页先「同步」一次拿新列表，再点「飞书」；再点「搜索」看切 + 按键。用户 17:17 起不在。
+
+## 用户休息后，我驱动手机做的真机验证（2026-09-12 21:05–21:20）
+
+- **切 App**：从后台调 `activateWithOptions` 在 macOS 14+ 返回 YES 却不生效（本机实测 6 次 5.6 秒内都没到前台）；
+  改成先 `activateIgnoringOtherApps` 再 `yieldActivationToApplication` 再 activate，3–18 毫秒到前台且不发 reopen
+  （中间试过 `openApplicationAtURL activates:YES`，能到前台但每次开新窗口，用户当场指出）。手机点飞书/Codex/Arc/Antigravity，
+  console.log 逐条「切到」，前台 bundle id 对上。
+- **按键**：手机点「搜索」→ Mac 切到飞书按 ⌘K；点「取消」→ Esc。
+- **同步**：手机拿到 7 个 App、233 个操作的新列表。
+- **字节稳定性 bug**：面板模型不带 cmdByte，从「快捷键设置」保存一次就全部重编号，手机旧列表按错键（当场发生：按「搜索」
+  Mac 按了「粘贴」）。修：保存时按 id 把旧字节带回来，只补缺的（cargo 151 绿）。
+- **蓝牙状态机**：`svc bluetooth disable` → 服务不崩；46 秒后 Mac AWAY → 锁屏；`enable` 3 秒后重新广播，Mac ENTER。
+- **常用 App**：Otty(tmux) 31 · Buzz 14 · 飞书 20 · Codex 77 · Antigravity 44 · 微信 16 · Arc 35，写进 work-console-v1.json，
+  用户可在「快捷键设置」里改。
+- 没验到的：行文字（uiautomator 没抓到那一行的文本，见下一条记录）。
