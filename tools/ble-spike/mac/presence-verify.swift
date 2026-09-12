@@ -359,29 +359,48 @@ let vectors: [Vector] = [
 /// macStateMessage -- this one and MacStateScanner.kt -- cannot drift apart
 /// without a test going red on one side.
 ///
-/// Computed independently with Python's hmac before being written down, not
-/// copied out of this binary's own output: a vector produced by the code it
-/// checks agrees with itself no matter what either of them says. A drift here reads on the phone as
-/// "the Mac stopped answering", which is indistinguishable from being out of
-/// range and is the most expensive kind of silent failure this product has.
+/// Computed independently by macstate-vectors.py (standard-library hmac) before
+/// being written down, not copied out of this binary's own output: a vector
+/// produced by the code it checks agrees with itself no matter what either of
+/// them says. A drift here reads on the phone as "the Mac stopped answering",
+/// which is indistinguishable from being out of range and is the most
+/// expensive kind of silent failure this product has.
+///
+/// state: 0 open · 1 locked · 2 measuring near · 3 near done, walk away ·
+///        4 measuring far · 5 done · 6 both ends too alike · 7 no phone heard
 struct MacStateVector {
     let keyHex: String
     let keyId: UInt8
     let macId: UInt16
     let counter: Int64
-    let locked: Bool
+    let state: UInt8
     let tagHex: String
 }
 
 let macStateVectors: [MacStateVector] = [
     MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-                   keyId: 1, macId: 0xABCD, counter: 58000000, locked: true, tagHex: "d16d729bc487b663"),
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 1, tagHex: "d16d729bc487b663"),
     MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-                   keyId: 1, macId: 0xABCD, counter: 58000000, locked: false, tagHex: "ee8a24179231a934"),
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 0, tagHex: "ee8a24179231a934"),
     // A different Mac, everything else identical: the tag must change, or the
     // mac id is decoration rather than part of the authenticated message.
     MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-                   keyId: 1, macId: 0x0001, counter: 58000000, locked: true, tagHex: "eedf1ad32139ab89"),
+                   keyId: 1, macId: 0x0001, counter: 58000000, state: 1, tagHex: "eedf1ad32139ab89"),
+    // The calibration states, 2..7. Each one is a distinct byte inside the
+    // pre-image, so each gets its own tag: a phone that sees「等你走开」must
+    // not be able to mistake it for「量好了」.
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 2, tagHex: "253ba303f4d5811e"),
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 3, tagHex: "7d66f7140359f142"),
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 4, tagHex: "cc9627b76c4d5dc3"),
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 5, tagHex: "557255691807c2ca"),
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 6, tagHex: "836f0d745518bc51"),
+    MacStateVector(keyHex: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+                   keyId: 1, macId: 0xABCD, counter: 58000000, state: 7, tagHex: "1f342de7dc9f5027"),
 ]
 
 func selfTest() -> Int32 {
@@ -390,11 +409,11 @@ func selfTest() -> Int32 {
     for (i, v) in macStateVectors.enumerated() {
         let k = SymmetricKey(data: hexDecode(v.keyHex)!)
         let got = Data(HMAC<SHA256>.authenticationCode(
-            for: macStateMessage(keyId: v.keyId, macId: v.macId, counter: v.counter, state: v.locked ? 1 : 0),
+            for: macStateMessage(keyId: v.keyId, macId: v.macId, counter: v.counter, state: v.state),
             using: k)).prefix(tagLen)
         let gotHex = got.map { String(format: "%02x", $0) }.joined()
         if gotHex == v.tagHex {
-            print("  ok   macstate vector \(i): macId=\(String(format: "%04x", v.macId)) locked=\(v.locked) -> \(gotHex)")
+            print("  ok   macstate vector \(i): macId=\(String(format: "%04x", v.macId)) state=\(v.state) -> \(gotHex)")
         } else {
             print("  FAIL macstate vector \(i): expected \(v.tagHex), got \(gotHex)")
             failures += 1

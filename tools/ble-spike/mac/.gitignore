@@ -2,3 +2,4 @@ rssi-scan
 logs/
 presence-verify
 pair-with-phone
+state-advertise
