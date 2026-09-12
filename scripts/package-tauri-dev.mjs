@@ -3,8 +3,10 @@
 // Signing happens AFTER `tauri build`, on the finished bundle, the same way the
 // release script does — not through Tauri's APPLE_SIGNING_IDENTITY path, which
 // also switches on the hardened runtime and a notarization branch this app has
-// never run under. --deep signs the helper binaries under Resources/scripts
-// with the same identity, inside-out, so --verify --deep --strict stays green.
+// never run under. The helper binaries under Resources/scripts are sealed as
+// resources by the bundle signature (--deep only descends into nested code
+// locations), which is all --verify --deep --strict needs; TCC attributes
+// their Bluetooth use to the parent app, so their own signature is moot.
 //
 // With no identity available the build is left ad-hoc, and says so.
 import { spawnSync } from 'node:child_process'
