@@ -29,6 +29,8 @@ class MainActivity : Activity(), Nav {
 
     private companion object {
         const val REQUEST_PERMISSIONS = 7
+        /** From the 「让它一直在」 card: grant, then just redraw. Nothing starts. */
+        const val REQUEST_PERMISSIONS_ONLY = 8
     }
 
     private lateinit var store: AppStore
@@ -151,9 +153,10 @@ class MainActivity : Activity(), Nav {
         val pal = ReposeTheme.of(this)
         val view = when (screen) {
             Screen.PAIRING -> buildPairingScreen(this, store, this)
-            Screen.HOME -> buildHomeScreen(this, store, this) { enable -> onAdvertiseChange(enable) }
+            Screen.HOME -> buildHomeScreen(this, store, this, { enable -> onAdvertiseChange(enable) }, ::requestKeyPermissions)
             Screen.CONTROL -> buildControlScreen(this, this, console, store)
             Screen.CAL -> buildCalScreen(this, this, store)
+            Screen.KEEPALIVE -> buildKeepAliveScreen(this, store, this, ::requestKeyPermissions)
         }
         currentView = view
         contentFrame.removeAllViews()
@@ -166,7 +169,7 @@ class MainActivity : Activity(), Nav {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (current) {
-            Screen.CONTROL, Screen.CAL -> go(Screen.HOME)
+            Screen.CONTROL, Screen.CAL, Screen.KEEPALIVE -> go(Screen.HOME)
             else -> super.onBackPressed()
         }
     }
@@ -237,12 +240,23 @@ class MainActivity : Activity(), Nav {
         }
     }
 
+    /** The checklist's 「允许」: the system dialog for whatever is still missing. */
+    private fun requestKeyPermissions() {
+        val missing = missingPermissions()
+        if (missing.isEmpty()) return
+        requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS_ONLY)
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_PERMISSIONS_ONLY) {
+            go(current) // the card reads the grants fresh
+            return
+        }
         if (requestCode != REQUEST_PERMISSIONS) return
         // POST_NOTIFICATIONS being denied is survivable; the BLE ones are not.
         val blocked = permissions.filterIndexed { index, name ->

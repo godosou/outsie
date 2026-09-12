@@ -77,32 +77,59 @@ object Ui {
             this.text = text
             gravity = Gravity.CENTER
             setTextColor(pal.onAccent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15.5f)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            val v = context.dp(15)
-            setPadding(context.dp(24), v, context.dp(24), v)
-            minimumHeight = context.dp(54)
-            background = ripple(context, rounded(pal.accent, context.dpF(16f)), pal.ripple)
+            val v = context.dp(13)
+            setPadding(context.dp(22), v, context.dp(22), v)
+            minimumHeight = context.dp(50)
+            background = ripple(context, rounded(pal.accent, context.dpF(14f)), pal.ripple)
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }
         }
 
+    /**
+     * The quiet button: a soft sage fill, no outline. The old one-pixel
+     * outline on a transparent fill read as an input field and, at 54 dp,
+     * as a slab; every secondary action on the phone was drawn with it.
+     */
     fun ghostButton(context: Context, pal: Palette, text: CharSequence, onClick: () -> Unit): TextView =
         TextView(context).apply {
             this.text = text
             gravity = Gravity.CENTER
             setTextColor(pal.accent)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            val v = context.dp(15)
-            setPadding(context.dp(24), v, context.dp(24), v)
-            minimumHeight = context.dp(54)
-            background = ripple(
-                context,
-                rounded(0x00000000, context.dpF(16f), pal.divider, context.dp(1)),
-                pal.ripple,
-            )
+            val v = context.dp(12)
+            setPadding(context.dp(20), v, context.dp(20), v)
+            minimumHeight = context.dp(46)
+            background = ripple(context, rounded(pal.accentSoft, context.dpF(14f)), pal.ripple)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+
+    /** A tappable row inside a card: a title, one small line under it, a chevron. */
+    fun rowLink(context: Context, pal: Palette, title: CharSequence, sub: CharSequence, onClick: () -> Unit): LinearLayout =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val text = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            text.addView(TextView(context).apply {
+                this.text = title
+                setTextColor(pal.textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            })
+            text.addView(secondary(context, pal, sub).apply { setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f) }, lp(top = context.dp(2)))
+            addView(text, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(TextView(context).apply {
+                this.text = "›"
+                setTextColor(pal.textSecondary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            }, lp(width = WRAP_CONTENT, left = context.dp(12)))
+            setPadding(0, context.dp(10), 0, context.dp(2))
+            background = ripple(context, rounded(0x00000000, context.dpF(10f)), pal.ripple)
             isClickable = true
             isFocusable = true
             setOnClickListener { onClick() }

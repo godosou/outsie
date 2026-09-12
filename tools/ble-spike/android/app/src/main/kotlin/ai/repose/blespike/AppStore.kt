@@ -228,6 +228,15 @@ class AppStore(context: Context) {
         prefs.edit().putBoolean(KEY_CALIBRATED_PREFIX + keyId, true).apply()
     }
 
+    /**
+     * The person said the skin's background switches (自启动、后台运行、不限耗电)
+     * are set. Not readable from the system, so it is their word (design doc
+     * §04 「让它一直在」).
+     */
+    var keepAliveBackgroundAcknowledged: Boolean
+        get() = prefs.getBoolean(KEY_KEEPALIVE_BACKGROUND, false)
+        set(value) { prefs.edit().putBoolean(KEY_KEEPALIVE_BACKGROUND, value).apply() }
+
     private fun saveMacs(list: List<PairedMac>) {
         val arr = JSONArray()
         list.forEach { m ->
@@ -250,5 +259,6 @@ class AppStore(context: Context) {
         const val KEY_MACS = "macs_json"
         /** Followed by the key id: one flag per Mac. */
         const val KEY_CALIBRATED_PREFIX = "calibrated_once_"
+        const val KEY_KEEPALIVE_BACKGROUND = "keepalive_background_ok"
     }
 }

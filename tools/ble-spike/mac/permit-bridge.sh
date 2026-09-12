@@ -166,6 +166,22 @@ band_for() {
     printf '%s %s' "${NEAR_DBM}" "${FAR_DBM}"
 }
 STALE_S="${REPOSE_STALE_S:-45}"        # no sample for this long -> treat as gone
+# A single reading below FAR is not a departure. On 2026-09-12 the phone sat
+# on the desk on a USB cable and the Mac locked three times in a minute: one
+# sample at -89..-93 each time, the next at -66. Leaving is a state that
+# lasts; the signal has to stay below FAR for this long before it counts.
+FAR_HOLD_S="${REPOSE_FAR_HOLD_S:-8}"
+far_since=0
+# far_persisted NOW RSSI FAR -> 0 when the signal has been below FAR for FAR_HOLD_S.
+far_persisted() {
+    if [ "$2" -le "$3" ]; then
+        [ "${far_since}" = 0 ] && far_since="$1"
+        [ "$(($1 - far_since))" -ge "${FAR_HOLD_S}" ]
+    else
+        far_since=0
+        return 1
+    fi
+}
                                        # (see "WHY 45" below; being wrong here
                                        # interrupts someone who is working)
 REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while present
@@ -436,15 +452,19 @@ while :; do
                     assert_permit
                 fi
             elif [ "${rssi}" -le "${far_now}" ]; then
-                if [ "${present}" = 1 ]; then
+                if [ "${present}" = 1 ] && far_persisted "${now}" "${rssi}" "${far_now}"; then
                     present=0
-                    log "LEAVE (rssi=${rssi}) -> clearing permit"
+                    far_since=0
+                    log "LEAVE (rssi=${rssi}, below far for ${FAR_HOLD_S}s) -> clearing permit"
                     publish away "${rssi}"
                     clear_permit
                     lock_on_away "rssi=${rssi}"
                 fi
+            else
+                # between FAR and NEAR: hold current state (that is the hysteresis),
+                # and a reading back above FAR resets the departure clock.
+                far_since=0
             fi
-            # between FAR and NEAR: hold current state (that is the hysteresis).
         fi
     fi
 

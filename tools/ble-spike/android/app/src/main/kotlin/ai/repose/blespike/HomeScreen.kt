@@ -48,6 +48,7 @@ fun buildHomeScreen(
     store: AppStore,
     nav: Nav,
     onAdvertiseChange: (Boolean) -> Unit,
+    onRequestPermissions: () -> Unit = {},
 ): ScreenView {
     val pal = ReposeTheme.of(context)
 
@@ -114,7 +115,7 @@ fun buildHomeScreen(
         column.addView(hero, Ui.lp(top = context.dp(6)))
 
         // ---- Is this phone acting as a key: one line, one switch ----
-        val toggleCard = sectionCard(context, pal, "📡", "当你的钥匙")
+        val toggleCard = sectionCard(context, pal, "🔑", "当你的钥匙")
         val toggleRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -150,19 +151,16 @@ fun buildHomeScreen(
         toggleRow.addView(toggle, Ui.lp(width = WRAP_CONTENT, left = context.dp(12)))
         toggleCard.addView(toggleRow, Ui.lp(top = context.dp(12)))
 
-        // Shown only while it is true: a condition, not furniture. Measured on
-        // this phone -- the service is killed a few minutes after the app goes
-        // to the background, and nothing says so.
-        if (!isBatteryExempt(context)) {
-            toggleCard.addView(
-                Ui.amberNote(context, pal, "这部手机会在后台把 Outsie 关掉。到时候 Mac 认不出你，也不会有提示。"),
-                Ui.lp(top = context.dp(12)),
-            )
-            toggleCard.addView(
-                Ui.ghostButton(context, pal, "去设置，让它留在后台") { requestBatteryExempt(context) },
-                Ui.lp(top = context.dp(10)),
-            )
-        }
+        // ---- 让它一直在: one row, the guide is a page of its own ----
+        val keep = keepAliveFacts(context, store)
+        toggleCard.addView(Ui.divider(context, pal), Ui.lp(top = context.dp(12)))
+        toggleCard.addView(
+            Ui.rowLink(
+                context, pal, "让它一直在",
+                if (KeepAlive.allDone(keep)) "都设好了。息屏、锁屏、口袋里，钥匙都在。"
+                else KeepAlive.summary(keep).removePrefix("后台常驻：") + "点开看怎么设。",
+            ) { nav.go(Screen.KEEPALIVE) },
+        )
         column.addView(toggleCard, Ui.lp(top = context.dp(14)))
 
         // ---- One card per computer ----
@@ -216,7 +214,6 @@ fun buildHomeScreen(
                 Ui.amberNote(context, pal, "手机丢了：在每一台 Mac 上关掉它的开关。人不在手机旁边时，只能这样。"),
                 Ui.lp(top = context.dp(10)),
             )
-            more.addView(techDetails(context, pal, PresenceKey.fingerprint(context)), Ui.lp(top = context.dp(6)))
             more.addView(
                 Ui.ghostButton(context, pal, "和所有 Mac 解除配对") {
                     AlertDialog.Builder(context, Ui.dialogTheme(context))
@@ -544,6 +541,37 @@ private fun startPulse(ring: View) {
         override fun onViewAttachedToWindow(v: View) { animator.start() }
         override fun onViewDetachedFromWindow(v: View) { animator.cancel() }
     })
+}
+
+/** Everything the checklist needs, read fresh from the system each time the screen is built. */
+fun keepAliveFacts(context: Context, store: AppStore): KeepAliveFacts {
+    fun granted(p: String) = context.checkSelfPermission(p) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    val bt = listOf(
+        android.Manifest.permission.BLUETOOTH_ADVERTISE,
+        android.Manifest.permission.BLUETOOTH_CONNECT,
+        android.Manifest.permission.BLUETOOTH_SCAN,
+    ).all(::granted)
+    val notif = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+        granted(android.Manifest.permission.POST_NOTIFICATIONS)
+    return KeepAliveFacts(
+        bluetoothGranted = bt,
+        notificationsGranted = notif,
+        batteryExempt = isBatteryExempt(context),
+        backgroundAcknowledged = store.keepAliveBackgroundAcknowledged,
+        manufacturer = android.os.Build.MANUFACTURER ?: "",
+    )
+}
+
+/** The app's own page in system settings, where every skin keeps its background switches. */
+fun openAppSettings(context: Context) {
+    runCatching {
+        context.startActivity(
+            android.content.Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", context.packageName, null),
+            ),
+        )
+    }.onFailure { Toast.makeText(context, "这台手机找不到应用设置页。", Toast.LENGTH_SHORT).show() }
 }
 
 /** Whether Android will leave this app running in the background. Read, never assumed. */

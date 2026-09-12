@@ -78,7 +78,7 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
         // Said before the press: bringing the app to the front is a visible thing
         // that happens to the Mac. Finding that out by pressing is being
         // surprised by your own tool.
-        lead = "按一下，那台 Mac 会先切到这个 App，再替你按键。",
+        lead = "点 App 名字，Mac 切过去；点按钮，切过去再按键。",
         onBack = { nav.go(Screen.HOME) },
     ) { column ->
         val syncRow = LinearLayout(context).apply {
@@ -250,7 +250,7 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
             console.syncing -> "正在从 Mac 拿列表，拿到按钮就出现。Mac 要在附近，而且开着 Outsie。最多等一分钟，没拿到这里会说。"
             answeredByAnother -> "拿到的是另一台 Mac 的列表。这一台还没有，再按一次「同步」。"
             sameAgain -> "同步好了，和上次一样。${renderedCount} 个操作。"
-            catalogue != null -> "${renderedCount} 个操作。在 Mac 上改过，就再同步一次。"
+            catalogue != null -> "${renderedCount} 个操作。Mac 上改了就再同步。"
             else -> "还没同步过。"
         }
     }

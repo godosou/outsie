@@ -508,8 +508,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
               {consoleStatus.trusted ? '已允许' : '还没允许 · 手机上的按钮和自动锁屏都不会动'}
             </p>
             <p className="pk-row-note">
-              离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键；
-              你离开时，也是它替你按下锁屏键。这要在系统设置里允许一次，macOS 把它叫辅助功能。
+              手机上点一下，Mac 替你按下那组键。系统设置里允许一次就好，macOS 把它叫辅助功能。
             </p>
             {!consoleStatus.trusted && (
               <button
@@ -1043,15 +1042,9 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
               <p>先在这里把它的两个开关关掉，马上生效，不用碰到手机。每一台配过它的 Mac 都要关一次。</p>
             </div>
           </div>
-          {/* There was no way to pair a second phone without first deleting the
-              first one's key -- which, on a Mac that already works, means
-              breaking it to extend it. The Mac holds a set of keys now, so this
-              adds rather than replaces. */}
-          {onPair && (
-            <button className="button outline full-width" disabled={busy} onClick={onPair} style={{ marginTop: 16 }}>
-              再配一部手机
-            </button>
-          )}
+          {/* Adding a second phone is the heading's 「配一部新手机 ›」; a second
+              button for the same decision was the duplicate this page keeps
+              catching in itself. */}
 
         </>
       )}
