@@ -702,7 +702,10 @@ function phoneCal() {
      <div class="pbtn primary" style="margin-top:14px" data-act="calNext">先坐到平常的位置</div>`,
     `<div class="phero"><div class="disc">🪑</div><h3>坐着别动</h3><p>正在量你在座位上时的信号。看这块屏就好，Mac 那边什么都不用做。</p></div>
      <div class="pbar"><i style="width:${c.pct || 0}%"></i></div><p class="ptiny" style="margin-top:4px">${c.secs || 0} 秒了。</p>`,
-    `<div class="phero"><div class="disc">🚶</div><h3>现在拿着手机走开</h3><p>走到你平常会离开的距离。门口、茶水间、另一个房间都行。到了就站住。</p></div>
+    `<div class="phero"><div class="disc">🚶</div><h3>现在拿着手机走开</h3><p>走到你平常会离开的距离。门口、茶水间、另一个房间都行。<b>到了再按下面这个。</b></p></div>
+     <div class="pnote info">路上不量。量的是你站定之后的信号，走动中的那一段混进去，两边就会像。</div>
+     <div class="pbtn primary" style="margin-top:14px" data-act="calFar">到了，开始量</div>`,
+    `<div class="phero"><div class="disc">🧍</div><h3>站着别动</h3><p>正在量你走开之后的信号。</p></div>
      <div class="pbar"><i style="width:${c.pct || 0}%"></i></div><p class="ptiny" style="margin-top:4px">${c.secs || 0} 秒了。别看屏，站着就行。</p>`,
     `<div class="phero"><div class="disc">✅</div><h3>分得很清楚</h3><p>在座位上和走开了，Mac 现在分得出来。从这次起就用新的。</p></div>
      <div class="pbtn primary" style="margin-top:14px" data-act="calDone">好</div>`,
@@ -799,7 +802,7 @@ const SUBS = [ ['macPhone','Mac · 手机控制'], ['macShort','Mac · 快捷键
 const CH = [
 { id:'read', n:'00', g:'开头', t:'怎么读', render: () => `
   <span class="chnum">00</span><h1>手机就是钥匙，<em>这是它的样子</em>。</h1>
-  <p class="lede">一份设计文档。第 03 章是活的，框里的开关和按钮都能按；后面的流程是铺开的，一帧一帧看，不用点。
+  <p class="lede">一份设计文档。第 04 章是活的，框里的开关和按钮都能按；后面的流程是铺开的，一帧一帧看，不用点。
     每一章末尾都有一张「按下之后」表：这个按钮按下去会发生什么，做不到的时候说什么。</p>
   <div class="callout"><b>为什么要这张表。</b>这个项目犯过一次同样形状的错：界面说的话和代码做的事来自不同的源头。
     卸载成功了面板不知道，开关绑在它改不了的字段上，成功之后屏幕不变，于是被点第二次。
@@ -928,23 +931,26 @@ const CH = [
     { n:'④', cap:'配好了。接下来去量距离', html: at({ pScreen:'pair', pair:{ step:2 } }, () => phone('sm')) },
     { n:'⑤', cap:'先坐到平常的位置', html: at({ pScreen:'cal', cal:{ step:0 } }, () => phone('sm')) },
     { n:'⑤', cap:'坐着别动', html: at({ pScreen:'cal', cal:{ step:1, pct:60, secs:13 } }, () => phone('sm')) },
-    { n:'⑤', cap:'拿着手机走开，指令在手机上', html: at({ pScreen:'cal', cal:{ step:2, pct:40, secs:9 } }, () => phone('sm')) },
-    { n:'⑥', cap:'分得清楚', html: at({ pScreen:'cal', cal:{ step:3 } }, () => phone('sm')) },
-    { n:'⑥', cap:'两边太像，给两个出口', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
+    { n:'⑤', cap:'拿着手机走开。到了才按', html: at({ pScreen:'cal', cal:{ step:2 } }, () => phone('sm')) },
+    { n:'⑤', cap:'按了「到了」才开始量远处', html: at({ pScreen:'cal', cal:{ step:3, pct:40, secs:9 } }, () => phone('sm')) },
+    { n:'⑥', cap:'分得清楚', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
+    { n:'⑥', cap:'两边太像，给两个出口', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
   ];
   return `<span class="chnum">05</span><h2>配对，然后量距离</h2>
   <p class="section-lede">五步，跨两块屏。先点哪边都行。重要的是两边都点，以及 Mac 最后等的是一个信号，不是一句话。<b>量距离整个在手机上</b>：你拿着手机走动，看不见 Mac 的屏幕。</p>
   ${board(fr)}
   <div class="plate stack">${spec(`<h4>为什么只有一个编号</h4><p>这六位是整个配对里唯一需要人核对的东西。曾经紧接着弹出一串八位十六进制「配对编号」，没有任何东西说明该核对哪一个。在一个防中间人的流程里，那正是攻击者需要的困惑。</p>
     <h4>「不一样，停下」是一个真答案</h4><p>不是取消。按了之后不要就着这次重试。允许重试等于让对方一直猜，六位数字就不再是六位数字。</p>
+    <h4>远处不自动开始</h4><p>近处量完，手机停在「走开」那一屏，等你按「到了」。路上的信号是从近到远的一条斜线，混进远处那一组，两组就会挨在一起。这是「两边太像」最常见的成因，靠一个按钮就能挡掉。</p>
     <h4>量距离必须能失败</h4><p>两边太像时给原因和两个出口。一个不能失败的校准，只会写进一个它自己都不信的数字。</p>
     <h4>Mac 是尺子，手机是遥控器</h4><p>信号是 Mac 听到的，手机自己量不了。所以手机发指令、Mac 采样、Mac 把进度用状态信标报回来。这需要状态字节多几个取值，见第 13 章。</p>`)}</div>
   ${after([
     ['配一部新手机','Mac 开始找；手机上打开 Outsie 就出现。','手机没开蓝牙时停在「正在找」，说去哪儿开。'],
     ['和手机上一样','Mac 记下这次交换，等手机用上新钥匙。','两边不一样：按「不一样，停下」，这次作废，不重试。'],
     ['一样，完成配对（手机）','手机写入钥匙，开始用它签名。','钥匙位被占时 Mac 回一个「换一个」，手机换一个位。'],
-    ['先坐到平常的位置','Mac 采近处，手机显示进度。','采得太少或太短，不算数，让你再坐一会儿。'],
-    ['拿着手机走开','Mac 采远处。','两边太像：走失败屏，给原因和两个出口。'],
+    ['先坐到平常的位置','Mac 采近处，手机显示进度。量完停在「走开」那一屏。','采得太少或太短，不算数，让你再坐一会儿。'],
+    ['到了，开始量','这时才采远处。路上不量。','走动中的信号混进去，两边就会像，所以远处不自动开始。'],
+    ['（远处量完）','出结果。','两边太像：走失败屏，给原因和两个出口。'],
     ['再量一次','回到「先坐到平常的位置」。旧的还在用。','—'],
     ['先用上次的 / 先用默认值','关掉，什么都没变。','—'],
   ])}`;
@@ -955,9 +961,10 @@ const CH = [
     { n:'①', cap:'卡片上的「重新量距离」', html: at({ pScreen:'home' }, () => phone('sm')) },
     { n:'②', cap:'说清楚现在用的是哪一组', html: at({ pScreen:'cal', cal:{ step:0 } }, () => phone('sm')) },
     { n:'③', cap:'坐好', html: at({ pScreen:'cal', cal:{ step:1, pct:70, secs:15 } }, () => phone('sm')) },
-    { n:'④', cap:'走开', html: at({ pScreen:'cal', cal:{ step:2, pct:30, secs:7 } }, () => phone('sm')) },
-    { n:'⑤', cap:'成功', html: at({ pScreen:'cal', cal:{ step:3 } }, () => phone('sm')) },
-    { n:'⑤', cap:'失败：上次的一个数都没变', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
+    { n:'④', cap:'走开，到了再按', html: at({ pScreen:'cal', cal:{ step:2 } }, () => phone('sm')) },
+    { n:'④', cap:'站定了才量', html: at({ pScreen:'cal', cal:{ step:3, pct:30, secs:7 } }, () => phone('sm')) },
+    { n:'⑤', cap:'成功', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
+    { n:'⑤', cap:'失败：上次的一个数都没变', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
     { n:'Mac', cap:'Mac 上只写什么时候在哪量的', html: at({ macTab:'phone' }, () => macWindow('narrow')) },
   ];
   return `<span class="chnum">06</span><h2>重新量距离</h2>
@@ -970,6 +977,7 @@ const CH = [
   ${after([
     ['重新量距离','先说清现在用的是哪一组，再开始。','从没量过时说「还没量过」，不编一个日期。'],
     ['先坐到平常的位置','采近处。<b>旧的一直在用。</b>','中途退出 = 什么都没变。'],
+    ['到了，开始量','这时才采远处。','没按之前 Mac 不采，你可以慢慢走。'],
     ['好（成功）','从这次起用新的。','—'],
     ['先用上次的','关掉，一个数都没变。','—'],
   ])}`;
@@ -1142,7 +1150,7 @@ const CH = [
 预映像     "repose-presence-v2 beacon" ‖ keyId ‖ counter(8 BE) ‖ cmd ‖ seq
 tag        HMAC-SHA256(K, msg)[0..8)
 counter    floor(unix / 30)，从不传输，两端各自推算，±1 容差
-cmd        0 无 · 1 锁屏 · 3 请求列表 · 4 开始量距离 · 16.. 快捷键
+cmd        0 无 · 1 锁屏 · 3 请求列表 · 4 开始量近处 · 5 开始量远处 · 16.. 快捷键
 seq        手机持久化递增；Mac 只接受严格更大的</code></pre>
   <h3 style="margin-top:24px">状态信标 <code>repose-macstate-v2</code>（Mac → 手机）</h3>
   <pre class="proto"><code>服务 UUID  0xFFF7
@@ -1237,10 +1245,11 @@ function pairTick() {
   render(); if (s.step === 0) step(pairTick, 420);
 }
 function calTick() {
-  const c = S.cal; if (!c || (c.step !== 1 && c.step !== 2)) return;
+  const c = S.cal; if (!c || (c.step !== 1 && c.step !== 3)) return;
   c.pct = Math.min(100, c.pct + 14); c.secs = Math.round(c.pct * 0.22);
-  if (c.pct >= 100) { if (c.step === 1) { c.step = 2; c.pct = 0; c.secs = 0; } else { c.step = c.forceFail ? 4 : 3; } }
-  render(); if (c.step === 1 || c.step === 2) step(calTick, 380);
+  // 近处量完停在「走开」那一屏，等人按「到了」。远处不自动开始。
+  if (c.pct >= 100) { if (c.step === 1) { c.step = 2; c.pct = 0; c.secs = 0; } else { c.step = c.forceFail ? 5 : 4; } }
+  render(); if (c.step === 1 || c.step === 3) step(calTick, 380);
 }
 
 /* 拖动排序：HTML5 dnd 就够了，原型里用鼠标。手机上是长按拿起。 */
@@ -1287,7 +1296,8 @@ document.addEventListener('click', e => {
     pairNo: () => { S.macSheet = null; S.pScreen = 'home'; S.pair = null; toast('停下了。重新开始一次配对。', true); },
     goCal: () => { S.controlMac = v || S.controlMac; S.macSheet = null; S.pScreen = 'cal'; S.cal = { step:0, pct:0, secs:0, forceFail: S.controlMac === 'm3' }; },
     calNext: () => { S.cal.step = 1; S.cal.pct = 0; S.cal.secs = 0; step(calTick, 380); },
-    calDone: () => { if (S.cal.step === 3) { const p = S.phones[0]; p.near = -57; p.far = -80; p.calAt = '9 月 12 日'; p.place = '书房'; } S.cal = null; S.pScreen = 'home'; },
+    calFar: () => { S.cal.step = 3; S.cal.pct = 0; S.cal.secs = 0; step(calTick, 380); },
+    calDone: () => { if (S.cal.step === 4) { const p = S.phones[0]; p.near = -57; p.far = -80; p.calAt = '9 月 12 日'; p.place = '书房'; } S.cal = null; S.pScreen = 'home'; },
     msClose: () => { S.macSheet = null; if (S.pScreen === 'pair') S.pScreen = 'home'; S.pair = null; },
     addApp: () => { const id = 'app' + (S.apps.length + 1); S.apps.push({ id, name:'新加的 App', bundle:'com.example.new', actions:[] }); S.macApp = id; toast('加上了。给它加一个操作。'); },
     delApp: () => { S.apps = S.apps.filter(a => a.id !== v); if (!S.apps.length) S.apps.push({ id:'x', name:'空', bundle:'—', actions:[] }); S.macApp = S.apps[0].id; },
