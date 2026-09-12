@@ -52,6 +52,13 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
     var appName: String? = catalogue?.apps?.firstOrNull()?.name
 
     lateinit var status: TextView
+    // What was on the shelf when 「同步」 was last pressed here, so a window
+    // that closed on another Mac's answer can be told apart from one that
+    // closed on nothing. The server files each list under the key that signed
+    // it (§08), so the wrong Mac's list never lands in this slot -- but it
+    // does close the window, and without this the screen would fall silent.
+    var asked = false
+    var receivedWhenAsked: ConsoleCatalogue? = null
     var chips: LinearLayout? = null
     var gridHolder: LinearLayout? = null
     var editBtn: TextView? = null
@@ -82,6 +89,8 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
         syncRow.addView(status, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         syncRow.addView(
             Ui.ghostButton(context, pal, "同步") {
+                asked = true
+                receivedWhenAsked = console.received
                 console.request()
                 SpikeState.notifyListeners()
             },
@@ -151,6 +160,13 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
         }
         holder.addView(grid(context, pal, visible, editing, hiddenSection = false) { act, v ->
             if (editing) {
+                // A tap while arranging must say so. On the device the tiles
+                // were pressed in 整理 mode and nothing happened, which read
+                // as 「控制不行」 (ui-conventions 2.3: an action that changes
+                // nothing on screen invites you to do it again).
+                v.setOnClickListener {
+                    Toast.makeText(context, "整理中。先点「完成」，再按。", Toast.LENGTH_SHORT).show()
+                }
                 // Only the badge hides; the tile body is what you grab to drag.
                 v.setOnLongClickListener {
                     it.startDragAndDrop(ClipData.newPlainText("cmd", act.cmdByte.toString()), View.DragShadowBuilder(it), act.cmdByte, 0)
@@ -210,9 +226,23 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
             nav.go(Screen.CONTROL)
             return
         }
+        // Every wait says what is happening, what ends it and how long; every
+        // failure says what to do (design doc §01). The window is
+        // ConsoleServer.WINDOW_MS, sixty seconds: the sentence says so, and
+        // when it closes on nothing the server's own sentence lands in
+        // lastError -- this screen adds the one next step there is.
+        val error = console.lastError
+        val answeredByAnother = asked && !console.syncing && error == null &&
+            console.received !== receivedWhenAsked && fresh == null
+        val sameAgain = asked && !console.syncing && error == null &&
+            console.received !== receivedWhenAsked && fresh != null
         status.text = when {
-            console.lastError != null -> console.lastError!!
-            console.syncing -> "正在从 Mac 拿列表。Mac 要在附近，而且开着 Outsie。"
+            // Only the window closing on nothing has a next step worth naming;
+            // 「蓝牙不支持」 and 「不是你的 Mac 发的」 are not fixed by pressing again.
+            error != null -> if (error.startsWith("没同步成")) "${error}好了，再按一次「同步」。" else error
+            console.syncing -> "正在从 Mac 拿列表，拿到按钮就出现。Mac 要在附近，而且开着 Outsie。最多等一分钟，没拿到这里会说。"
+            answeredByAnother -> "拿到的是另一台 Mac 的列表。这一台还没有，再按一次「同步」。"
+            sameAgain -> "同步好了，和上次一样。${renderedCount} 个操作。"
             catalogue != null -> "${renderedCount} 个操作。在 Mac 上改过，就再同步一次。"
             else -> "还没同步过。"
         }
@@ -269,8 +299,13 @@ private fun tile(context: Context, pal: Palette, act: ConsoleAction, editing: Bo
             maxLines = 2
         }, Ui.lp(top = context.dp(7)))
         alpha = if (hiddenSection) 0.55f else 1f
-        isClickable = true
-        isLongClickable = editing && !hiddenSection
+        // NOT clickable. The listeners are wired onto the FrameLayout around
+        // this body, and a clickable child swallows the touch before it gets
+        // there -- so no tile ever sent anything. Found on the device
+        // 2026-09-12 (「控制还是不行，我不在整理模式下」): the phone logged
+        // no queued command at all while the person tapped.
+        isClickable = false
+        isLongClickable = false
     }
     return FrameLayout(context).apply {
         tag = act.cmdByte

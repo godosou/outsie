@@ -5,13 +5,17 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -89,6 +93,11 @@ class BleSpikeService : Service() {
          * show as they are. Compare by identity to tell them apart: a screen
          * that knows a better next step for its own layout (the home screen,
          * where the switch is right there) can swap in its own wording.
+         *
+         * [REFUSED_KEY_OFF] is no longer what [canSend] returns for a key that
+         * is switched off -- that is the [RadioPhase.OFF] sentence now, like
+         * every other phase that is not on the air. It stays so a screen that
+         * still compares against it compiles until it reads the phase itself.
          */
         const val REFUSED_NOT_PAIRED = "还没有配对。先在主屏添加电脑。"
         const val REFUSED_KEY_OFF = "手机钥匙关着。先去主屏打开。"
@@ -97,21 +106,33 @@ class BleSpikeService : Service() {
          * Whether a command posted now would actually reach the air, and if
          * not, why. Null means it would.
          *
-         * Two things stop it, checked in this order. No key: an
-         * unauthenticated command is one the Mac will refuse, and switching
-         * the key on would not change that, so it is the first thing to say.
-         * Service not running: the beacon is what carries commands, and with
-         * it stopped a queued byte is not「on its way」-- it is a surprise
-         * waiting for the next time the key is switched on. The design doc's
-         * 「按下之后」 row for 锁定 is explicit: 钥匙关着 / 没配对，当场说，不入队.
+         * No key is the first thing to say: an unauthenticated command is one
+         * the Mac will refuse, and switching the key on would not change that.
+         * After that the answer is the radio's own phase ([RadioFacts.phase]):
+         * only [RadioPhase.onAir] carries a command. Off, Bluetooth off, still
+         * starting, failed -- a byte queued in any of those is not「on its way」,
+         * it is a surprise waiting for the next time the radio comes up, and
+         * the phase's sentence already says what the person can do about it.
+         * The design doc's 「按下之后」 row for 锁定 is explicit: 钥匙关着 / 没配对，
+         * 当场说，不入队.
+         *
+         * `now` is [SystemClock.elapsedRealtime], the clock [RadioFacts.startingSince]
+         * is written in (see [ensureRadio]).
          */
-        fun canSend(context: Context): String? = when {
+        fun canSend(context: Context): String? {
             // Any slot, not slot 1: from pair-v3 this phone's key lives wherever
             // it chose. Checking slot 1 made every command from a v3-paired
             // phone refuse itself before it was even sent.
-            !PresenceKey.hasAny(context) -> REFUSED_NOT_PAIRED
-            !SpikeState.serviceRunning -> REFUSED_KEY_OFF
-            else -> null
+            if (!PresenceKey.hasAny(context)) return REFUSED_NOT_PAIRED
+            val radio = SpikeState.radio
+            val phase = radio.phase(SystemClock.elapsedRealtime())
+            return when {
+                phase.onAir -> null
+                // Off is the one phase whose sentence does not say what to do
+                // -- the switch is right there, so this one points at it.
+                phase == RadioPhase.OFF -> REFUSED_KEY_OFF
+                else -> phase.sentence(radio.failure)
+            }
         }
 
         /**
@@ -128,7 +149,7 @@ class BleSpikeService : Service() {
          * find it still on.
          */
         fun keysChanged(context: Context) {
-            if (!SpikeState.serviceRunning) return
+            if (!SpikeState.radio.running) return
             val intent = Intent(context, BleSpikeService::class.java)
             if (PresenceKey.hasAny(context)) {
                 runCatching { context.startForegroundService(intent.setAction(ACTION_REBUILD_BEACON)) }
@@ -186,9 +207,159 @@ class BleSpikeService : Service() {
     private class Slot(val beacon: PresenceBeacon, val callback: AdvertiseCallback) {
         var advertisedCounter = Long.MIN_VALUE
         var advertisedCmd = SpikeContract.CMD_NONE
+        /**
+         * The system said this slot's advertising started, and nothing has
+         * stopped or failed it since. The phone is on the air iff any slot is.
+         */
+        var live = false
     }
 
     private var slots: List<Slot> = emptyList()
+
+    /**
+     * Bluetooth going off and on under a running service.
+     *
+     * Before this existed the service noticed Bluetooth off only by crashing
+     * on it, and noticed it back on never: the home screen said 「正在启动…」
+     * until someone force-quit the app. Now off is a phase the screen can
+     * name, and on is the radio coming back by itself -- which is what that
+     * phase's sentence (「打开蓝牙，它自己接着广播」) promises.
+     */
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)) {
+                BluetoothAdapter.STATE_ON -> {
+                    SpikeState.event("蓝牙开了，接着广播")
+                    SpikeState.updateRadio { it.copy(bluetoothOn = true) }
+                    ensureRadio()
+                }
+                // TURNING_OFF first, so the advertisers are stopped while the
+                // adapter can still be asked; OFF again for good measure. The
+                // second call finds nothing left to stop.
+                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
+                    if (SpikeState.radio.bluetoothOn) SpikeState.event("手机的蓝牙关了，广播停了")
+                    teardownRadio()
+                }
+            }
+        }
+    }
+    private var receiverRegistered = false
+
+    private fun registerBluetoothReceiver() {
+        if (receiverRegistered) return
+        val filter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        // A system broadcast still reaches a NOT_EXPORTED receiver; the flag
+        // only keeps other apps from feeding it. Required from API 34 on, and
+        // the flagged overload only exists from 33.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(bluetoothStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(bluetoothStateReceiver, filter)
+        }
+        receiverRegistered = true
+    }
+
+    private fun unregisterBluetoothReceiver() {
+        if (!receiverRegistered) return
+        receiverRegistered = false
+        try {
+            unregisterReceiver(bluetoothStateReceiver)
+        } catch (e: IllegalArgumentException) {
+            Log.w(TAG, "receiver was not registered: $e")
+        }
+    }
+
+    private fun adapter(): BluetoothAdapter? =
+        runCatching { getSystemService(BluetoothManager::class.java)?.adapter }.getOrNull()
+
+    /** Bluetooth's own on/off, straight from the system; false if it cannot even be asked. */
+    private fun bluetoothIsOn(): Boolean = runCatching { adapter()?.isEnabled == true }.getOrDefault(false)
+
+    /**
+     * Get the radio up if it can be, and record that it was asked.
+     *
+     * Safe to call any number of times, from anywhere in the service:
+     * onCreate, every onStartCommand, Bluetooth coming back. If Bluetooth is
+     * off this is [teardownRadio] instead, so those two are the only ways the
+     * radio ever changes. `startingSince` is [SystemClock.elapsedRealtime]
+     * (the uptime clock [MacState] already keeps), and a failure from before
+     * this ask is cleared: the person, or Bluetooth, just gave the radio
+     * another chance, and 「正在开始广播」 is true again until the callbacks
+     * say otherwise.
+     *
+     * Failed slots get another go; slots already on the air are left alone,
+     * because restarting a healthy advertiser costs the Mac a one-to-three
+     * second hole for nothing.
+     */
+    private fun ensureRadio() {
+        if (!bluetoothIsOn()) {
+            teardownRadio()
+            return
+        }
+        val le = advertiser ?: runCatching { adapter()?.bluetoothLeAdvertiser }.getOrNull()
+        if (le == null) {
+            // On, but the adapter hands out no advertiser: this phone cannot
+            // play the peripheral role. Nothing to wait for, so no startingSince.
+            Log.e(TAG, "no LE advertiser (peripheral role unsupported?)")
+            SpikeState.event("这部手机的蓝牙不支持广播，当不了钥匙")
+            SpikeState.updateRadio {
+                it.copy(bluetoothOn = true, advertising = false, failure = "这部手机的蓝牙不支持广播", startingSince = null)
+            }
+            return
+        }
+        advertiser = le
+        val now = SystemClock.elapsedRealtime()
+        SpikeState.updateRadio { it.copy(bluetoothOn = true, failure = null, startingSince = now) }
+        slots.forEach { if (!it.live) it.advertisedCounter = Long.MIN_VALUE }
+        // Only worth listening once there is a key: an unverifiable beacon
+        // tells this phone nothing, and scanning for it would be battery spent
+        // on a sentence that could never be shown.
+        if (slots.any { it.beacon.authentic }) startScanner()
+        // Straight away, not at the next check: whoever asked is watching.
+        handler.removeCallbacks(rotate)
+        handler.post(rotate)
+    }
+
+    /**
+     * Take the radio down and say so in the facts. Idempotent: a second call
+     * finds nothing to stop. Reached with Bluetooth off or going off, from
+     * [ensureRadio] when it finds the adapter off, and from onDestroy. The
+     * rotation stops here and only [ensureRadio] posts it again.
+     */
+    private fun teardownRadio() {
+        handler.removeCallbacks(rotate)
+        advertiser?.let { le -> slots.forEach { stopSlot(le, it) } }
+        advertiser = null
+        slots.forEach {
+            it.live = false
+            it.advertisedCounter = Long.MIN_VALUE
+            it.advertisedCmd = SpikeContract.CMD_NONE
+        }
+        stopScanner()
+        SpikeState.updateRadio { it.copy(bluetoothOn = false, advertising = false, startingSince = null) }
+    }
+
+    private fun startScanner() {
+        try {
+            val scanner = macStateScanner ?: MacStateScanner(this).also { macStateScanner = it }
+            // Its start() is a no-op when already listening, and retries one
+            // that could not happen before (no permission yet, no scanner).
+            scanner.start()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "could not start the Mac-state scanner", e)
+        }
+    }
+
+    private fun stopScanner() {
+        val scanner = macStateScanner ?: return
+        macStateScanner = null
+        try {
+            scanner.stop()
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "could not stop the Mac-state scanner", e)
+        }
+    }
 
     private val heartbeat = object : Runnable {
         override fun run() {
@@ -228,10 +399,21 @@ class BleSpikeService : Service() {
      */
     private val rotate = object : Runnable {
         override fun run() {
-            // NOT an early return: `return` here leaves run() without
-            // rescheduling, so one moment with no slots -- between a revoke and
-            // a pairing, say -- would stop the rotation permanently and the
-            // phone would go quiet until the service was restarted.
+            // The one deliberate early return: no advertiser means the radio
+            // was torn down (Bluetooth off, or the service stopping), and a
+            // loop that kept asking a dead adapter is exactly what killed the
+            // process on 2026-09-12. ensureRadio() posts this again when the
+            // radio is back.
+            if (advertiser == null) return
+            // A scan registration can fail right after the adapter comes up;
+            // nothing else would retry it until the next ensureRadio(), and a
+            // phone that advertises but never listens shows every Mac as
+            // 「没听到它」. Cheap: start() is a no-op while listening.
+            if (slots.any { it.beacon.authentic } && macStateScanner?.isScanning != true) startScanner()
+            // NOT an early return below: `return` there would leave run()
+            // without rescheduling, so one moment with no slots -- between a
+            // revoke and a pairing, say -- would stop the rotation permanently
+            // and the phone would go quiet until the service was restarted.
             val first = slots.firstOrNull()
             val c = first?.beacon?.currentCounter() ?: 0L
             // A command has to go out now, not at the next 30s window boundary,
@@ -249,6 +431,9 @@ class BleSpikeService : Service() {
             // is not itself mistaken for the radio being slow.
             val pending = pendingCmd != SpikeContract.CMD_NONE &&
                 SystemClock.elapsedRealtime() < pendingUntil
+            // The refresh may have found the adapter gone and torn the radio
+            // down; then this loop ends here too.
+            if (advertiser == null) return
             handler.postDelayed(this, if (pending) COMMAND_CHECK_MS else ROTATE_CHECK_MS)
         }
     }
@@ -267,11 +452,17 @@ class BleSpikeService : Service() {
      * One per slot, because stopAdvertising takes the callback as its handle --
      * sharing one across instances would make it impossible to stop a single
      * advertiser.
+     *
+     * These two callbacks are where `advertising` is decided. Asking the radio
+     * to start is not being on the air: the fact becomes true only when the
+     * system says so, and until then the screen honestly shows 「正在开始广播」.
+     * Both arrive on the main thread, like everything else in here.
      */
     private fun callbackFor(keyId: Int) = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings) {
-            SpikeState.advertising = true
+            slotFor(keyId)?.live = true
             SpikeState.beaconsSent++
+            SpikeState.updateRadio { it.copy(advertising = true, failure = null) }
             SpikeState.event(
                 "钥匙 $keyId 的信标上天了，窗口 ${SpikeState.beaconCounter}" +
                     if (SpikeState.authentic) "" else "（还没配对 —— 这个 tag 没有意义）",
@@ -280,15 +471,41 @@ class BleSpikeService : Service() {
         }
 
         override fun onStartFailure(errorCode: Int) {
-            // Not a global "advertising off": another slot may be fine, and
-            // saying the phone is silent when one of two Macs can still see it
-            // would be the screen reporting something that is not true.
-            SpikeState.event("钥匙 $keyId 的信标发不出去，错误码 $errorCode")
+            // Not live, and forgotten as advertised, so the next rotate tick
+            // tries again instead of parking in FAILED for a whole window.
+            slotFor(keyId)?.let { it.live = false; it.advertisedCounter = Long.MIN_VALUE }
+            val why = advertiseFailureWords(errorCode)
+            // The code goes to logcat; the person gets words.
             Log.e(TAG, "advertising failed for keyId=$keyId, code=$errorCode")
-            if (slots.none { it.advertisedCounter != Long.MIN_VALUE }) {
-                SpikeState.advertising = false
-            }
+            SpikeState.event("钥匙 $keyId 的信标发不出去：$why")
+            noteRadioFailure(why)
         }
+    }
+
+    private fun slotFor(keyId: Int): Slot? = slots.firstOrNull { it.beacon.keyId == keyId }
+
+    /**
+     * A slot just failed. Not a global failure while another slot is fine:
+     * with two Macs paired and one advertiser refusing, the phone IS being
+     * seen, and saying otherwise would be the screen reporting something that
+     * is not true. Only when no slot is on the air does the failure reach it.
+     */
+    private fun noteRadioFailure(why: String) {
+        if (slots.any { it.live }) return
+        SpikeState.updateRadio { it.copy(advertising = false, failure = why) }
+    }
+
+    /**
+     * [AdvertiseCallback] error codes, in the person's words. The phrase lands
+     * inside 「广播没开起来：…。关掉再开一次。」, so: short, no full stop, no
+     * number. The number is in logcat for whoever is debugging.
+     */
+    private fun advertiseFailureWords(errorCode: Int): String = when (errorCode) {
+        AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE -> "要广播的内容太长"
+        AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "手机上在广播的东西太多"
+        AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED -> "上一次广播还没停下"
+        AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "这部手机的蓝牙不支持广播"
+        else -> "手机的蓝牙出了点问题"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -299,8 +516,19 @@ class BleSpikeService : Service() {
             NotificationChannel(CHANNEL_ID, "BLE spike", NotificationManager.IMPORTANCE_LOW),
         )
         startForeground(NOTIFICATION_ID, buildNotification())
-        SpikeState.serviceRunning = true
         SpikeState.startedAtUptime = SystemClock.elapsedRealtime()
+        // One fresh set of facts: whatever the last run left behind is not
+        // this run's radio.
+        SpikeState.updateRadio {
+            RadioFacts(
+                running = true,
+                hasKeys = PresenceKey.hasAny(this),
+                bluetoothOn = bluetoothIsOn(),
+                advertising = false,
+                failure = null,
+                startingSince = null,
+            )
+        }
         SpikeState.event("service started")
 
         // Before anything goes on the air, take a key if one was pushed for us.
@@ -315,42 +543,44 @@ class BleSpikeService : Service() {
             )
         }
 
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
-        if (adapter == null || !adapter.isEnabled) {
-            SpikeState.event("Bluetooth is OFF - enable it and restart")
-            return
-        }
-        advertiser = adapter.bluetoothLeAdvertiser
-        if (advertiser == null) SpikeState.event("no LE advertiser (peripheral role unsupported?)")
-
-        // Only worth listening once there is a key: an unverifiable beacon
-        // tells this phone nothing, and scanning for it would be battery spent
-        // on a sentence that could never be shown.
-        if (slots.any { it.beacon.authentic }) {
-            macStateScanner = MacStateScanner(this).also { it.start() }
-        }
-
-        handler.post(rotate)
+        // Bluetooth off is not a reason to give up here -- it is a phase the
+        // screen names, and the receiver is what makes that sentence true.
+        // Registered before ensureRadio() so a switch flipped in between is
+        // not missed.
+        registerBluetoothReceiver()
+        ensureRadio()
         handler.postDelayed(heartbeat, HEARTBEAT_MS)
-        SpikeState.notifyListeners()
     }
 
     /** Re-mint and re-advertise every slot. */
     private fun refreshBeacon(counter: Long) {
         val le = advertiser ?: return
         val cmd = liveCommand()
-        var any = false
         for (slot in slots) {
-            if (refreshSlot(le, slot, counter, cmd)) any = true
+            refreshSlot(le, slot, counter, cmd)
+            // A slot that found the adapter gone tore the radio down; the
+            // rest would only find the same thing.
+            if (advertiser == null) return
         }
-        // The screen's one-line answer. It is about the phone, not about a
-        // particular Mac: with two paired and one advertiser failing, the phone
-        // IS being seen, and saying otherwise would be worse than saying less.
-        SpikeState.advertising = any
         SpikeState.beaconCounter = counter
         SpikeState.authentic = slots.all { it.beacon.authentic } && slots.isNotEmpty()
     }
 
+    /**
+     * Stop and restart one slot's advertiser with the payload for this window.
+     * Returns false if the radio was not asked.
+     *
+     * Whether the phone is on the air is NOT decided here: `startAdvertising`
+     * returning is the request being accepted, and the answer comes back on
+     * the slot's callback. Deciding it here is how the screen once said 「开着」
+     * over a radio that had refused.
+     *
+     * Every call into the adapter is guarded. On 2026-09-12 the person
+     * switched Bluetooth off while this ran; `startAdvertising` on the dead
+     * adapter threw, nothing caught it, and the process died -- taking the
+     * key, the Mac-state scanner and any chance of noticing Bluetooth coming
+     * back with it. A radio that cannot be asked is a phase, not a crash.
+     */
     private fun refreshSlot(
         le: BluetoothLeAdvertiser,
         slot: Slot,
@@ -361,14 +591,14 @@ class BleSpikeService : Service() {
             // A Keystore that will not sign is a phone that cannot prove who it is.
             // Falling back to an unsigned packet here would quietly turn the imposter
             // and the real phone back into the same thing, so it goes silent instead.
-            runCatching { le.stopAdvertising(slot.callback) }
-            slot.advertisedCounter = Long.MIN_VALUE
+            stopSlot(le, slot)
             SpikeState.event("钥匙 ${slot.beacon.keyId} 签不出 tag（${e.message}），这一路停了")
             Log.e(TAG, "beacon mint failed for keyId=${slot.beacon.keyId}", e)
+            noteRadioFailure("手机里的钥匙用不了")
             return false
         }
 
-        runCatching { le.stopAdvertising(slot.callback) }
+        stopSlot(le, slot)
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
@@ -384,11 +614,41 @@ class BleSpikeService : Service() {
             .addServiceUuid(ParcelUuid(SpikeContract.PRESENCE_SERVICE_UUID))
             .addServiceData(ParcelUuid(SpikeContract.PRESENCE_SERVICE_UUID), payload)
             .build()
-        le.startAdvertising(settings, data, slot.callback)
+        try {
+            le.startAdvertising(settings, data, slot.callback)
+        } catch (e: RuntimeException) {
+            // IllegalStateException when the adapter is off, SecurityException
+            // without BLUETOOTH_ADVERTISE, IllegalArgumentException for a
+            // payload the stack will not take. None of them may end the process.
+            Log.e(TAG, "startAdvertising threw for keyId=${slot.beacon.keyId}", e)
+            if (!bluetoothIsOn()) {
+                // Not a failure: Bluetooth went off under us and the broadcast
+                // has not arrived yet. Tear down now; the receiver brings the
+                // radio back when Bluetooth does.
+                SpikeState.event("手机的蓝牙关了，广播停了")
+                teardownRadio()
+            } else {
+                val why = if (e is SecurityException) "没拿到蓝牙权限" else "手机的蓝牙出了点问题"
+                SpikeState.event("钥匙 ${slot.beacon.keyId} 的信标发不出去：$why")
+                noteRadioFailure(why)
+            }
+            return false
+        }
 
         slot.advertisedCounter = counter
         slot.advertisedCmd = cmd
         return true
+    }
+
+    /** Stop one slot's advertiser; the slot is off the air whether or not the adapter agreed. */
+    private fun stopSlot(le: BluetoothLeAdvertiser, slot: Slot) {
+        try {
+            le.stopAdvertising(slot.callback)
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "stopAdvertising threw for keyId=${slot.beacon.keyId}: $e")
+        }
+        slot.live = false
+        slot.advertisedCounter = Long.MIN_VALUE
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -398,7 +658,13 @@ class BleSpikeService : Service() {
         // running -- so without this, a phone that had just paired went on
         // advertising under its previous key id, and the Mac it had just been
         // introduced to heard nothing it could verify.
-        if (intent?.action == ACTION_REBUILD_BEACON) rebuildBeacon()
+        //
+        // A start with no action -- the home switch, the boot receiver, the
+        // sticky restart's null intent -- takes the same path. Whoever sent it
+        // wants the key on the air. If the radio is already there this costs
+        // nothing; if it is not (a failed start, an adapter that went away),
+        // it is the recovery the person just asked for by tapping the switch.
+        rebuildBeacon()
         return START_STICKY
     }
 
@@ -413,9 +679,13 @@ class BleSpikeService : Service() {
      */
     private fun buildSlots() {
         val ids = PresenceKey.activeIds(this)
-        if (ids.map { it } == slots.map { it.beacon.keyId }) return
-        advertiser?.let { le -> slots.forEach { runCatching { le.stopAdvertising(it.callback) } } }
+        // The fact the screen keys on first, whether or not the slots change.
+        SpikeState.updateRadio { it.copy(hasKeys = ids.isNotEmpty()) }
+        if (ids == slots.map { it.beacon.keyId }) return
+        advertiser?.let { le -> slots.forEach { stopSlot(le, it) } }
         slots = ids.map { Slot(PresenceBeacon(it), callbackFor(it)) }
+        // Nothing is on the air until the new slots' callbacks say so.
+        SpikeState.updateRadio { it.copy(advertising = false) }
         SpikeState.authentic = slots.isNotEmpty() && slots.all { it.beacon.authentic }
         SpikeState.fingerprint = PresenceKey.fingerprint(this)
         if (slots.isNotEmpty()) {
@@ -423,29 +693,25 @@ class BleSpikeService : Service() {
         }
     }
 
-    /** Point the beacons at the slots this phone now holds. */
+    /** Point the beacons at the slots this phone now holds, and make sure the radio is up. */
     private fun rebuildBeacon() {
         buildSlots()
-        // Straight away, rather than at the next rotation: the window between
-        // pairing and the first beacon is exactly when someone is standing at
-        // the Mac waiting to see it work.
-        handler.removeCallbacks(rotate)
-        handler.post(rotate)
-        if (slots.any { it.beacon.authentic } && macStateScanner == null) {
-            macStateScanner = MacStateScanner(this).also { it.start() }
-        }
+        // ensureRadio() posts the rotation straight away, rather than at the
+        // next check: the window between pairing and the first beacon is
+        // exactly when someone is standing at the Mac waiting to see it work.
+        ensureRadio()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(heartbeat)
-        handler.removeCallbacks(rotate)
-        advertiser?.let { le -> slots.forEach { runCatching { le.stopAdvertising(it.callback) } } }
+        unregisterBluetoothReceiver()
+        teardownRadio()
         slots = emptyList()
-        advertiser = null
-        macStateScanner?.stop()
-        macStateScanner = null
-        SpikeState.serviceRunning = false
-        SpikeState.advertising = false
+        // Off is off whatever Bluetooth is doing; the adapter's answer is kept
+        // only so the facts do not claim Bluetooth went away when it did not.
+        SpikeState.updateRadio {
+            it.copy(running = false, bluetoothOn = bluetoothIsOn(), advertising = false, failure = null, startingSince = null)
+        }
         SpikeState.startedAtUptime = 0L
         SpikeState.event("service destroyed")
         Log.w(TAG, "service destroyed")

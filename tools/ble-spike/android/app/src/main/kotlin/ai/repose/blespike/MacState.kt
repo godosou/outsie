@@ -69,6 +69,15 @@ data class MacSighting(val macId: Int, val state: MacLockState, val beacon: MacB
 object MacState {
 
     /**
+     * How long after the last beacon the card may still say 「刚才还听得到」.
+     *
+     * Ten minutes is the span in which the likeliest story is「你走开了，它
+     * 自己锁上了」rather than「它睡着了或关了」. Past that, the silence is the
+     * ordinary kind and the card says so.
+     */
+    const val RECENTLY_HEARD_MS = 10 * 60_000L
+
+    /**
      * One entry per Mac, keyed by the id inside the authenticated beacon.
      *
      * It used to be a single state, which was correct only while a phone could
@@ -82,6 +91,15 @@ object MacState {
     private class Entry(val beacon: MacBeaconState, val at: Long, val keyId: Int)
 
     private val heard = java.util.concurrent.ConcurrentHashMap<Int, Entry>()
+
+    /**
+     * When each Mac was last heard, kept apart from [heard] so that [forget]
+     * -- which runs every time the phone's own radio is torn down, a
+     * Bluetooth cycle included -- does not also erase the answer to 「它刚刚
+     * 还在吗」. The card's 「刚才还听得到」 is about the Mac, not about this
+     * phone's radio, and must survive the radio coming and going.
+     */
+    private val lastHeard = java.util.concurrent.ConcurrentHashMap<Int, Entry>()
 
     /**
      * Recorded only for a tag that verified. An unverified beacon is not news.
@@ -103,7 +121,9 @@ object MacState {
         keyId: Int = 0,
     ) {
         // Guard the sentinel: a clock reading of 0 would mean "forget it".
-        heard[macId] = Entry(beacon, if (nowUptime == 0L) 1L else nowUptime, keyId)
+        val entry = Entry(beacon, if (nowUptime == 0L) 1L else nowUptime, keyId)
+        heard[macId] = entry
+        lastHeard[macId] = entry
         SpikeState.notifyListeners()
     }
 
@@ -122,8 +142,32 @@ object MacState {
     fun sightingFor(keyId: Int, nowUptime: Long = SystemClock.elapsedRealtime()): MacSighting? =
         sightings(nowUptime).firstOrNull { it.keyId == keyId }
 
+    /**
+     * When one Mac was last heard, on the uptime clock, or null if never.
+     *
+     * Deliberately NOT subject to the staleness window. [sightings] answers
+     * 「它现在在吗」 and must forget a Mac after 20 s of silence, or the card
+     * would keep promising 「按回车就能进」 about a machine that has gone. The
+     * card's 「刚才还听得到，现在听不到了」 answers 「它刚刚还在吗」, a different
+     * question with a longer memory ([RECENTLY_HEARD_MS]). Same entry, two
+     * questions. Cleared with everything else by [forget].
+     */
+    fun lastHeardAt(macId: Int): Long? = lastHeard[macId]?.at
+
+    /** The same, by the key slot the beacon verified under. */
+    fun lastHeardFor(keyId: Int): Long? =
+        lastHeard.values.filter { it.keyId == keyId }.maxOfOrNull { it.at }
+
+    /** Nothing is heard now. When each Mac was last heard is kept; see [lastHeard]. */
     fun forget() {
         heard.clear()
+        SpikeState.notifyListeners()
+    }
+
+    /** Everything, including when each Mac was last heard. Tests, and 「和所有 Mac 解除配对」. */
+    fun reset() {
+        heard.clear()
+        lastHeard.clear()
         SpikeState.notifyListeners()
     }
 

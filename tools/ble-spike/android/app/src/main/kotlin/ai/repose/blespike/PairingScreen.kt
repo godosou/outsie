@@ -211,7 +211,7 @@ private fun renderPairingWindow(
                 chip = "第 1 步，共 2 步",
                 glyph = "📡",
                 headline = "准备好了",
-                body = "在 Mac 上点「配一部新手机」，这里会自己接上。",
+                body = "在 Mac 上点「配一部新手机」，几秒钟这里就会自己接上。",
             ),
             Ui.lp(top = context.dp(6)),
         )
@@ -220,8 +220,13 @@ private fun renderPairingWindow(
             Ui.body(context, pal, "两边会各显示六位数字。看一眼是不是一样。"),
             Ui.lp(top = context.dp(12)),
         )
+        // Both ends give up on their own clocks -- this window after three
+        // minutes of nothing (SpikeContract.PAIRING_WINDOW_SECONDS), the Mac
+        // after three minutes of not finding the phone -- and someone who
+        // waited it out needs to know that both stopped, not just this one,
+        // or they restart here and wait for a Mac that is no longer looking.
         next.addView(
-            Ui.secondary(context, pal, "三分钟没接上，这里会自己停下。再开始一次就行。"),
+            Ui.secondary(context, pal, "三分钟没接上，两边都会自己停下。这里停，Mac 也不找了。再开始一次就行，先点哪边都行。"),
             Ui.lp(top = context.dp(10)),
         )
         column.addView(next, Ui.lp(top = context.dp(14)))

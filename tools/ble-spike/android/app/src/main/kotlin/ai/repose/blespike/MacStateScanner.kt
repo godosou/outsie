@@ -46,7 +46,11 @@ class MacStateScanner(private val context: Context) {
         const val PAYLOAD_LEN = 5 + SpikeContract.TAG_LEN
     }
 
-    private var scanning = false
+    /** Written on the main thread by start/stop and on a binder thread by onScanFailed. */
+    @Volatile private var scanning = false
+
+    /** Whether a scan is registered right now. The service retries when it is not. */
+    val isScanning: Boolean get() = scanning
 
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -115,6 +119,12 @@ class MacStateScanner(private val context: Context) {
         return false
     }
 
+    /**
+     * Start listening. Safe to call again while already listening (a no-op),
+     * and safe with Bluetooth off (no scanner is handed out, so nothing
+     * starts): the service calls this every time it brings the radio up, and
+     * neither case may reach the adapter in a way that throws.
+     */
     fun start() {
         if (scanning) return
         // BLUETOOTH_SCAN is separate from CONNECT and ADVERTISE. Without it this
@@ -126,8 +136,11 @@ class MacStateScanner(private val context: Context) {
             Log.i(TAG, "no BLUETOOTH_SCAN permission; the Mac's state stays unknown")
             return
         }
-        val scanner = context.getSystemService(BluetoothManager::class.java)
-            ?.adapter?.bluetoothLeScanner ?: return
+        // Null with Bluetooth off; guarded because an adapter mid-shutdown has
+        // been known to throw rather than answer.
+        val scanner = runCatching {
+            context.getSystemService(BluetoothManager::class.java)?.adapter?.bluetoothLeScanner
+        }.getOrNull() ?: return
         val filter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(SpikeContract.MAC_STATE_SERVICE_UUID))
             .build()
@@ -142,15 +155,22 @@ class MacStateScanner(private val context: Context) {
             .onFailure { Log.w(TAG, "could not start scanning", it) }
     }
 
+    /**
+     * Stop listening. Idempotent, and never throws: with Bluetooth already off
+     * there is no scanner to hand the callback back to, and that is fine --
+     * the system dropped the scan when it dropped the adapter.
+     */
     fun stop() {
-        if (!scanning) return
-        runCatching {
-            context.getSystemService(BluetoothManager::class.java)
-                ?.adapter?.bluetoothLeScanner?.stopScan(callback)
+        if (scanning) {
+            runCatching {
+                context.getSystemService(BluetoothManager::class.java)
+                    ?.adapter?.bluetoothLeScanner?.stopScan(callback)
+            }.onFailure { Log.w(TAG, "could not stop scanning: $it") }
         }
         scanning = false
         // A belief with nothing refreshing it is a belief that will go stale on
-        // screen. Drop it now rather than let it age out looking current.
+        // screen. Drop it now rather than let it age out looking current --
+        // also after a scan that had already failed, whose belief is just as stale.
         MacState.forget()
     }
 

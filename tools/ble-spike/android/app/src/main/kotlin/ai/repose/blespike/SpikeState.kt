@@ -16,7 +16,28 @@ object SpikeState {
     private val listeners = mutableListOf<() -> Unit>()
     private val log = ArrayDeque<String>()
 
+    /**
+     * What the service knows about the key's radio (design doc §04 手机·主屏).
+     * The screen derives its phase from this at read time; see [RadioFacts].
+     * Every change goes through [updateRadio], so no screen can miss one.
+     */
+    @Volatile var radio: RadioFacts = RadioFacts.NOTHING
+        private set
+
+    @Synchronized
+    fun updateRadio(change: (RadioFacts) -> RadioFacts) {
+        val next = change(radio)
+        if (next == radio) return
+        radio = next
+        // Mirrors for readers that predate the facts. Same moment, same lock.
+        serviceRunning = next.running
+        advertising = next.advertising
+        notifyListeners()
+    }
+
+    /** Mirror of [radio].running; prefer [radio]. */
     @Volatile var serviceRunning = false
+    /** Mirror of [radio].advertising; prefer [radio]. */
     @Volatile var advertising = false
     @Volatile var startedAtUptime = 0L
 
