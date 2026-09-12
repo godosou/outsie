@@ -20,7 +20,8 @@ data class ConsoleAction(
     val keys: String,
 )
 
-data class ConsoleApp(val name: String, val actions: List<ConsoleAction>)
+/** [cmdByte] is the App's own byte: 「切到这个 App」, no key pressed. Null from a Mac that predates it. */
+data class ConsoleApp(val name: String, val actions: List<ConsoleAction>, val cmdByte: Int? = null)
 
 data class ConsoleCatalogue(
     val revision: Long,
@@ -116,7 +117,8 @@ data class ConsoleCatalogue(
                         keys = x.optString("k", ""),
                     )
                 }
-                if (list.isNotEmpty()) out += ConsoleApp(a.optString("n", "?"), list)
+                val appByte = a.optInt("b", 0).takeIf { it >= SpikeContract.CMD_SHORTCUT_BASE && it <= 255 }
+                if (list.isNotEmpty()) out += ConsoleApp(a.optString("n", "?"), list, appByte)
             }
             ConsoleCatalogue(revision, out, keyId)
         }.getOrNull()

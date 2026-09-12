@@ -80,6 +80,12 @@ pub struct ConsoleApp {
     pub app_path: Option<String>,
     #[serde(default)]
     pub actions: Vec<ConsoleAction>,
+    /// The byte that means 「切到这个 App」 with no key pressed. Same pool and
+    /// same stability rules as an action's byte. Tapping the App's name on the
+    /// phone sends it: on the device people tapped 「飞书」 expecting the Mac to
+    /// switch, twice, and nothing happened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmd_byte: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -147,16 +153,18 @@ pub fn assign_cmd_bytes(config: &mut ConsoleConfig) {
     let mut taken: std::collections::BTreeSet<u8> = config
         .apps
         .iter()
-        .flat_map(|a| a.actions.iter())
-        .filter_map(|a| a.cmd_byte)
+        .flat_map(|a| a.actions.iter().map(|x| x.cmd_byte).chain(std::iter::once(a.cmd_byte)))
+        .flatten()
         .filter(|b| *b >= CONSOLE_CMD_BASE)
         .collect();
     // Start after the highest in use, so a deletion does not immediately hand
     // its byte to the next action created.
     let mut next = taken.iter().next_back().map_or(CONSOLE_CMD_BASE, |b| b.saturating_add(1));
     for app in &mut config.apps {
-        for action in &mut app.actions {
-            if action.cmd_byte.is_some_and(|b| b >= CONSOLE_CMD_BASE) {
+        // The App's own byte first, then its actions: one pool, one rule.
+        let slots = std::iter::once(&mut app.cmd_byte).chain(app.actions.iter_mut().map(|a| &mut a.cmd_byte));
+        for slot in slots {
+            if slot.is_some_and(|b| b >= CONSOLE_CMD_BASE) {
                 continue;
             }
             while next >= CONSOLE_CMD_BASE && taken.contains(&next) {
@@ -172,11 +180,16 @@ pub fn assign_cmd_bytes(config: &mut ConsoleConfig) {
                     return;
                 }
             }
-            action.cmd_byte = Some(next);
+            *slot = Some(next);
             taken.insert(next);
             next = next.wrapping_add(1);
         }
     }
+}
+
+/// The App a command byte asks to switch to, if the byte is an App's own.
+pub fn app_for_cmd(config: &ConsoleConfig, byte: u8) -> Option<&ConsoleApp> {
+    config.apps.iter().find(|app| app.cmd_byte == Some(byte))
 }
 
 /// The action a command byte asks for, if any.
@@ -279,6 +292,27 @@ fn cstr(s: &str) -> Result<std::ffi::CString, String> {
 /// Errors name the consequence, not the return code: every one of these ends
 /// with nothing having been pressed, and the reader's question is which thing
 /// to go fix.
+/// Bring the App to the front and nothing else. What tapping its name on the
+/// phone does, and the first half of every press.
+#[cfg(target_os = "macos")]
+pub fn activate_app(app: &ConsoleApp) -> Result<(), String> {
+    let bundle = cstr(&app.bundle_id)?;
+    let path = cstr(app.app_path.as_deref().unwrap_or(""))?;
+    let null = std::ptr::null_mut();
+    match unsafe { ffi::repose_console_activate(bundle.as_ptr(), path.as_ptr(), ffi::always, null) } {
+        0 => Ok(()),
+        1 => Err(format!("这台 Mac 上找不到「{}」。", app.name)),
+        // 2 is also what the native side returns when the screen is locked or
+        // the session is not on the console. Both mean the same thing here.
+        _ => Err(format!("没能把「{}」切到前面来。", app.name)),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn activate_app(_app: &ConsoleApp) -> Result<(), String> {
+    Err("只有 Mac 桌面版能切 App。".into())
+}
+
 #[cfg(target_os = "macos")]
 pub fn run_action(app: &ConsoleApp, action: &ConsoleAction) -> Result<(), String> {
     if !trusted(false) {
@@ -290,17 +324,10 @@ pub fn run_action(app: &ConsoleApp, action: &ConsoleAction) -> Result<(), String
         ActionHealth::Ok => {}
     }
 
+    activate_app(app)?;
     let bundle = cstr(&app.bundle_id)?;
     let path = cstr(app.app_path.as_deref().unwrap_or(""))?;
     let null = std::ptr::null_mut();
-
-    match unsafe { ffi::repose_console_activate(bundle.as_ptr(), path.as_ptr(), ffi::always, null) } {
-        0 => {}
-        1 => return Err(format!("这台 Mac 上找不到「{}」。", app.name)),
-        // 2 is also what the native side returns when the screen is locked or
-        // the session is not on the console. Both mean the same thing here.
-        _ => return Err(format!("没能把「{}」切到前面来。", app.name)),
-    }
 
     for step in action.steps.iter() {
         if step.delay_ms > 0 {
@@ -476,7 +503,11 @@ pub fn catalogue_json(config: &ConsoleConfig) -> String {
                 })
                 .collect();
             (!actions.is_empty()).then(|| {
-                serde_json::json!({ "n": app.name, "a": actions })
+                let mut o = serde_json::json!({ "n": app.name, "a": actions });
+                if let Some(b) = app.cmd_byte.filter(|b| *b >= CONSOLE_CMD_BASE) {
+                    o["b"] = b.into();
+                }
+                o
             })
         })
         .collect();
@@ -658,6 +689,26 @@ pub fn start_command_watcher(app: AppHandle) {
                             }),
                         );
                     }
+                    None if app_for_cmd(&config, byte).is_some() => {
+                        let target = app_for_cmd(&config, byte).expect("checked");
+                        let outcome = activate_app(target);
+                        note(match &outcome {
+                            Ok(()) => format!("cmd={byte} 切到「{}」", target.name),
+                            Err(e) => format!("cmd={byte} 没切到「{}」：{e}", target.name),
+                        });
+                        let _ = app.emit(
+                            "console-command",
+                            serde_json::json!({
+                                "action": serde_json::Value::Null,
+                                "app": target.name,
+                                "ok": outcome.is_ok(),
+                                "detail": match &outcome {
+                                    Ok(()) => format!("手机说：切到「{}」。切了。", target.name),
+                                    Err(e) => format!("手机说：切到「{}」。{e}", target.name),
+                                },
+                            }),
+                        );
+                    }
                     None => {
                         note(format!("cmd={byte} 对不上任何操作"));
                         // A byte from a catalogue this Mac no longer has. Doing
@@ -701,11 +752,15 @@ pub fn console_status(app: AppHandle) -> ConsoleStatus {
 /// it never changes again.
 pub fn ensure_cmd_bytes(app: &AppHandle) -> ConsoleConfig {
     let mut config = load_config(app);
-    let before: Vec<Option<u8>> =
-        config.apps.iter().flat_map(|a| a.actions.iter().map(|x| x.cmd_byte)).collect();
+    let bytes = |c: &ConsoleConfig| -> Vec<Option<u8>> {
+        c.apps
+            .iter()
+            .flat_map(|a| std::iter::once(a.cmd_byte).chain(a.actions.iter().map(|x| x.cmd_byte)))
+            .collect()
+    };
+    let before = bytes(&config);
     assign_cmd_bytes(&mut config);
-    let after: Vec<Option<u8>> =
-        config.apps.iter().flat_map(|a| a.actions.iter().map(|x| x.cmd_byte)).collect();
+    let after = bytes(&config);
     if before != after {
         if let (Some(path), Ok(body)) = (config_path(app), serde_json::to_string_pretty(&config)) {
             let tmp = path.with_extension("json.writing");
@@ -909,6 +964,7 @@ mod tests {
                     id: "x".into(), name: "X".into(), kind: "hotkey".into(),
                     steps: vec![step("b", &["ctrl"]), step("%", &[])], ..Default::default()
                 }],
+                cmd_byte: None,
             }],
         };
         fill_kind(&mut cfg);
@@ -925,6 +981,7 @@ mod tests {
                     ConsoleAction { id: "one".into(), name: "One".into(), steps: vec![step("k", &["cmd"])], ..Default::default() },
                     ConsoleAction { id: "many".into(), name: "Many".into(), steps: vec![step("b", &["ctrl"]), step("%", &[])], ..Default::default() },
                 ],
+                cmd_byte: None,
             }],
         };
         fill_kind(&mut cfg);
@@ -944,6 +1001,7 @@ mod tests {
                 bundle_id: "com.a".into(),
                 app_path: None,
                 actions: vec![ConsoleAction { id: "x".into(), name: "X".into(), ..Default::default() }],
+                cmd_byte: None,
             }],
         };
         for a in &mut cfg.apps {
@@ -971,6 +1029,7 @@ mod tests {
                         ..Default::default()
                     })
                     .collect(),
+                cmd_byte: None,
             }],
         }
     }
@@ -1093,8 +1152,11 @@ mod tests {
             id: "new".into(), name: "new".into(), steps: vec![step("k", &[])], ..Default::default()
         });
         assign_cmd_bytes(&mut c);
+        // The App's own byte is handed out first (18), then the new action (19);
+        // 16 stays free until every other value is taken.
+        assert_eq!(c.apps[0].cmd_byte, Some(18));
         let bytes: Vec<_> = c.apps[0].actions.iter().map(|a| a.cmd_byte).collect();
-        assert_eq!(bytes, vec![Some(17), Some(18)], "16 was reused too eagerly");
+        assert_eq!(bytes, vec![Some(17), Some(19)], "16 was reused too eagerly");
     }
 
     #[test]
@@ -1219,5 +1281,62 @@ mod tests {
             status.contains("trusted(false)"),
             "console_status must not prompt",
         );
+    }
+
+    #[test]
+    fn an_app_gets_a_byte_of_its_own_that_no_action_shares() {
+        let mut c = ConsoleConfig {
+            revision: 1,
+            apps: vec![ConsoleApp {
+                id: "a".into(),
+                name: "飞书".into(),
+                bundle_id: "com.x".into(),
+                app_path: None,
+                actions: vec![
+                    ConsoleAction { id: "s".into(), name: "搜索".into(), cmd_byte: Some(16), ..Default::default() },
+                    ConsoleAction { id: "p".into(), name: "粘贴".into(), ..Default::default() },
+                ],
+                cmd_byte: None,
+            }],
+        };
+        assign_cmd_bytes(&mut c);
+        let app_byte = c.apps[0].cmd_byte.expect("the app got a byte");
+        let action_bytes: Vec<u8> = c.apps[0].actions.iter().filter_map(|a| a.cmd_byte).collect();
+        assert!(app_byte >= CONSOLE_CMD_BASE);
+        assert!(!action_bytes.contains(&app_byte), "{app_byte} doubles as an action: {action_bytes:?}");
+        assert_eq!(action_bytes[0], 16, "an existing action keeps its byte");
+        // Stable: a second pass changes nothing.
+        let again = c.clone();
+        assign_cmd_bytes(&mut c);
+        assert_eq!(again, c);
+        assert_eq!(app_for_cmd(&c, app_byte).map(|a| a.name.as_str()), Some("飞书"));
+        assert!(action_for_cmd(&c, app_byte).is_none());
+        assert!(app_for_cmd(&c, 16).is_none());
+    }
+
+    #[test]
+    fn the_catalogue_carries_the_app_byte_beside_its_actions() {
+        let mut c = ConsoleConfig {
+            revision: 1,
+            apps: vec![ConsoleApp {
+                id: "a".into(),
+                name: "飞书".into(),
+                bundle_id: "com.x".into(),
+                app_path: None,
+                actions: vec![ConsoleAction {
+                    id: "s".into(),
+                    name: "搜索".into(),
+                    kind: "keys".into(),
+                    steps: vec![ConsoleStep { key: "f".into(), modifiers: vec!["command".into()], delay_ms: 0 }],
+                    ..Default::default()
+                }],
+                cmd_byte: None,
+            }],
+        };
+        assign_cmd_bytes(&mut c);
+        let json = catalogue_json(&c);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["apps"][0]["b"], serde_json::json!(c.apps[0].cmd_byte.unwrap()));
+        assert_eq!(v["apps"][0]["a"][0]["b"], serde_json::json!(c.apps[0].actions[0].cmd_byte.unwrap()));
     }
 }

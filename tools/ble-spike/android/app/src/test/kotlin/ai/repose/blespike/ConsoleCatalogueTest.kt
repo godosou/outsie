@@ -43,4 +43,17 @@ class ConsoleCatalogueTest {
     fun `each Mac has its own slot in storage`() {
         assertTrue(ConsoleCatalogue.slot(166) != ConsoleCatalogue.slot(17))
     }
+
+    @Test
+    fun `an App's own byte is parsed, and a Mac without one leaves it null`() {
+        val withByte = """{"apps":[{"n":"飞书","b":40,"a":[{"b":41,"n":"搜索","k":"⌘F"}]}]}"""
+        val cat = ConsoleCatalogue.parse(3, withByte, keyId = 72)!!
+        assertEquals(40, cat.apps[0].cmdByte)
+        assertEquals(41, cat.apps[0].actions[0].cmdByte)
+        val old = ConsoleCatalogue.parse(3, json, keyId = 72)!!
+        assertEquals(null, old.apps[0].cmdByte)
+        // A byte below the shortcut base is a protocol command, never an App.
+        val bad = ConsoleCatalogue.parse(3, """{"apps":[{"n":"x","b":1,"a":[{"b":16,"n":"y","k":""}]}]}""", keyId = 72)!!
+        assertEquals(null, bad.apps[0].cmdByte)
+    }
 }

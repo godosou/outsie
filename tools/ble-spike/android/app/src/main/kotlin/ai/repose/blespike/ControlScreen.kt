@@ -145,7 +145,14 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer, store
         row.removeAllViews()
         cat.apps.forEachIndexed { i, app ->
             row.addView(
-                chip(context, pal, app.name, app.name == name) { appName = app.name; renderGrid() },
+                chip(context, pal, app.name, app.name == name) {
+                    appName = app.name
+                    renderGrid()
+                    // The name is a button too: the Mac switches to that App,
+                    // no key pressed. On the device people tapped 「飞书」 and
+                    // expected exactly that, twice.
+                    app.cmdByte?.let { sendByte(context, it) }
+                },
                 Ui.lp(width = WRAP_CONTENT, left = if (i == 0) 0 else context.dp(8)),
             )
         }
@@ -362,13 +369,15 @@ private fun link(context: Context, pal: Palette, label: String, onClick: () -> U
     }
 
 /** Queue the byte and say what this phone can honestly know, which is not much. */
-private fun send(context: Context, act: ConsoleAction) {
+private fun send(context: Context, act: ConsoleAction) = sendByte(context, act.cmdByte)
+
+private fun sendByte(context: Context, byte: Int) {
     // Ask first, so the toast names the real reason and nothing is queued for
     // a key that is off (design doc §09).
     val refused = BleSpikeService.canSend(context)
     val message = when {
         refused != null -> refused
-        BleSpikeService.postCommand(context, act.cmdByte) -> "已发出。"
+        BleSpikeService.postCommand(context, byte) -> "已发出。"
         else -> "没发出去。"
     }
     Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
