@@ -50,6 +50,9 @@ class BleSpikeService : Service() {
 
         /** Sent after a successful pairing, which lands the key in a new slot. */
         const val ACTION_REBUILD_BEACON = "ai.repose.blespike.REBUILD_BEACON"
+        /** How often, and how long, to ask an adapter that just came on for its advertiser. */
+        const val ADVERTISER_RETRY_MS = 1_500L
+        const val ADVERTISER_RETRIES = 6
         private const val CHANNEL_ID = "ble_spike"
         private const val NOTIFICATION_ID = 41
         private const val HEARTBEAT_MS = 30_000L
@@ -253,7 +256,10 @@ class BleSpikeService : Service() {
         // only keeps other apps from feeding it. Required from API 34 on, and
         // the flagged overload only exists from 33.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(bluetoothStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            // Exported on purpose: ACTION_STATE_CHANGED is a protected system
+            // broadcast nobody else can send, and a NOT_EXPORTED receiver has
+            // been seen to miss it on some stacks. Missing it is the whole bug.
+            registerReceiver(bluetoothStateReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             registerReceiver(bluetoothStateReceiver, filter)
         }
@@ -292,6 +298,9 @@ class BleSpikeService : Service() {
      * because restarting a healthy advertiser costs the Mac a one-to-three
      * second hole for nothing.
      */
+    private var advertiserRetries = 0
+    private val retryRadio = Runnable { ensureRadio() }
+
     private fun ensureRadio() {
         if (!bluetoothIsOn()) {
             teardownRadio()
@@ -299,8 +308,17 @@ class BleSpikeService : Service() {
         }
         val le = advertiser ?: runCatching { adapter()?.bluetoothLeAdvertiser }.getOrNull()
         if (le == null) {
-            // On, but the adapter hands out no advertiser: this phone cannot
-            // play the peripheral role. Nothing to wait for, so no startingSince.
+            // Right after STATE_ON some stacks hand out no advertiser for a
+            // second or two. Ask again a few times before calling the phone
+            // unable; giving up at once is how a Bluetooth cycle ended in
+            // 「广播没开起来」 with nothing retrying.
+            if (advertiserRetries < ADVERTISER_RETRIES) {
+                advertiserRetries++
+                SpikeState.updateRadio { it.copy(bluetoothOn = true, startingSince = it.startingSince ?: SystemClock.elapsedRealtime()) }
+                handler.removeCallbacks(retryRadio)
+                handler.postDelayed(retryRadio, ADVERTISER_RETRY_MS)
+                return
+            }
             Log.e(TAG, "no LE advertiser (peripheral role unsupported?)")
             SpikeState.event("这部手机的蓝牙不支持广播，当不了钥匙")
             SpikeState.updateRadio {
@@ -308,6 +326,7 @@ class BleSpikeService : Service() {
             }
             return
         }
+        advertiserRetries = 0
         advertiser = le
         val now = SystemClock.elapsedRealtime()
         SpikeState.updateRadio { it.copy(bluetoothOn = true, failure = null, startingSince = now) }
@@ -364,6 +383,9 @@ class BleSpikeService : Service() {
     private val heartbeat = object : Runnable {
         override fun run() {
             Log.i(TAG, "heartbeat adv=${SpikeState.advertising} auth=${SpikeState.authentic}")
+            // Belt and braces for the receiver: if Bluetooth is on and the radio is
+            // not, bring it back. A missed broadcast must cost a minute, not a day.
+            if (advertiser == null && bluetoothIsOn() && SpikeState.radio.running) ensureRadio()
             SpikeState.event("heartbeat (still alive)")
             handler.postDelayed(this, HEARTBEAT_MS)
         }
