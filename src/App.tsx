@@ -15,7 +15,7 @@ import './phone-key.css'
 type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phone' | 'shortcuts' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
-type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
+type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean }
 
 const APP_VERSION = '0.6.3'
 
@@ -164,8 +164,10 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => { try { return (localStorage.getItem('repose-theme') as Theme) || 'light' } catch { return 'light' } })
   const [draft, setDraft] = useState(settings)
   const [desktopPreferences, setDesktopPreferences] = useState<DesktopPreferences>(() => {
-    const defaults: DesktopPreferences = { strictBreaks: true, idleLockEnabled: Boolean(window.repose), idleLockSeconds: 30 }
-    try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30 } : defaults } catch { return defaults }
+    // The keyboard-idle lock is off until asked for: it interrupts reading.
+    // The walk-away lock is on: it is what the phone key is for.
+    const defaults: DesktopPreferences = { strictBreaks: true, idleLockEnabled: false, idleLockSeconds: 30, awayLockEnabled: Boolean(window.repose) }
+    try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30, awayLockEnabled: typeof saved.awayLockEnabled === 'boolean' ? saved.awayLockEnabled : defaults.awayLockEnabled } : defaults } catch { return defaults }
   })
   const [securityError, setSecurityError] = useState(() => { try { return localStorage.getItem('repose-security-error') === 'true' } catch { return false } })
   const [unlockSnapshot, setUnlockSnapshot] = useState<UnlockSnapshot | null>(null)
@@ -477,6 +479,13 @@ export default function App() {
           // The Accessibility permission row lives here now, not on 快捷键设置:
           // one permission, two features on this page (自动锁屏 and 替手机按键).
           console={window.repose?.console}
+          awayLock={{
+            enabled: desktopPreferences.awayLockEnabled,
+            onToggle: () => {
+              if (!window.repose) { showToast('自动锁屏只有 Mac 桌面版能做。'); return }
+              setDesktopPreferences(previous => ({ ...previous, awayLockEnabled: !previous.awayLockEnabled }))
+            },
+          }}
           idleLock={{
             enabled: desktopPreferences.idleLockEnabled,
             error: securityError,

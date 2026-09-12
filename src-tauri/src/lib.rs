@@ -264,16 +264,26 @@ impl Default for TimerStatus {
 #[serde(rename_all = "camelCase")]
 struct Preferences {
     strict_breaks: bool,
+    /// 「30 秒没碰键盘鼠标就锁屏」. Off unless asked for: it interrupts reading.
     idle_lock_enabled: bool,
     idle_lock_seconds: u32,
+    /// 「你离开，电脑自动锁屏」: the bridge locks when it judges the phone gone.
+    /// Defaulted for a front end that predates the split.
+    #[serde(default = "default_true")]
+    away_lock_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             strict_breaks: true,
-            idle_lock_enabled: true,
+            idle_lock_enabled: false,
             idle_lock_seconds: 30,
+            away_lock_enabled: true,
         }
     }
 }
@@ -629,7 +639,7 @@ fn set_preferences(app: AppHandle, shared: State<'_, Arc<SharedState>>, value: P
     }
     // 「你离开，电脑自动锁屏」 is mostly the bridge's job now: it locks the
     // moment the phone is judged gone, and reads this flag to know whether to.
-    unlock::set_autolock(&app, value.idle_lock_enabled);
+    unlock::set_autolock(&app, value.away_lock_enabled);
     let mut state = shared.runtime.lock().expect("state poisoned");
     if state.preferences.idle_lock_enabled != value.idle_lock_enabled {
         state.idle_enabled_at = Instant::now();

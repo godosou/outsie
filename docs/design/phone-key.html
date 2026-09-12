@@ -1023,7 +1023,7 @@ const CH = [
   <div class="plate stack">${spec(`<h4>先起名字再录</h4><p>不然打字的每个字母都会被记成按键。录制是两段的：起名 → 开始录 → 按键 → 就这些。中途什么都不保存。</p>
     <h4>字节是 Mac 分配的，分了就不变</h4><p>删掉一个操作不会让别的改号。所以一部很久没同步的手机按下去什么都不发生，而不是按到顶替它的那个操作上。</p>
     <h4>「试一次」会把那个 App 切到最前面</h4><p>和手机上按下去一样。这件事会真的发生在屏幕上，所以要在按之前说。</p>
-    <h4>命令行也能看、能改：<code>outsie shortcuts</code></h4><p>面板之外的第二个入口，给人也给 AI。<code>list</code> 看每个 App 的操作、按键、字节；<code>add-app</code> / <code>add --app 飞书 --name 搜索 --keys "cmd+k"</code> / <code>remove</code> 改；<code>import</code> 合并一份 JSON（同名 App 更新，同名操作只换按键，字节不变）；<code>export</code> 打出可以再导入的；<code>--schema</code> <code>--examples</code> 给 AI 读。改的是面板读的同一个文件，Mac 立刻读到，手机同步一次。按键写法就是人说的那样：cmd+k、shift+cmd+p、ctrl+b, %、enter、f12。装在 Outsie.app 里，软链到 ~/.local/bin/outsie。</p>`)}</div>
+    <h4>命令行也能看、能改：<code>outsie shortcuts</code></h4><p>面板之外的第二个入口，给人也给 AI。<code>list</code> 看每个 App 的操作、按键、字节；<code>add-app</code> / <code>add --app 飞书 --name 搜索 --keys "cmd+k"</code> / <code>remove</code> 改；<code>import</code> 合并一份 JSON（同名 App 更新，同名操作只换按键，字节不变）；<code>export</code> 打出可以再导入的；<code>--schema</code> <code>--examples</code> 给 AI 读。改的是面板读的同一个文件，Mac 立刻读到，手机同步一次。按键写法就是人说的那样：cmd+k、shift+cmd+p、ctrl+b, %、enter、f12。装在 Outsie.app 里（Contents/MacOS/outsie-cli），软链到 ~/.local/bin/outsie。</p>`)}</div>
   ${after([
     ['＋ App','打开系统选 App 的面板，选中的加进来并展开。','同一个 App 加两次会被挡下。'],
     ['＋ 加一个操作','弹窗：先问名字，再录键。','名字为空，「开始录」点不动。'],
@@ -1183,7 +1183,7 @@ const CH = [
 tag        HMAC-SHA256(K, msg)[0..8)
 counter    floor(unix / 30)，从不传输，两端各自推算，±1 容差
 cmd        0 无 · 1 锁屏 · 3 请求列表 · 4 开始量近处 · 5 开始量远处 · 6 远处结束，定下来 · 16.. 快捷键
-           ← 6 是手机远处倒数完还没结果时发的；走回去 Mac 才听得到，所以每 20 秒重发到有结果
+           ← 6 是手机远处倒数完还没结果时发的；走回去 Mac 才听得到，所以每 10 秒重发到有结果
 seq        手机持久化递增；Mac 只接受严格更大的</code></pre>
   <h3 style="margin-top:24px">状态信标 <code>repose-macstate-v2</code>（Mac → 手机）</h3>
   <pre class="proto"><code>服务 UUID  0xFFF7

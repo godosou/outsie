@@ -45,10 +45,17 @@ type IdleLock = {
   onOpenSettings: () => void
 }
 
+/** 「你离开，电脑自动锁屏」: the bridge's own lock, no permission involved. */
+type AwayLock = {
+  enabled: boolean
+  onToggle: () => void
+}
+
 type Props = {
   bridge?: UnlockDesktopBridge
   onToast?: (message: string) => void
   idleLock?: IdleLock
+  awayLock?: AwayLock
   /**
    * The console bridge, for one row only: the macOS Accessibility permission.
    *
@@ -67,7 +74,7 @@ function snapshotReducer(_state: SnapshotState, next: UnlockSnapshot): SnapshotS
   return { snapshot: next, loaded: true }
 }
 
-export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consoleBridge }: Props) {
+export function UnlockSettingsPanel({ bridge, onToast, idleLock, awayLock, console: consoleBridge }: Props) {
   const degraded = !bridge
   const [{ snapshot, loaded }, setSnapshot] = useReducer(
     snapshotReducer,
@@ -452,32 +459,45 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
       {/* The other half of the pair. Turning unlock off is the moment somebody
           is most likely to reach for the lock delay next, so that is where this
           has to be standing. */}
-      {idleLock && (
+      {awayLock && (
         <div className="preference-row">
           <span className="preference-icon"><LockKeyhole size={21} /></span>
           <div>
             <h3>你离开，电脑自动锁屏</h3>
-            {/* The state line and the switch must not disagree. This said
-                「开着，但没有生效」 whenever securityError was set -- and the
-                error path in App.tsx also switches it OFF, so the sentence
-                claimed 开着 above a grey switch. */}
-            <p className={`pk-row-state${idleLock.enabled ? ' is-on' : ''}`}>
-              {idleLock.enabled
-                ? (idleLock.error
-                  ? '已开启 · 手机走远就锁屏。键盘半分钟没动那一路，macOS 还没允许它按键'
-                  : '已开启 · 手机走远就锁屏')
-                : '已关闭 · 你走开，电脑不会自己锁'}
+            <p className={`pk-row-state${awayLock.enabled ? ' is-on' : ''}`}>
+              {awayLock.enabled ? '已开启 · 手机走远就锁屏' : '已关闭 · 你走开，电脑不会自己锁'}
             </p>
             <p>
               这两个是一对。锁得越勤越放心，而它负责让你不用多输一次密码。
-              手机走远、Mac 认定你不在的那一刻就锁屏。手机在旁边时，键盘半分钟没动也不锁。
+              Mac 认定手机走远才锁：信号持续十秒低于远处线，或两分钟没听到；键盘鼠标二十秒内有动静一律不锁。
               {enabled
                 ? ''
                 : '关掉解锁之前，先想想会不会顺手也把这个关了——那才是真正变不安全的那一步。'}
             </p>
-            {/* Only when the permission row below is not on screen. That row
-                carries the same 去授予权限 for the same permission, and two
-                buttons for one decision is exactly 2.5. */}
+          </div>
+          <button
+            className={`toggle${awayLock.enabled ? ' on' : ''}`}
+            type="button" role="switch" aria-checked={awayLock.enabled} aria-label="你离开，电脑自动锁屏"
+            onClick={awayLock.onToggle}
+          ><span /></button>
+        </div>
+      )}
+
+      {idleLock && (
+        <div className="preference-row">
+          <span className="preference-icon"><LockKeyhole size={21} /></span>
+          <div>
+            <h3>30 秒没碰键盘鼠标就锁屏</h3>
+            <p className={`pk-row-state${idleLock.enabled ? ' is-on' : ''}`}>
+              {idleLock.enabled
+                ? (idleLock.error
+                  ? '已开启 · 但 macOS 还没允许 Outsie 按锁屏键，下面允许一次'
+                  : '已开启 · 手机在旁边时不锁')
+                : '已关闭'}
+            </p>
+            <p>
+              离开键盘半分钟就锁，不看手机在不在。手机在旁边时不锁，坐着看东西不会被打断。这一路要替你按键的权限。
+            </p>
             {idleLock.error && !consoleBridge && (
               <button className="text-button" onClick={idleLock.onOpenSettings} style={{ marginTop: 6 }}>
                 去授予权限<ArrowUpRight size={14} />
@@ -486,7 +506,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
           </div>
           <button
             className={`toggle${idleLock.enabled ? ' on' : ''}`}
-            type="button" role="switch" aria-checked={idleLock.enabled} aria-label="你离开，电脑自动锁屏"
+            type="button" role="switch" aria-checked={idleLock.enabled} aria-label="30 秒没碰键盘鼠标就锁屏"
             onClick={idleLock.onToggle}
           ><span /></button>
         </div>

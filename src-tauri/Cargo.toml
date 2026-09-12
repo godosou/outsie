@@ -3,6 +3,8 @@ name = "repose"
 version = "0.7.0"
 description = "A quiet macOS break reminder"
 edition = "2024"
+# Two binaries now (the app and `outsie`); Tauri needs to be told which is the app.
+default-run = "repose"
 
 [lib]
 name = "repose_lib"

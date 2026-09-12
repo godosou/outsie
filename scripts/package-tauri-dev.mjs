@@ -33,7 +33,10 @@ if (!identity) {
   // same file the panel edits.
   run('cargo', ['build', '--release', '--bin', 'outsie', '--manifest-path', 'src-tauri/Cargo.toml'])
   const { copyFileSync } = await import('node:fs')
-  copyFileSync(path.join(root, 'src-tauri/target/release/outsie'), path.join(app, 'Contents/MacOS/outsie'))
+  // NOT `Contents/MacOS/outsie`: the app binary is `Outsie`, and the default
+  // APFS volume is case-insensitive, so that path is the same file. The first
+  // build that tried it shipped a bundle whose main executable was the CLI.
+  copyFileSync(path.join(root, 'src-tauri/target/release/outsie'), path.join(app, 'Contents/MacOS/outsie-cli'))
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', identity, app])
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
   const r = spawnSync('/usr/bin/codesign', ['-d', '-r-', app], { encoding: 'utf8' })

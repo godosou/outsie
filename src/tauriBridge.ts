@@ -27,7 +27,7 @@ type LifecycleSnapshot = {
   pendingIntervals: Extract<DesktopLifecycleEvent, { type: 'inactive-end' }>[]
 }
 type Status = { running: boolean; phase: string; remaining: number; breakId: string | null; canPostpone: boolean; postponeSeconds: number }
-type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
+type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean }
 
 declare global {
   interface Window {

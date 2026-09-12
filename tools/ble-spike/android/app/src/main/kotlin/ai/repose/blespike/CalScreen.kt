@@ -149,7 +149,7 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
             CalStep.RETURN -> {
                 body.addView(heroCard(context, pal, chip = "第二段", glyph = "🚶", headline = "走回去就完成",
                     body = "走开之后 Mac 听不到手机了。这最清楚。走回 Mac 旁边，它就把这次记下来。"))
-                body.addView(Ui.infoNote(context, pal, "回到座位上还没反应的话，等一小会儿。手机每 20 秒跟它说一次。"), Ui.lp(top = context.dp(12)))
+                body.addView(Ui.infoNote(context, pal, "回到座位上还没反应的话，等一小会儿。手机每 10 秒跟它说一次。"), Ui.lp(top = context.dp(12)))
                 // On entry only: a rebuild while walking back must not fire it
                 // again at once. The ticker handles the repeats.
                 if (now - farDoneSentAt >= CalFlow.RETURN_REPOST_MS) sendFarDone(now, quiet = false)

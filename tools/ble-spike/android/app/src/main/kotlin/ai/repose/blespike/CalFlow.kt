@@ -103,7 +103,7 @@ data class CalFlow(val step: CalStep, val since: Long, val legSeen: Long? = null
         const val RETURN_NO_ANSWER_MS = 120_000L
 
         /** How often 「远处结束」 goes out again while walking back. */
-        const val RETURN_REPOST_MS = 20_000L
+        const val RETURN_REPOST_MS = 10_000L
 
         /** After the near command went out. */
         fun start(now: Long) = CalFlow(CalStep.NEAR, now)
