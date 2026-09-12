@@ -10,6 +10,7 @@
 //
 // With no identity available the build is left ad-hoc, and says so.
 import { spawnSync } from 'node:child_process'
+import { copyFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureIdentity } from './dev-signing-identity.mjs'
@@ -21,9 +22,14 @@ function run(cmd, args) {
   if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} exited ${r.status}`)
 }
 
-run('npx', ['tauri', 'build', '--bundles', 'app'])
-
 const app = path.join(root, 'src-tauri/target/release/bundle/macos/Outsie.app')
+// A stale bundle keeps the case of whatever was written there before, and a
+// case-insensitive volume will happily let `Outsie` come back as `outsie`,
+// which codesign then rejects against the Info.plist. Start clean, BEFORE
+// the build that creates it.
+rmSync(app, { recursive: true, force: true })
+
+run('npx', ['tauri', 'build', '--bundles', 'app'])
 const identity = ensureIdentity()
 if (!identity) {
   console.warn('package:mac: no signing identity — bundle left ad-hoc; macOS will ask for Bluetooth again after every rebuild')
@@ -31,12 +37,11 @@ if (!identity) {
   // The command line beside the app: built here, carried inside the bundle,
   // signed with it (design doc §07). `outsie shortcuts` reads and changes the
   // same file the panel edits.
-  run('cargo', ['build', '--release', '--bin', 'outsie', '--manifest-path', 'src-tauri/Cargo.toml'])
-  const { copyFileSync } = await import('node:fs')
+  run('cargo', ['build', '--release', '--bin', 'outsie-cli', '--manifest-path', 'src-tauri/Cargo.toml'])
   // NOT `Contents/MacOS/outsie`: the app binary is `Outsie`, and the default
   // APFS volume is case-insensitive, so that path is the same file. The first
   // build that tried it shipped a bundle whose main executable was the CLI.
-  copyFileSync(path.join(root, 'src-tauri/target/release/outsie'), path.join(app, 'Contents/MacOS/outsie-cli'))
+  copyFileSync(path.join(root, 'src-tauri/target/release/outsie-cli'), path.join(app, 'Contents/MacOS/outsie-cli'))
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', identity, app])
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
   const r = spawnSync('/usr/bin/codesign', ['-d', '-r-', app], { encoding: 'utf8' })

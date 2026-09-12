@@ -11,8 +11,10 @@ name = "repose_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 # `outsie shortcuts`: the command line beside the app (design doc §07).
+# Named outsie-cli, not outsie: tauri writes the app to target/release/Outsie,
+# and on a case-insensitive volume that is the same file as target/release/outsie.
 [[bin]]
-name = "outsie"
+name = "outsie-cli"
 path = "src/bin/outsie.rs"
 
 [build-dependencies]
