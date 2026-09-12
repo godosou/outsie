@@ -4465,7 +4465,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
         // 「你离开，电脑自动锁屏」: the moment the bridge decides the phone is
         // gone -- by signal or by silence -- it locks, if the switch is on.
         assert!(sh.contains("REPOSE_AUTOLOCK_FILE"), "the bridge never reads the autolock flag");
-        let leave = sh.find("LEAVE (rssi=").expect("a LEAVE branch");
+        let leave = sh.find("LEAVE (median=").expect("a LEAVE branch");
         let stale = sh.find("STALE (no sample").expect("a STALE branch");
         assert!(sh[leave..leave + 400].contains("lock_on_away"), "LEAVE does not lock");
         assert!(sh[stale..stale + 400].contains("lock_on_away"), "STALE does not lock");

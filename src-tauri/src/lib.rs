@@ -11,7 +11,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-mod console;
+pub mod console;
+pub mod console_cli;
 mod unlock;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

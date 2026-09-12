@@ -28,6 +28,12 @@ const identity = ensureIdentity()
 if (!identity) {
   console.warn('package:mac: no signing identity — bundle left ad-hoc; macOS will ask for Bluetooth again after every rebuild')
 } else {
+  // The command line beside the app: built here, carried inside the bundle,
+  // signed with it (design doc §07). `outsie shortcuts` reads and changes the
+  // same file the panel edits.
+  run('cargo', ['build', '--release', '--bin', 'outsie', '--manifest-path', 'src-tauri/Cargo.toml'])
+  const { copyFileSync } = await import('node:fs')
+  copyFileSync(path.join(root, 'src-tauri/target/release/outsie'), path.join(app, 'Contents/MacOS/outsie'))
   run('/usr/bin/codesign', ['--force', '--deep', '--sign', identity, app])
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app])
   const r = spawnSync('/usr/bin/codesign', ['-d', '-r-', app], { encoding: 'utf8' })

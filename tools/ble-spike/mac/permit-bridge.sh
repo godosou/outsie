@@ -170,8 +170,21 @@ STALE_S="${REPOSE_STALE_S:-45}"        # no sample for this long -> treat as gon
 # on the desk on a USB cable and the Mac locked three times in a minute: one
 # sample at -89..-93 each time, the next at -66. Leaving is a state that
 # lasts; the signal has to stay below FAR for this long before it counts.
-FAR_HOLD_S="${REPOSE_FAR_HOLD_S:-8}"
+FAR_HOLD_S="${REPOSE_FAR_HOLD_S:-10}"
 far_since=0
+# The value the departure test looks at is the median of the last five
+# readings, not the latest one: BLE readings jump 20 dB between one packet
+# and the next when a body or a desk gets in the way, and a median throws
+# away the two lowest of five. Arriving still uses the raw reading -- a phone
+# that just walked in should open the Mac on its first strong packet.
+r1=""; r2=""; r3=""; r4=""; r5=""
+remember_rssi() { r1="$r2"; r2="$r3"; r3="$r4"; r4="$r5"; r5="$1"; }
+median_rssi() {
+    # Fewer than three readings: the latest, so the first seconds behave as before.
+    _n=0; for _v in $r1 $r2 $r3 $r4 $r5; do _n=$((_n + 1)); done
+    if [ "$_n" -lt 3 ]; then printf '%s' "$r5"; return; fi
+    printf '%s\n' $r1 $r2 $r3 $r4 $r5 | sort -n | awk -v n="$_n" 'NR == int((n + 1) / 2) { print; exit }'
+}
 # far_persisted NOW RSSI FAR -> 0 when the signal has been below FAR for FAR_HOLD_S.
 far_persisted() {
     if [ "$2" -le "$3" ]; then
@@ -213,8 +226,40 @@ LOCK_CMD="${REPOSE_LOCK_CMD:-launchctl asuser \$(stat -f %u /dev/console) /usr/b
 # never once locked this Mac.
 AUTOLOCK_FILE="${REPOSE_AUTOLOCK_FILE:-}"
 autolock_wanted() { [ -n "${AUTOLOCK_FILE}" ] && [ -e "${AUTOLOCK_FILE}" ]; }
+
+# THE LOCK LEANS TOWARDS NOT INTERRUPTING. Three guards, all cheap:
+#
+#   1. Someone at the keyboard is not gone, whatever the radio says. The
+#      Mac's own input idle time is the truth here; a lock while the idle
+#      time is under IDLE_GUARD_S would land in the middle of a sentence.
+#   2. Silence alone locks late. The permit clears at STALE_S (the Mac stops
+#      auto-unlocking, which is the safe direction), but the screen only
+#      locks after LOCK_STALE_S of silence -- a phone whose radio hiccups
+#      for a minute at the desk must not lock the desk.
+#   3. One lock per departure, and none within LOCK_COOLDOWN_S of the last:
+#      a signal that flaps across the line cannot lock the Mac twice a minute.
+IDLE_GUARD_S="${REPOSE_IDLE_GUARD_S:-20}"
+LOCK_STALE_S="${REPOSE_LOCK_STALE_S:-120}"
+LOCK_COOLDOWN_S="${REPOSE_LOCK_COOLDOWN_S:-60}"
+last_lock=0
+stale_locked=0
+hid_idle_s() {
+    ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ { gsub(/[^0-9]/, "", $NF); print int($NF / 1000000000); exit }'
+}
+# lock_on_away REASON NOW -> locks unless a guard says not to; says which.
 lock_on_away() {
     autolock_wanted || return 0
+    _now="$2"
+    _idle="$(hid_idle_s)"
+    if [ -n "${_idle}" ] && [ "${_idle}" -lt "${IDLE_GUARD_S}" ]; then
+        log "AWAY ($1) but someone is at the keyboard (idle ${_idle}s) -> not locking"
+        return 0
+    fi
+    if [ "$((_now - last_lock))" -lt "${LOCK_COOLDOWN_S}" ]; then
+        log "AWAY ($1) but locked $((_now - last_lock))s ago -> not locking again yet"
+        return 0
+    fi
+    last_lock="${_now}"
     log "AWAY ($1) -> locking the screen, 自动锁屏 is on"
     run_command lock
 }
@@ -444,21 +489,23 @@ while :; do
 
         if is_dbm "${rssi}"; then
             last_sample="${now}"
+            remember_rssi "${rssi}"
+            steady="$(median_rssi)"
             if [ "${rssi}" -ge "${near_now}" ]; then
                 if [ "${present}" = 0 ]; then
-                    present=1; last_refresh="${now}"
+                    present=1; last_refresh="${now}"; stale_locked=0
                     log "ENTER (rssi=${rssi}) -> asserting permit"
                     publish near "${rssi}"
                     assert_permit
                 fi
-            elif [ "${rssi}" -le "${far_now}" ]; then
-                if [ "${present}" = 1 ] && far_persisted "${now}" "${rssi}" "${far_now}"; then
+            elif [ "${steady}" -le "${far_now}" ]; then
+                if [ "${present}" = 1 ] && far_persisted "${now}" "${steady}" "${far_now}"; then
                     present=0
                     far_since=0
-                    log "LEAVE (rssi=${rssi}, below far for ${FAR_HOLD_S}s) -> clearing permit"
-                    publish away "${rssi}"
+                    log "LEAVE (median=${steady}, below far for ${FAR_HOLD_S}s) -> clearing permit"
+                    publish away "${steady}"
                     clear_permit
-                    lock_on_away "rssi=${rssi}"
+                    lock_on_away "median=${steady}" "${now}"
                 fi
             else
                 # between FAR and NEAR: hold current state (that is the hysteresis),
@@ -475,7 +522,13 @@ while :; do
         log "STALE (no sample for $((now - last_sample))s) -> clearing permit"
         publish away
         clear_permit
-        lock_on_away "no sample for $((now - last_sample))s"
+        stale_locked=0
+    fi
+    # Silence locks late, and once: see LOCK_STALE_S.
+    if [ "${present}" = 0 ] && [ "${stale_locked}" = 0 ] && [ "${last_sample}" != 0 ] \
+        && [ "$((now - last_sample))" -ge "${LOCK_STALE_S}" ]; then
+        stale_locked=1
+        lock_on_away "no sample for $((now - last_sample))s" "${now}"
     fi
 
     # Keep the permit fresh while present.

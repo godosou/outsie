@@ -8,6 +8,11 @@ edition = "2024"
 name = "repose_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# `outsie shortcuts`: the command line beside the app (design doc §07).
+[[bin]]
+name = "outsie"
+path = "src/bin/outsie.rs"
+
 [build-dependencies]
 cc = "1"
 tauri-build = { version = "2", features = [] }
