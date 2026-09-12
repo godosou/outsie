@@ -3,68 +3,51 @@ package ai.repose.blespike
 import android.content.Context
 
 /**
- * What THIS phone shows, and in what order.
+ * What THIS phone shows of ONE Mac's catalogue, and in what order (design doc §10).
  *
  * WHY THE PHONE GETS A SAY AT ALL
  *
  * The Mac owns what EXISTS — which app, which keys, which cmd byte. That stays
  * on the Mac: recording a shortcut needs a real keyboard, and the byte is part
  * of the protocol. But one desk's catalogue came to 87 actions, and no phone
- * needs 87 buttons. Choosing and ordering is what fingers are good at, and it
- * is the part that differs from phone to phone.
+ * needs 87 buttons. Choosing and ordering is what fingers are good at.
  *
  * NOTHING HERE IS A PERMISSION
  *
  * These preferences never leave the phone. They are not sent back, they do not
  * touch the catalogue, they do not change a single cmd byte, and they are not
- * part of the signature. Hiding an action does not stop its byte from working —
- * reinstall the app and it is back. The real boundary is on the Mac, one switch
- * per phone. The screen has to say so, or hiding gets mistaken for revoking.
+ * part of the signature. Hiding an action does not stop its byte from working.
+ * The real boundary is on the Mac, one switch per phone. The screen says so.
  *
  * KEYED ON THE BYTE, NEVER THE POSITION
  *
- * An action is remembered by its cmd byte, which the Mac assigns once and never
- * reuses until the other 240 are gone. Remembering "the third one" would mean
- * that deleting an action on the Mac silently re-points every preference at its
- * neighbour — the same reason the protocol itself does not send indices.
+ * An action is remembered by its cmd byte, which the Mac assigns once and does
+ * not reuse until the other 240 are gone. Remembering "the third one" would
+ * mean that deleting an action on the Mac silently re-points every preference
+ * at its neighbour — the same reason the protocol itself does not send indices.
  *
- * Apps have no stable id yet (the catalogue carries only their names), so they
- * are keyed on the name and a rename on the Mac resets their order. Sending
- * bundleId with the catalogue would fix it and costs one field.
+ * ONE PER MAC
+ *
+ * Stored under the key slot of the Mac the catalogue came from (§04 §08). Two
+ * Macs assign bytes independently; a shared preference would let 「hidden 17」
+ * on one Mac hide an unrelated action on the other.
  */
 data class ConsoleArrangement(
     /** cmd bytes this phone does not draw. */
-    val hiddenActions: Set<Int> = emptySet(),
+    val hidden: Set<Int> = emptySet(),
     /** cmd bytes, first drawn first. Anything absent keeps the Mac's order, last. */
-    val actionOrder: List<Int> = emptyList(),
-    /** App names this phone does not draw. */
-    val hiddenApps: Set<String> = emptySet(),
-    val appOrder: List<String> = emptyList(),
+    val order: List<Int> = emptyList(),
 ) {
-    val isDefault: Boolean
-        get() = hiddenActions.isEmpty() && actionOrder.isEmpty() &&
-            hiddenApps.isEmpty() && appOrder.isEmpty()
+    val isDefault: Boolean get() = hidden.isEmpty() && order.isEmpty()
 
-    fun toggleAction(cmd: Int): ConsoleArrangement =
-        copy(hiddenActions = if (cmd in hiddenActions) hiddenActions - cmd else hiddenActions + cmd)
-
-    fun toggleApp(name: String): ConsoleArrangement =
-        copy(hiddenApps = if (name in hiddenApps) hiddenApps - name else hiddenApps + name)
+    fun toggle(cmd: Int): ConsoleArrangement =
+        copy(hidden = if (cmd in hidden) hidden - cmd else hidden + cmd)
 
     companion object {
         private const val PREFS = "repose_console_view"
-        private const val K_HIDDEN_ACTIONS = "hidden_actions"
-        private const val K_ACTION_ORDER = "action_order"
-        private const val K_HIDDEN_APPS = "hidden_apps"
-        private const val K_APP_ORDER = "app_order"
 
-        /**
-         * App names come from the Mac and are whatever a person typed —
-         * commas and spaces included ("VS Code", "飞书"). NUL is the one
-         * separator that cannot appear inside one, so it is the only one
-         * that cannot silently split a name in two.
-         */
-        internal const val SEP = "\u0000"
+        /** The storage namespace for one Mac. Distinct per key slot, stable across runs. */
+        fun slot(keyId: Int): String = "k$keyId."
 
         /**
          * Stored apart from the catalogue, on purpose.
@@ -74,64 +57,55 @@ data class ConsoleArrangement(
          * one file, the next sync would wipe the ordering — and that shows up
          * as "my ordering did not save", a bug nobody can report clearly.
          */
-        fun load(context: Context): ConsoleArrangement {
+        fun load(context: Context, keyId: Int): ConsoleArrangement {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val s = slot(keyId)
             return ConsoleArrangement(
-                hiddenActions = ints(p.getString(K_HIDDEN_ACTIONS, "")).toSet(),
-                actionOrder = ints(p.getString(K_ACTION_ORDER, "")),
-                hiddenApps = strings(p.getString(K_HIDDEN_APPS, "")).toSet(),
-                appOrder = strings(p.getString(K_APP_ORDER, "")),
+                hidden = ints(p.getString(s + "hidden", "")).toSet(),
+                order = ints(p.getString(s + "order", "")),
             )
         }
 
-        fun save(context: Context, a: ConsoleArrangement) {
+        fun save(context: Context, keyId: Int, a: ConsoleArrangement) {
+            val s = slot(keyId)
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(K_HIDDEN_ACTIONS, a.hiddenActions.joinToString(","))
-                .putString(K_ACTION_ORDER, a.actionOrder.joinToString(","))
-                .putString(K_HIDDEN_APPS, a.hiddenApps.joinToString(SEP))
-                .putString(K_APP_ORDER, a.appOrder.joinToString(SEP))
+                .putString(s + "hidden", a.hidden.joinToString(","))
+                .putString(s + "order", a.order.joinToString(","))
                 .apply()
         }
 
-        fun forget(context: Context) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        /** When a Mac is removed from this phone, its preferences go with it. */
+        fun forget(context: Context, keyId: Int) {
+            val s = slot(keyId)
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove(s + "hidden").remove(s + "order").apply()
         }
 
         private fun ints(raw: String?): List<Int> =
             raw.orEmpty().split(",").mapNotNull { it.trim().toIntOrNull() }
 
-        private fun strings(raw: String?): List<String> =
-            raw.orEmpty().split(SEP).filter { it.isNotEmpty() }
-
         /**
          * Drop what the catalogue no longer contains.
          *
-         * Not merely ignored at draw time — actually removed, and on every sync.
-         * A freed cmd byte is reused once the other 240 are spent, and a stale
+         * Not merely ignored at draw time — actually removed, on every sync. A
+         * freed cmd byte is reused once the other 240 are spent, and a stale
          * 「hidden」 record would then make a brand-new action invisible from the
          * moment it arrives, with nothing on screen able to explain why.
          */
         fun prune(cat: ConsoleCatalogue, a: ConsoleArrangement): ConsoleArrangement {
             val bytes = cat.apps.flatMap { app -> app.actions.map { it.cmdByte } }.toSet()
-            val names = cat.apps.map { it.name }.toSet()
             return ConsoleArrangement(
-                hiddenActions = a.hiddenActions.filterTo(LinkedHashSet()) { it in bytes },
-                actionOrder = a.actionOrder.filter { it in bytes },
-                hiddenApps = a.hiddenApps.filterTo(LinkedHashSet()) { it in names },
-                appOrder = a.appOrder.filter { it in names },
+                hidden = a.hidden.filterTo(LinkedHashSet()) { it in bytes },
+                order = a.order.filter { it in bytes },
             )
         }
 
         /**
          * The catalogue as this phone wants to see it.
          *
-         * [includeHidden] is what the arranging screen draws: it has to show the
-         * things you turned off, or turning one off would be irreversible from
-         * the only screen that can turn it back on.
-         *
-         * An app with nothing visible left is dropped from the normal view. A
-         * tab you can open onto an empty card is a tab that cannot explain
-         * itself.
+         * Apps are never dropped, even with everything inside hidden: the chip
+         * stays and the grid says so (§04). A chip that vanished could not
+         * explain itself.
          *
          * Anything the preferences have never heard of sorts LAST and stays
          * VISIBLE. The other way round is much worse: you add an action on the
@@ -142,16 +116,12 @@ data class ConsoleArrangement(
             cat: ConsoleCatalogue,
             a: ConsoleArrangement,
             includeHidden: Boolean = false,
-        ): List<ConsoleApp> {
-            val apps = inOrder(cat.apps, a.appOrder) { it.name }
-                .filter { includeHidden || it.name !in a.hiddenApps }
-            return apps.map { app ->
-                ConsoleApp(
-                    app.name,
-                    inOrder(app.actions, a.actionOrder) { it.cmdByte }
-                        .filter { includeHidden || it.cmdByte !in a.hiddenActions },
-                )
-            }.filter { includeHidden || it.actions.isNotEmpty() }
+        ): List<ConsoleApp> = cat.apps.map { app ->
+            ConsoleApp(
+                app.name,
+                inOrder(app.actions, a.order) { it.cmdByte }
+                    .filter { includeHidden || it.cmdByte !in a.hidden },
+            )
         }
 
         /** Stable: known keys in the given order, unknown ones after, as they came. */
@@ -164,16 +134,24 @@ data class ConsoleArrangement(
         }
 
         /**
-         * Move one item and write down the WHOLE resulting order.
+         * One tile dragged onto another. Returns the arrangement to store.
          *
-         * Storing just the moved item would leave the rest to fall back on the
-         * Mac's order, so one drag could shuffle things nobody touched.
+         * The WHOLE order is written down — this app's visible tiles in their
+         * new order, then its hidden ones, then whatever other apps had — so a
+         * drag cannot shuffle anything nobody touched, and un-hiding puts a
+         * tile back where it was rather than at the Mac's position.
          */
-        fun <K> moved(current: List<K>, from: Int, to: Int): List<K> {
-            if (from !in current.indices || to !in current.indices || from == to) return current
-            val out = current.toMutableList()
-            out.add(to, out.removeAt(from))
-            return out
+        fun dropped(cat: ConsoleCatalogue, appName: String, a: ConsoleArrangement, from: Int, onto: Int): ConsoleArrangement {
+            if (from == onto) return a
+            val app = arrange(cat, a, includeHidden = true).firstOrNull { it.name == appName } ?: return a
+            val vis = app.actions.map { it.cmdByte }.filter { it !in a.hidden }.toMutableList()
+            val hid = app.actions.map { it.cmdByte }.filter { it in a.hidden }
+            val i = vis.indexOf(from)
+            val j = vis.indexOf(onto)
+            if (i < 0 || j < 0) return a
+            vis.add(j, vis.removeAt(i))
+            val mine = (vis + hid).toSet()
+            return a.copy(order = vis + hid + a.order.filter { it !in mine })
         }
     }
 }

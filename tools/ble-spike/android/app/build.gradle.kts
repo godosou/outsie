@@ -70,4 +70,8 @@ android {
 // agreement in the ordinary test run instead of behind a phone and a radio.
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    // The unit-test runtime stubs Android's org.json to return defaults, so a
+    // parser test would pass against an empty object. The real parser, for
+    // tests only, so ConsoleCatalogue.parse is tested against real JSON.
+    testImplementation("org.json:json:20240303")
 }

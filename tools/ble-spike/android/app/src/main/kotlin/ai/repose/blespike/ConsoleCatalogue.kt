@@ -44,9 +44,20 @@ data class ConsoleCatalogue(
         const val LABEL = "repose-console-v1 catalogue"
 
         private const val PREFS = "repose_console"
-        private const val KEY_JSON = "catalogue_json"
-        private const val KEY_REVISION = "catalogue_revision"
-        private const val KEY_KEYID = "catalogue_key_id"
+
+        /** The storage namespace for one Mac. One catalogue per key slot (§04 §08). */
+        fun slot(keyId: Int): String = "k$keyId."
+
+        /**
+         * The catalogue, if it is THIS Mac's; otherwise nothing.
+         *
+         * The control screen for one Mac must never borrow another Mac's
+         * buttons: they look the same, the bytes are another machine's. A
+         * catalogue with keyId 0 was stored before keys were recorded and
+         * belongs to nobody.
+         */
+        fun own(cat: ConsoleCatalogue?, keyId: Int): ConsoleCatalogue? =
+            cat?.takeIf { keyId != 0 && it.keyId == keyId }
 
         /**
          * Check a received blob and parse it, or return null.
@@ -112,21 +123,44 @@ data class ConsoleCatalogue(
 
         /** Kept across restarts, so the buttons are there before the Mac is. */
         fun save(context: Context, revision: Long, json: String, keyId: Int) {
+            val s = slot(keyId)
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_JSON, json)
-                .putLong(KEY_REVISION, revision)
-                .putInt(KEY_KEYID, keyId)
+                .putString(s + "json", json)
+                .putLong(s + "revision", revision)
                 .apply()
         }
 
-        fun load(context: Context): ConsoleCatalogue? {
+        fun load(context: Context, keyId: Int): ConsoleCatalogue? {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val json = p.getString(KEY_JSON, null) ?: return null
-            return parse(p.getLong(KEY_REVISION, 0L), json, p.getInt(KEY_KEYID, 0))
+            val s = slot(keyId)
+            val json = p.getString(s + "json", null) ?: migrateLegacy(context, keyId) ?: return null
+            return parse(p.getLong(s + "revision", 0L), json, keyId)
         }
 
-        fun forget(context: Context) {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        /**
+         * The build before this one kept a single catalogue and remembered
+         * which key verified it. Move it into that key's slot once, rather
+         * than making everyone who updates sync again and wonder why their
+         * buttons vanished. Returns the json if it was moved here.
+         */
+        private fun migrateLegacy(context: Context, keyId: Int): String? {
+            val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val json = p.getString("catalogue_json", null) ?: return null
+            if (p.getInt("catalogue_key_id", 0) != keyId || keyId == 0) return null
+            val s = slot(keyId)
+            p.edit()
+                .putString(s + "json", json)
+                .putLong(s + "revision", p.getLong("catalogue_revision", 0L))
+                .remove("catalogue_json").remove("catalogue_revision").remove("catalogue_key_id")
+                .apply()
+            return json
+        }
+
+        /** When a Mac is removed from this phone, its catalogue goes with it. */
+        fun forget(context: Context, keyId: Int) {
+            val s = slot(keyId)
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove(s + "json").remove(s + "revision").apply()
         }
 
         private fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean {

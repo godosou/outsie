@@ -172,7 +172,8 @@ class ConsoleServer(private val context: Context) {
         // 「hidden」 would make a brand-new action invisible the day it arrives.
         ConsoleArrangement.save(
             context,
-            ConsoleArrangement.prune(parsed, ConsoleArrangement.load(context)),
+            parsed.keyId,
+            ConsoleArrangement.prune(parsed, ConsoleArrangement.load(context, parsed.keyId)),
         )
         SpikeState.event("收到 ${parsed.apps.sumOf { it.actions.size }} 个操作")
         SpikeState.notifyListeners()

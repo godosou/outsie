@@ -20,8 +20,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Host for the Outsie 手机钥匙 product shell. One Activity, four screens, a small manual
- * navigator, and a two-item bottom nav. The advertise toggle on the home screen drives the
+ * Host for the Outsie 手机钥匙 product shell. One Activity, a handful of screens, a small
+ * manual navigator. No tab bar (design doc §03): 主屏 is the only destination, 控制 opens
+ * from a computer's card, and everything else has a 「返回」. The advertise toggle on the home screen drives the
  * existing [BleSpikeService] — the product's "advertise on/off" IS start/stop advertising.
  */
 class MainActivity : Activity(), Nav {
@@ -39,9 +40,6 @@ class MainActivity : Activity(), Nav {
      */
     private val console by lazy { ConsoleServer(this) }
     private lateinit var contentFrame: FrameLayout
-    private lateinit var bottomNav: LinearLayout
-    private lateinit var navHome: LinearLayout
-    private lateinit var navControl: LinearLayout
 
     private val main = Handler(Looper.getMainLooper())
     private var current: Screen = Screen.HOME
@@ -67,10 +65,8 @@ class MainActivity : Activity(), Nav {
         contentFrame = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
         }
-        bottomNav = buildBottomNav(pal)
 
         root.addView(contentFrame)
-        root.addView(bottomNav)
         setContentView(root)
         applyBarIconContrast() // after setContentView: the decor view now exists.
 
@@ -157,9 +153,7 @@ class MainActivity : Activity(), Nav {
             Screen.PAIRING -> buildPairingScreen(this, store, this)
             Screen.HOME -> buildHomeScreen(this, store, this) { enable -> onAdvertiseChange(enable) }
             Screen.KEEPALIVE -> buildKeepAliveScreen(this, this)
-            Screen.MACS -> buildMacsScreen(this, store, this)
-            Screen.CONTROL -> buildControlScreen(this, this, console)
-            Screen.ARRANGE -> buildArrangeScreen(this, this, console)
+            Screen.CONTROL -> buildControlScreen(this, this, console, store)
         }
         currentView = view
         contentFrame.removeAllViews()
@@ -167,20 +161,12 @@ class MainActivity : Activity(), Nav {
             view.root,
             FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT),
         )
-        // 这把钥匙 is no longer a tab. It answers questions you ask once --
-        // what is this key, how do I get rid of it, what if I lose the phone --
-        // and a tab is for somewhere you go back to. It is reached from 主屏,
-        // which is also where the computers it talks about live.
-        val showNav = screen == Screen.HOME || screen == Screen.CONTROL
-        bottomNav.visibility = if (showNav) View.VISIBLE else View.GONE
-        setNavSelected(pal, screen)
     }
 
     override fun back() {
         when (current) {
             Screen.KEEPALIVE -> go(Screen.HOME)
-            Screen.ARRANGE -> go(Screen.CONTROL)
-            Screen.MACS, Screen.CONTROL -> go(Screen.HOME)
+            Screen.CONTROL -> go(Screen.HOME)
             else -> finish()
         }
     }
@@ -188,71 +174,12 @@ class MainActivity : Activity(), Nav {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (current) {
-            Screen.ARRANGE -> go(Screen.CONTROL)
-            Screen.KEEPALIVE, Screen.MACS, Screen.CONTROL -> go(Screen.HOME)
+            Screen.KEEPALIVE, Screen.CONTROL -> go(Screen.HOME)
             else -> super.onBackPressed()
         }
     }
 
     // ---- Bottom navigation ----
-
-    private fun buildBottomNav(pal: Palette): LinearLayout {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(pal.surface)
-        }
-        bar.addView(
-            View(this).apply { setBackgroundColor(pal.divider) },
-            LinearLayout.LayoutParams(MATCH_PARENT, dp(1)),
-        )
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        navHome = navItem(pal, "🛡", "主屏") { go(Screen.HOME) }
-        navControl = navItem(pal, "🎛", "控制") { go(Screen.CONTROL) }
-        row.addView(navHome, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        row.addView(navControl, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        bar.addView(row)
-        return bar
-    }
-
-    private fun navItem(pal: Palette, glyph: String, label: String, onClick: () -> Unit): LinearLayout =
-        LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(10))
-            minimumHeight = dp(60)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { onClick() }
-            addView(
-                TextView(context).apply {
-                    text = glyph
-                    gravity = Gravity.CENTER
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
-                    tag = "glyph"
-                },
-            )
-            addView(
-                TextView(context).apply {
-                    text = label
-                    gravity = Gravity.CENTER
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                    tag = "label"
-                },
-                LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(3) },
-            )
-        }
-
-    private fun setNavSelected(pal: Palette, screen: Screen) {
-        tint(navHome, if (screen == Screen.HOME) pal.accent else pal.textSecondary)
-        tint(navControl, if (screen == Screen.CONTROL) pal.accent else pal.textSecondary)
-    }
-
-    private fun tint(item: LinearLayout, color: Int) {
-        (item.findViewWithTag<TextView>("glyph"))?.setTextColor(color)
-        (item.findViewWithTag<TextView>("label"))?.setTextColor(color)
-    }
 
     // ---- Advertise toggle -> BleSpikeService ----
 

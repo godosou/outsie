@@ -276,7 +276,7 @@ fun sectionCard(context: Context, pal: Palette, glyph: String, heading: String):
  * before they need to know why.
  */
 fun passwordFallbackNote(context: Context, pal: Palette): TextView =
-    Ui.secondary(context, pal, "手机钥匙用不了的时候，Mac 密码照常能登录。").apply {
+    Ui.secondary(context, pal, "手机钥匙用不了的时候，密码照常能登录。").apply {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
         layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
@@ -330,8 +330,7 @@ fun techDetails(context: Context, pal: Palette, fingerprint: String?): View {
         Ui.secondary(
             context,
             pal,
-            "Mac 上「配对完成 → 技术细节」里是同一串。核对它不是必须的——" +
-                "配对时那六位数字已经做完了这件事。",
+            "Mac 上「更多」里是同一串。不用特意核对，配对时那六位数字已经做完了这件事。",
         ),
         Ui.lp(top = context.dp(8)),
     )
