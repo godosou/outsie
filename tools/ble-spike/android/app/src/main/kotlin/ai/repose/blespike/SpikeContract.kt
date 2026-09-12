@@ -101,6 +101,14 @@ object SpikeContract {
     const val CMD_CALIBRATE_NEAR = 4
     const val CMD_CALIBRATE_FAR = 5
 
+    /**
+     * 「远处结束，定下来」. The phone's own 20 s at the far spot are over. Sent
+     * from wherever the person is by then, and re-sent while walking back,
+     * because the far spot may be exactly where the Mac cannot hear this phone
+     * -- in which case 5 never landed either, and silence there IS the answer.
+     */
+    const val CMD_CALIBRATE_FAR_DONE = 6
+
     // --- the shortcut catalogue (repose-console-v1) ---------------------------
     //
     // A separate service from pairing, and connectable only while the user is

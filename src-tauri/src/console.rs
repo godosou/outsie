@@ -564,13 +564,16 @@ pub fn start_command_watcher(app: AppHandle) {
             // through the state beacon; here it only needs to be started.
             for (cmd, at, key_id) in crate::unlock::calibration_commands_since(&csv, since) {
                 mark = at.max(mark);
-                let near = cmd == crate::unlock::CAL_CMD_NEAR;
-                let started = crate::unlock::drive_calibration(app.clone(), key_id, near);
+                let started = crate::unlock::drive_calibration(app.clone(), key_id, cmd);
                 if let Ok(dir) = app.path().app_data_dir() {
                     use std::io::Write;
                     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("console.log")) {
-                        let _ = writeln!(f, "{} cmd={cmd} 钥匙 {key_id} 要{}{}", now_iso(),
-                            if near { "量近处" } else { "量远处" },
+                        let _ = writeln!(f, "{} cmd={cmd} 钥匙 {key_id} {}{}", now_iso(),
+                            match cmd {
+                                crate::unlock::CAL_CMD_NEAR => "要量近处",
+                                crate::unlock::CAL_CMD_FAR => "要量远处",
+                                _ => "说远处结束，定下来",
+                            },
                             if started { "，开始了" } else { "，不是时候，没理" });
                     }
                 }

@@ -1570,7 +1570,11 @@ pub const CALIBRATION_MIN_GAP_DB: f64 = 12.0;
 /// on the first live run -- twenty readings of one instant, which says nothing
 /// about how the signal moves while you sit there. A standard deviation
 /// computed from that is a number with no evidence behind it.
-pub const CALIBRATION_MIN_SPAN_MS: i64 = 15_000;
+///
+/// Ten seconds, not fifteen: a leg is twenty seconds long (see
+/// [CALIBRATION_LEG_MS]) and macOS's scan cadence leaves gaps of up to ~7 s
+/// between sightings, so fifteen could not be promised inside twenty.
+pub const CALIBRATION_MIN_SPAN_MS: i64 = 10_000;
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1608,12 +1612,21 @@ impl CalibrationLeg {
     }
 }
 
+// `rename_all` on an enum renames the VARIANTS. The fields inside them need
+// `rename_all_fields`, and without it `near_dbm` went to a front end reading
+// `nearDbm` -- which read every measured band as 0 > 0 and called it 太像.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
 pub enum CalibrationOutcome {
     /// Usable thresholds, with a gap between them so a phone hovering at the
     /// boundary does not flap the lock.
-    Ok { near_dbm: i32, far_dbm: i32 },
+    ///
+    /// `far_silent`: the far leg heard too little to measure, which is not a
+    /// failure -- the person walked far enough that the Mac stopped hearing
+    /// the phone, and that is the clearest separation there is. FAR is then
+    /// one full gap below NEAR, and the bridge's own no-beacon rule covers
+    /// the rest.
+    Ok { near_dbm: i32, far_dbm: i32, far_silent: bool },
     /// One or both legs are too short to say anything.
     NotEnoughSamples { near: usize, far: usize, needed: usize },
     /// Enough readings, but they all arrived at once. Standing still for three
@@ -1644,17 +1657,31 @@ pub fn calibration_verdict(near: &[(i32, i64)], far: &[(i32, i64)]) -> Calibrati
     let n = CalibrationLeg::of(near);
     let f = CalibrationLeg::of(far);
 
-    let outcome = if n.n < CALIBRATION_MIN_SAMPLES || f.n < CALIBRATION_MIN_SAMPLES {
+    // The near leg has to be heard: silence where the person sits means the
+    // Mac cannot hear the phone at all, and nothing can be derived from that.
+    let outcome = if n.n < CALIBRATION_MIN_SAMPLES {
         CalibrationOutcome::NotEnoughSamples {
             near: n.n,
             far: f.n,
             needed: CALIBRATION_MIN_SAMPLES,
         }
-    } else if n.span_ms < CALIBRATION_MIN_SPAN_MS || f.span_ms < CALIBRATION_MIN_SPAN_MS {
+    } else if n.span_ms < CALIBRATION_MIN_SPAN_MS {
         CalibrationOutcome::TooBrief {
             near_ms: n.span_ms,
             far_ms: f.span_ms,
             needed_ms: CALIBRATION_MIN_SPAN_MS,
+        }
+    } else if f.n < CALIBRATION_MIN_SAMPLES || f.span_ms < CALIBRATION_MIN_SPAN_MS {
+        // The far leg was silent, or nearly. That is the person having walked
+        // out of earshot, which is the best separation a room can offer -- not
+        // a walk that failed. FAR goes one full gap below NEAR; between the
+        // two the bridge holds its state, below FAR (or with no beacon at all)
+        // the phone is gone.
+        let near_dbm = (n.mean - n.sd).round() as i32;
+        CalibrationOutcome::Ok {
+            near_dbm,
+            far_dbm: near_dbm - CALIBRATION_MIN_GAP_DB as i32,
+            far_silent: true,
         }
     } else {
         // Near is the stronger signal, so its mean is the larger (less
@@ -1675,7 +1702,7 @@ pub fn calibration_verdict(near: &[(i32, i64)], far: &[(i32, i64)]) -> Calibrati
             if near_dbm <= far_dbm {
                 CalibrationOutcome::TooSimilar { gap_db: gap, needed_db: CALIBRATION_MIN_GAP_DB }
             } else {
-                CalibrationOutcome::Ok { near_dbm, far_dbm }
+                CalibrationOutcome::Ok { near_dbm, far_dbm, far_silent: false }
             }
         }
     };
@@ -1857,9 +1884,15 @@ pub fn unlock_calibrate_sample(app: AppHandle) -> Result<CalibrationProgress, Un
 /// Under presence-run, where the beacon process already reads verified.csv.
 pub const CALIBRATION_PHASE_FILE: &str = "calibration-phase";
 
-/// The two command bytes (protocol §14).
+/// The three command bytes (protocol §14).
 pub const CAL_CMD_NEAR: u8 = 4;
 pub const CAL_CMD_FAR: u8 = 5;
+/// 「远处结束，定下来」. The phone's own twenty seconds at the far spot are
+/// up. It goes out from wherever the person is walking back from, because
+/// the far command itself may never have reached this Mac: a far spot out of
+/// earshot cannot deliver 「开始量远处」, and that is the case this byte exists
+/// for. In WAIT it judges with an empty far leg; in FAR it cuts the leg short.
+pub const CAL_CMD_FAR_DONE: u8 = 6;
 
 /// State-beacon values for a calibration in progress (protocol §14).
 pub const PHASE_NEAR: u8 = 2;
@@ -1869,8 +1902,11 @@ pub const PHASE_OK: u8 = 5;
 pub const PHASE_FAIL: u8 = 6;
 pub const PHASE_SILENT: u8 = 7;
 
-/// Sampling a leg gives up after this long without filling up.
-pub const CALIBRATION_LEG_TIMEOUT_MS: i64 = 90_000;
+/// A leg samples for exactly this long, full stop. The phone shows the same
+/// twenty-second countdown, so the two sides agree on when to sit still and
+/// when to get up. A leg that ended early because it had "enough" would leave
+/// the person sitting through a countdown that no longer measured anything.
+pub const CALIBRATION_LEG_MS: i64 = 20_000;
 /// How long 「等你走开」 stays on the air before the Mac goes back to its lock state.
 const PHASE_WAIT_TTL_MS: i64 = 10 * 60_000;
 /// How long a verdict stays on the air. Long enough to survive the pipeline
@@ -1895,10 +1931,10 @@ pub fn parse_phase(raw: &str, now_ms: i64) -> Option<u8> {
     (until == 0 || now_ms < until).then_some(state)
 }
 
-/// Both the count and the span, because the scanner reports the same reading
-/// many times a second and a count alone is not time.
-pub fn calibration_leg_ready(p: &CalibrationProgress) -> bool {
-    p.samples >= p.needed && p.elapsed_ms >= p.needed_ms
+/// A leg is over when its twenty seconds are, not when it has "enough". What
+/// it heard in that time is judged afterwards by [calibration_verdict].
+pub fn calibration_leg_done(elapsed_ms: i64) -> bool {
+    elapsed_ms >= CALIBRATION_LEG_MS
 }
 
 /// What the beacon says after a verdict. Overlap is 「两边太像」; too few or too
@@ -1911,9 +1947,9 @@ pub fn phase_for_outcome(o: &CalibrationOutcome) -> u8 {
     }
 }
 
-/// Calibration commands (4 and 5) new since `after_ms`, with the key slot of
-/// the phone that sent them: (cmd, at_ms, key_id). Same rows as the shortcut
-/// watcher reads, same VALID-only rule.
+/// Calibration commands (4, 5 and 6) new since `after_ms`, with the key slot
+/// of the phone that sent them: (cmd, at_ms, key_id). Same rows as the
+/// shortcut watcher reads, same VALID-only rule.
 pub fn calibration_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64, u8)> {
     csv.lines()
         .filter_map(|line| {
@@ -1926,7 +1962,7 @@ pub fn calibration_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64, u8)
                 return None;
             }
             let cmd: u8 = field("cmd=")?.parse().ok()?;
-            if cmd != CAL_CMD_NEAR && cmd != CAL_CMD_FAR {
+            if cmd != CAL_CMD_NEAR && cmd != CAL_CMD_FAR && cmd != CAL_CMD_FAR_DONE {
                 return None;
             }
             let at: i64 = fields[0].trim().parse().ok()?;
@@ -1973,27 +2009,88 @@ fn drive_set(v: u8) {
     *CAL_DRIVE.lock().unwrap_or_else(|e| e.into_inner()) = v;
 }
 
-/// Whether a request for `near` is in turn, given the driver's phase.
+/// Whether a command byte is in turn, given the driver's phase.
 ///
-/// A far leg is only in turn while a near leg is waiting; a near leg is always
-/// in turn (「再量一次」 restarts from the beginning) unless one is already
-/// being walked.
-pub fn calibration_in_turn(phase: u8, near: bool) -> bool {
-    match (near, phase) {
-        (true, p) => p != PHASE_NEAR,
-        (false, p) => p == PHASE_WAIT,
+/// 4 (near) is always in turn -- 「再量一次」 restarts from the beginning --
+/// unless a near leg is already being walked. 5 (far) only while the near
+/// leg is waiting for the walk. 6 (far done) while waiting, because the far
+/// command never arrived from an out-of-earshot spot, or while the far leg is
+/// being sampled, to cut it short. Anything else is not a calibration byte.
+pub fn calibration_in_turn(phase: u8, cmd: u8) -> bool {
+    match cmd {
+        CAL_CMD_NEAR => phase != PHASE_NEAR,
+        CAL_CMD_FAR => phase == PHASE_WAIT,
+        CAL_CMD_FAR_DONE => phase == PHASE_WAIT || phase == PHASE_FAR,
+        _ => false,
     }
 }
 
-/// The phone asked for a leg. Returns false when the request is out of turn.
-pub fn drive_calibration(app: AppHandle, key_id: u8, near: bool) -> bool {
+/// Set by 「远处结束」 while the far leg is being sampled; the sampling loop
+/// polls it once a second and stops early. Cleared when a far leg starts.
+static CAL_CUT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the closed near leg heard enough to be judged at all -- the same
+/// count and span the verdict will demand, asked early so the phone learns
+/// 「没听到手机」 before a walk that cannot help.
+fn near_leg_heard(app: &AppHandle) -> bool {
+    let (leg, key_id) = match CALIBRATION.lock() {
+        Ok(st) => (st.near, st.key_id),
+        Err(_) => return false,
+    };
+    let Some(l) = leg else { return false };
+    let until = l.to_ms.unwrap_or(i64::MAX);
+    let samples: Vec<(i32, i64)> = calibration_samples(&verified_csv(app), l.from_ms, key_id)
+        .into_iter()
+        .filter(|&(_, at)| at <= until)
+        .collect();
+    let n = CalibrationLeg::of(&samples);
+    n.n >= CALIBRATION_MIN_SAMPLES && n.span_ms >= CALIBRATION_MIN_SPAN_MS
+}
+
+/// Judge what the two legs heard and put the verdict on the air.
+///
+/// On success finish() restarts the pipeline to load the new thresholds; the
+/// phase file outlives that restart, so the new beacon process still reports
+/// the verdict.
+fn drive_judge(app: &AppHandle) {
+    let phase = match unlock_calibrate_finish(app.clone()) {
+        Ok(r) => phase_for_outcome(&r.outcome),
+        Err(_) => PHASE_SILENT,
+    };
+    write_calibration_phase(app, phase, now_ms() + PHASE_VERDICT_TTL_MS);
+    drive_set(0);
+}
+
+/// The phone sent a calibration byte. Returns false when it is out of turn.
+pub fn drive_calibration(app: AppHandle, key_id: u8, cmd: u8) -> bool {
     {
         let mut d = CAL_DRIVE.lock().unwrap_or_else(|e| e.into_inner());
-        if !calibration_in_turn(*d, near) {
+        if !calibration_in_turn(*d, cmd) {
             return false;
         }
-        *d = if near { PHASE_NEAR } else { PHASE_FAR };
+        match cmd {
+            CAL_CMD_NEAR => *d = PHASE_NEAR,
+            CAL_CMD_FAR => {
+                CAL_CUT.store(false, std::sync::atomic::Ordering::SeqCst);
+                *d = PHASE_FAR;
+            }
+            _ => {
+                // Far done. Sampling in progress: tell that thread to stop and
+                // judge; it owns the rest. Still waiting: the far command never
+                // came, so judge now with an empty far leg -- that IS the
+                // measurement, and it says the far spot is out of earshot.
+                if *d == PHASE_FAR {
+                    CAL_CUT.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return true;
+                }
+                *d = PHASE_FAR;
+                drop(d);
+                std::thread::spawn(move || drive_judge(&app));
+                return true;
+            }
+        }
     }
+    let near = cmd == CAL_CMD_NEAR;
     std::thread::spawn(move || {
         let kind = if near { "near" } else { "far" };
         let args = CalibrateArgs { kind: kind.into(), device_id: key_id.to_string() };
@@ -2002,39 +2099,34 @@ pub fn drive_calibration(app: AppHandle, key_id: u8, near: bool) -> bool {
             return;
         }
         write_calibration_phase(&app, if near { PHASE_NEAR } else { PHASE_FAR }, 0);
+        // The full twenty seconds, whatever arrives in them. Only 「远处结束」
+        // ends the far leg early: the phone's own countdown is up and the
+        // person is walking back.
         let started = now_ms();
-        let ready = loop {
+        loop {
             std::thread::sleep(std::time::Duration::from_millis(1000));
-            if let Ok(p) = unlock_calibrate_sample(app.clone()) {
-                if calibration_leg_ready(&p) {
-                    break true;
-                }
+            if calibration_leg_done(now_ms() - started) {
+                break;
             }
-            if now_ms() - started > CALIBRATION_LEG_TIMEOUT_MS {
-                break false;
+            if !near && CAL_CUT.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
             }
-        };
-        if !ready {
-            calibrate_close_leg();
-            write_calibration_phase(&app, PHASE_SILENT, now_ms() + PHASE_VERDICT_TTL_MS);
-            drive_set(0);
-            return;
         }
         if near {
             calibrate_close_leg();
+            // Not judged yet, but a near leg that heard nothing has already
+            // failed, and the phone should hear that now rather than after a
+            // walk that cannot help.
+            if !near_leg_heard(&app) {
+                write_calibration_phase(&app, PHASE_SILENT, now_ms() + PHASE_VERDICT_TTL_MS);
+                drive_set(0);
+                return;
+            }
             write_calibration_phase(&app, PHASE_WAIT, now_ms() + PHASE_WAIT_TTL_MS);
             drive_set(PHASE_WAIT);
             return;
         }
-        // The far leg: judge, and say so. On success finish() restarts the
-        // pipeline to load the new thresholds; the phase file outlives that
-        // restart, so the new beacon process still reports the verdict.
-        let phase = match unlock_calibrate_finish(app.clone()) {
-            Ok(r) => phase_for_outcome(&r.outcome),
-            Err(_) => PHASE_SILENT,
-        };
-        write_calibration_phase(&app, phase, now_ms() + PHASE_VERDICT_TTL_MS);
-        drive_set(0);
+        drive_judge(&app);
     });
     true
 }
@@ -2073,7 +2165,7 @@ pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, Unlo
     // Only a usable answer is written. A failed calibration must leave the last
     // good one in place rather than replacing it with nothing -- otherwise one
     // bad walk silently reverts the Mac to the placeholder numbers.
-    if let CalibrationOutcome::Ok { near_dbm, far_dbm } = result.outcome {
+    if let CalibrationOutcome::Ok { near_dbm, far_dbm, far_silent } = result.outcome {
         if let Ok(dir) = app.path().app_data_dir() {
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(CALIBRATION_FILE);
@@ -2089,6 +2181,9 @@ pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, Unlo
             doc["byKey"][st.key_id.to_string()] = serde_json::json!({
                 "nearDbm": near_dbm,
                 "farDbm": far_dbm,
+                // Recorded so the panel can say 「走开之后就听不到了」 rather
+                // than showing a far number nobody measured.
+                "farSilent": far_silent,
                 "measuredAt": HostMacBackend::now_iso(),
                 "near": { "n": result.near.n, "mean": result.near.mean, "sd": result.near.sd },
                 "far": { "n": result.far.n, "mean": result.far.mean, "sd": result.far.sd },
@@ -3920,16 +4015,56 @@ macstate,1,59638225,cc,dd,ab12
     fn two_clear_clouds_give_a_band_with_a_gap_in_it() {
         let r = calibration_verdict(&leg(-50, 3, 30), &leg(-80, 3, 30));
         match r.outcome {
-            CalibrationOutcome::Ok { near_dbm, far_dbm } => {
+            CalibrationOutcome::Ok { near_dbm, far_dbm, far_silent } => {
                 assert_eq!(near_dbm, -53, "NEAR is one sd below the near mean");
                 assert_eq!(far_dbm, -77, "FAR is one sd above the far mean");
                 assert!(near_dbm > far_dbm, "the band must not be inverted");
+                assert!(!far_silent, "a measured far leg is not a silent one");
             }
             other => panic!("two clouds 30 dB apart should be separable: {other:?}"),
         }
         assert_eq!(r.near.n, 30);
         assert_eq!(r.far.mean, -80.0);
         assert_eq!(r.near.span_ms, 29_000);
+    }
+
+    #[test]
+    fn a_silent_far_leg_is_the_clearest_answer_not_a_failure() {
+        // The person walked far enough that the Mac stopped hearing the phone.
+        // That is not a measurement that failed; it is the best separation
+        // there is. FAR sits one full gap below NEAR, and the bridge's own
+        // no-beacon rule covers the rest.
+        for far in [Vec::new(), leg(-88, 2, 5), burst(-80, 3, 30)] {
+            let r = calibration_verdict(&leg(-50, 3, 30), &far);
+            assert_eq!(
+                r.outcome,
+                CalibrationOutcome::Ok { near_dbm: -53, far_dbm: -65, far_silent: true },
+                "far leg with {} readings", far.len(),
+            );
+        }
+    }
+
+    #[test]
+    fn a_silent_near_leg_is_still_a_failure() {
+        // Silence where the person is sitting means the Mac cannot hear the
+        // phone at all. There is no threshold to derive from nothing.
+        let r = calibration_verdict(&leg(-50, 3, 5), &Vec::new());
+        assert!(matches!(r.outcome, CalibrationOutcome::NotEnoughSamples { near: 5, .. }), "{:?}", r.outcome);
+        let r = calibration_verdict(&burst(-50, 3, 30), &leg(-80, 3, 30));
+        assert!(matches!(r.outcome, CalibrationOutcome::TooBrief { .. }), "{:?}", r.outcome);
+    }
+
+    #[test]
+    fn the_outcome_names_the_silent_far_leg_for_the_panel() {
+        let json = serde_json::to_string(&CalibrationOutcome::Ok { near_dbm: -53, far_dbm: -65, far_silent: true })
+            .unwrap();
+        assert!(json.contains(r#""kind":"ok""#), "{json}");
+        assert!(json.contains(r#""farSilent":true"#), "{json}");
+        // The front end reads camelCase on every variant (src/lib/unlock.ts
+        // normalizeCalibration); snake_case here read as 0 dBm over there.
+        assert!(json.contains(r#""nearDbm":-53"#), "{json}");
+        let brief = serde_json::to_string(&CalibrationOutcome::TooBrief { near_ms: 1, far_ms: 2, needed_ms: 3 }).unwrap();
+        assert!(brief.contains(r#""kind":"too-brief""#) && brief.contains(r#""neededMs":3"#), "{brief}");
     }
 
     #[test]
@@ -4007,33 +4142,50 @@ macstate,1,59638225,cc,dd,ab12
     }
 
     #[test]
-    fn a_leg_needs_both_enough_readings_and_enough_time() {
-        let p = |samples, elapsed_ms| CalibrationProgress {
-            near_leg: true, samples, needed: 20, elapsed_ms, needed_ms: 15_000, latest_dbm: None,
-            monitor_running: true,
-        };
-        assert!(calibration_leg_ready(&p(20, 15_000)));
-        assert!(!calibration_leg_ready(&p(19, 15_000)));
-        // 400 readings in three seconds is the scanner repeating itself.
-        assert!(!calibration_leg_ready(&p(400, 3_000)));
+    fn a_leg_runs_for_twenty_seconds_full_stop() {
+        // The phone shows the same twenty-second countdown. A leg that ended
+        // early because it had "enough" would leave the person sitting still
+        // for a countdown that no longer measures anything; one that ran long
+        // would end after they had already got up.
+        assert_eq!(CALIBRATION_LEG_MS, 20_000);
+        assert!(!calibration_leg_done(0));
+        assert!(!calibration_leg_done(CALIBRATION_LEG_MS - 1));
+        assert!(calibration_leg_done(CALIBRATION_LEG_MS));
+        assert!(calibration_leg_done(CALIBRATION_LEG_MS + 5_000));
     }
 
     #[test]
     fn the_verdict_becomes_the_beacon_value_the_phone_screen_keys_on() {
-        assert_eq!(phase_for_outcome(&CalibrationOutcome::Ok { near_dbm: -60, far_dbm: -80 }), PHASE_OK);
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::Ok { near_dbm: -60, far_dbm: -80, far_silent: false }), PHASE_OK);
+        // Silence at the far spot is a verdict the phone shows as 量好了.
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::Ok { near_dbm: -60, far_dbm: -72, far_silent: true }), PHASE_OK);
         assert_eq!(phase_for_outcome(&CalibrationOutcome::TooSimilar { gap_db: 3.0, needed_db: 12.0 }), PHASE_FAIL);
         assert_eq!(phase_for_outcome(&CalibrationOutcome::NotEnoughSamples { near: 2, far: 0, needed: 20 }), PHASE_SILENT);
-        assert_eq!(phase_for_outcome(&CalibrationOutcome::TooBrief { near_ms: 100, far_ms: 0, needed_ms: 15_000 }), PHASE_SILENT);
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::TooBrief { near_ms: 100, far_ms: 0, needed_ms: 10_000 }), PHASE_SILENT);
     }
 
     #[test]
-    fn the_far_leg_is_only_in_turn_while_a_near_leg_is_waiting() {
-        assert!(calibration_in_turn(0, true));
-        assert!(calibration_in_turn(PHASE_WAIT, true));       // 再量一次
-        assert!(!calibration_in_turn(PHASE_NEAR, true));      // already walking it
-        assert!(calibration_in_turn(PHASE_WAIT, false));
-        assert!(!calibration_in_turn(0, false));              // far before near
-        assert!(!calibration_in_turn(PHASE_FAR, false));
+    fn each_calibration_command_is_only_in_turn_at_its_own_moment() {
+        // 4 near: any time except while a near leg is being walked (再量一次).
+        assert!(calibration_in_turn(0, CAL_CMD_NEAR));
+        assert!(calibration_in_turn(PHASE_WAIT, CAL_CMD_NEAR));
+        assert!(calibration_in_turn(PHASE_FAR, CAL_CMD_NEAR));
+        assert!(!calibration_in_turn(PHASE_NEAR, CAL_CMD_NEAR));
+        // 5 far: only while the near leg is waiting for the walk.
+        assert!(calibration_in_turn(PHASE_WAIT, CAL_CMD_FAR));
+        assert!(!calibration_in_turn(0, CAL_CMD_FAR));
+        assert!(!calibration_in_turn(PHASE_NEAR, CAL_CMD_FAR));
+        assert!(!calibration_in_turn(PHASE_FAR, CAL_CMD_FAR));
+        // 6 far done: while waiting (the far command never arrived: the far
+        // spot is out of range) or while the far leg is being sampled (cut it
+        // short and judge). Never before a near leg, never after a verdict.
+        assert!(calibration_in_turn(PHASE_WAIT, CAL_CMD_FAR_DONE));
+        assert!(calibration_in_turn(PHASE_FAR, CAL_CMD_FAR_DONE));
+        assert!(!calibration_in_turn(0, CAL_CMD_FAR_DONE));
+        assert!(!calibration_in_turn(PHASE_NEAR, CAL_CMD_FAR_DONE));
+        // Not a calibration byte at all.
+        assert!(!calibration_in_turn(PHASE_WAIT, 16));
+        assert!(!calibration_in_turn(PHASE_WAIT, 0));
     }
 
     #[test]
@@ -4042,9 +4194,11 @@ macstate,1,59638225,cc,dd,ab12
 1000,rssi=-50,auth=VALID,x,166,cmd=4,seq=1,a,b\n\
 1500,rssi=-50,auth=NOKEY,x,166,cmd=4,seq=2,a,b\n\
 2000,rssi=-50,auth=VALID,x,166,cmd=16,seq=3,a,b\n\
-2500,rssi=-50,auth=VALID,x,17,cmd=5,seq=4,a,b\n";
-        assert_eq!(calibration_commands_since(csv, 0), vec![(4, 1000, 166), (5, 2500, 17)]);
-        assert_eq!(calibration_commands_since(csv, 1000), vec![(5, 2500, 17)]);
+2500,rssi=-50,auth=VALID,x,17,cmd=5,seq=4,a,b\n\
+3000,rssi=-50,auth=VALID,x,17,cmd=6,seq=5,a,b\n\
+3500,rssi=-50,auth=VALID,x,17,cmd=7,seq=6,a,b\n";
+        assert_eq!(calibration_commands_since(csv, 0), vec![(4, 1000, 166), (5, 2500, 17), (6, 3000, 17)]);
+        assert_eq!(calibration_commands_since(csv, 2500), vec![(6, 3000, 17)]);
     }
 
     #[test]

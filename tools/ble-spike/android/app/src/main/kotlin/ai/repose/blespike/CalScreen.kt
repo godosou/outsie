@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -19,14 +20,22 @@ private var calTarget: Int = 0
  */
 private var calFlow: CalFlow? = null
 
-fun calMac(keyId: Int) { if (keyId != calTarget) calFlow = null; calTarget = keyId }
+/**
+ * When 「远处结束」 last went out. Outside the screen for the same reason as
+ * [calFlow]: a rebuild while walking back must not fire it again at once.
+ */
+private var farDoneSentAt: Long = 0L
+
+fun calMac(keyId: Int) { if (keyId != calTarget) { calFlow = null; farDoneSentAt = 0L }; calTarget = keyId }
 
 /**
  * 量距离 — on the phone, because you are the one walking (design doc §05 §06).
  *
  * The phone tells the Mac when to start each leg and shows what to do; the
- * Mac samples and reports its phase in the state beacon; [CalFlow] follows
- * that. The screen never claims a result the Mac has not reported.
+ * Mac samples for 20 s and reports its phase in the state beacon; [CalFlow]
+ * follows that. The screen never claims a result the Mac has not reported --
+ * except the one it can see for itself: a far spot where the Mac never
+ * answered, which it carries back to the Mac as 「远处结束」.
  */
 fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
     val pal = ReposeTheme.of(context)
@@ -37,6 +46,9 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
     val handler = Handler(Looper.getMainLooper())
     lateinit var body: LinearLayout
     lateinit var render: () -> Unit
+    // What the ticker updates in place between renders.
+    var countdown: CountdownView? = null
+    var caption: TextView? = null
 
     // Ask before posting: postCommand refuses for either reason with the same
     // `false`, and only canSend says which one, so the toast names the real one.
@@ -49,6 +61,15 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
         return BleSpikeService.postCommand(context, cmd)
     }
 
+    // 「远处结束」, on entering RETURN and again every 20 s while there. The
+    // first one may say why it was refused; the repeats stay quiet, because a
+    // toast every 20 s about a key that is off helps nobody walk.
+    fun sendFarDone(now: Long, quiet: Boolean) {
+        farDoneSentAt = now
+        if (quiet) BleSpikeService.postCommand(context, SpikeContract.CMD_CALIBRATE_FAR_DONE)
+        else send(SpikeContract.CMD_CALIBRATE_FAR_DONE)
+    }
+
     val root = screenScaffold(
         context, pal,
         title = mac?.name ?: "一台 Mac",
@@ -58,11 +79,40 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
         column.addView(body, Ui.lp(top = context.dp(6)))
     }
 
-    fun secs(): Long = ((SystemClock.elapsedRealtime() - (calFlow?.since ?: 0L)) / 1000L).coerceAtLeast(0)
+    fun captionFor(f: CalFlow, now: Long): String {
+        val left = f.remainingMs(now)
+        return when (f.step) {
+            CalStep.NEAR -> if (left == null) "正在叫 Mac 开始…" else if (left > 0) "看这块屏就好。Mac 那边什么都不用做。" else "快好了，等 Mac 回话。"
+            CalStep.FAR -> if (left != null && left > 0) "别看屏，站着就行。" else if (f.legSeen != null) "快好了，等 Mac 回话。" else "Mac 没听到，正在定下来…"
+            else -> ""
+        }
+    }
+
+    fun legBlock(f: CalFlow, now: Long) {
+        val ring = CountdownView(context, pal).also { countdown = it }
+        val holder = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(ring, Ui.lp(width = context.dp(168), height = context.dp(168)))
+        }
+        ring.set(f.remainingMs(now))
+        body.addView(holder, Ui.lp(top = context.dp(22)))
+        body.addView(
+            Ui.secondary(context, pal, captionFor(f, now)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                caption = this
+            },
+            Ui.lp(top = context.dp(14), left = context.dp(4), right = context.dp(4)),
+        )
+    }
 
     render = fun() {
         body.removeAllViews()
-        val step = calFlow?.step ?: CalStep.INTRO
+        countdown = null
+        caption = null
+        val now = SystemClock.elapsedRealtime()
+        val f = calFlow
+        val step = f?.step ?: CalStep.INTRO
         shown = step
         // Read each time, not once: the first success on this screen flips it,
         // and a failure right after must already talk about「上次的」.
@@ -70,7 +120,7 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
         when (step) {
             CalStep.INTRO -> {
                 body.addView(heroCard(context, pal, chip = "量距离", glyph = "📏", headline = "教它认出你的距离",
-                    body = "Mac 靠信号强弱猜你在不在。每个房间都不一样，所以要在你平常用它的地方量一次。"))
+                    body = "Mac 靠信号强弱猜你在不在。每个房间都不一样，所以要在你平常用它的地方量一次。坐着量 20 秒，走开再量 20 秒。"))
                 body.addView(Ui.infoNote(context, pal,
                     if (calibrated) "量过一次。重新量的时候，旧的先照常用着；量不出结果，旧的也不会变。"
                     else "这台电脑还没量过。"), Ui.lp(top = context.dp(12)))
@@ -80,13 +130,13 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
             }
             CalStep.NEAR -> {
                 body.addView(heroCard(context, pal, chip = "第一段", glyph = "🪑", headline = "坐着别动",
-                    body = "正在量你在座位上时的信号。看这块屏就好，Mac 那边什么都不用做。"))
-                body.addView(Ui.secondary(context, pal, "${secs()} 秒了。"), Ui.lp(top = context.dp(12), left = context.dp(4)))
+                    body = "正在量你在座位上时的信号。看这块屏就好。"))
+                legBlock(f!!, now)
             }
             CalStep.WALK -> {
                 body.addView(heroCard(context, pal, chip = "第二段", glyph = "🚶", headline = "现在拿着手机走开",
                     body = "走到你平常会离开的距离。门口、茶水间、另一个房间都行。到了再按下面这个。"))
-                body.addView(Ui.infoNote(context, pal, "路上不量。量的是你站定之后的信号，走动中的那一段混进去，两边就会像。"), Ui.lp(top = context.dp(12)))
+                body.addView(Ui.infoNote(context, pal, "路上不量。量的是你站定之后的信号，走动中的那一段混进去，两边就会像。走到 Mac 听不见的地方也行，那最清楚。"), Ui.lp(top = context.dp(12)))
                 body.addView(Ui.primaryButton(context, pal, "到了，开始量") {
                     if (send(SpikeContract.CMD_CALIBRATE_FAR)) { calFlow = calFlow?.arrived(SystemClock.elapsedRealtime()); render() }
                 }, Ui.lp(top = context.dp(14)))
@@ -94,7 +144,15 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
             CalStep.FAR -> {
                 body.addView(heroCard(context, pal, chip = "第二段", glyph = "🧍", headline = "站着别动",
                     body = "正在量你走开之后的信号。"))
-                body.addView(Ui.secondary(context, pal, "${secs()} 秒了。别看屏，站着就行。"), Ui.lp(top = context.dp(12), left = context.dp(4)))
+                legBlock(f!!, now)
+            }
+            CalStep.RETURN -> {
+                body.addView(heroCard(context, pal, chip = "第二段", glyph = "🚶", headline = "走回去就完成",
+                    body = "走开之后 Mac 听不到手机了。这最清楚。走回 Mac 旁边，它就把这次记下来。"))
+                body.addView(Ui.infoNote(context, pal, "回到座位上还没反应的话，等一小会儿。手机每 20 秒跟它说一次。"), Ui.lp(top = context.dp(12)))
+                // On entry only: a rebuild while walking back must not fire it
+                // again at once. The ticker handles the repeats.
+                if (now - farDoneSentAt >= CalFlow.RETURN_REPOST_MS) sendFarDone(now, quiet = false)
             }
             CalStep.OK -> {
                 // The Mac reported a result it will use, so from now on this
@@ -109,7 +167,7 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
                 body.addView(heroCard(context, pal, chip = "这次没量出来", glyph = "🤔",
                     headline = if (alike) "两边太像了" else "Mac 没听到手机",
                     body = if (alike) "在座位上和走开了，信号差不多。这次的量不出结果，不能用。"
-                           else "量的时候 Mac 收不到这部手机的信号。", muted = true))
+                           else "坐着的那 20 秒，Mac 收不到这部手机的信号。", muted = true))
                 // A first attempt has nothing to fall back on but the defaults;
                 // 「先用上次的」would promise numbers that were never measured.
                 val stillUsing = if (calibrated) "上次量的那组还在用，一个数都没变。" else "现在用的是默认值。"
@@ -133,27 +191,36 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
     }
     render()
 
-    // Once a second: follow the Mac's beacon, and keep the elapsed seconds
-    // honest. The screen re-renders only when the step changes, and refreshes
-    // the counter in place otherwise.
+    // Five times a second: follow the Mac's beacon, keep the ring honest, and
+    // keep saying 「远处结束」 while walking back. The screen re-renders only
+    // when the step changes, and refreshes the ring and caption in place
+    // otherwise.
     var live = true
     val tick = object : Runnable {
         override fun run() {
             val f = calFlow
             if (f != null) {
                 val now = SystemClock.elapsedRealtime()
-                val next = f.on(macId?.let { MacState.beaconOf(it, now) }, now)
+                // By the slot first, for the same reason the home card does:
+                // the Mac's phase arrives under the key, and a slot paired by an
+                // older build has no stored id to look it up by.
+                val phase = MacState.sightingFor(target, now)?.beacon ?: macId?.let { MacState.beaconOf(it, now) }
+                val next = f.on(phase, now)
                 calFlow = next
-                if (next.step != shown) render()
-                else if (next.step == CalStep.NEAR || next.step == CalStep.FAR) {
-                    (body.getChildAt(1) as? TextView)?.text =
-                        if (next.step == CalStep.NEAR) "${secs()} 秒了。" else "${secs()} 秒了。别看屏，站着就行。"
+                if (next.step != shown) {
+                    render()
+                } else {
+                    countdown?.set(next.remainingMs(now))
+                    caption?.let { c -> captionFor(next, now).let { t -> if (c.text != t) c.text = t } }
+                    if (next.step == CalStep.RETURN && now - farDoneSentAt >= CalFlow.RETURN_REPOST_MS) {
+                        sendFarDone(now, quiet = true)
+                    }
                 }
             }
-            if (live) handler.postDelayed(this, 1000)
+            if (live) handler.postDelayed(this, TICK_MS)
         }
     }
-    handler.postDelayed(tick, 1000)
+    handler.postDelayed(tick, TICK_MS)
     // The screen is rebuilt on every navigation; a ticker that outlived its
     // screen would keep following the beacon for a body nobody can see.
     root.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
@@ -163,3 +230,5 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
 
     return ScreenView(root, onState = { })
 }
+
+private const val TICK_MS = 200L
