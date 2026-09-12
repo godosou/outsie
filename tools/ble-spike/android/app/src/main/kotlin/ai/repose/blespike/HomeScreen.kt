@@ -207,6 +207,8 @@ fun buildHomeScreen(
                                 ConsoleArrangement.forget(context, id)
                             }
                             AppStore(context).keyIds = emptyList()
+                            // Nothing left to advertise: the beacon stops.
+                            BleSpikeService.keysChanged(context)
                             Toast.makeText(context, "解除了。", Toast.LENGTH_LONG).show()
                             nav.go(Screen.HOME)
                         }
@@ -284,7 +286,11 @@ private fun sectionLabel(context: Context, pal: Palette, text: String) = TextVie
  * could broadcast 「开着」 and keep you in your chair.
  */
 private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppStore, m: PairedMac): LinearLayout {
-    val seen = m.macId?.toIntOrNull(16)?.let { id -> MacState.sightings().firstOrNull { it.macId == id } }
+    // By the slot first: it is what the beacon verified under, and a slot paired
+    // by an older build has no stored id to match on. The id is the fallback for
+    // a sighting recorded without a slot.
+    val seen = MacState.sightingFor(m.keyId)
+        ?: m.macId?.toIntOrNull(16)?.let { id -> MacState.sightings().firstOrNull { it.macId == id } }
     val heard = seen != null
 
     val card = Ui.card(context, pal)
@@ -392,6 +398,8 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppSto
                         // Its buttons and this phone's arrangement of them go too.
                         ConsoleCatalogue.forget(context, m.keyId)
                         ConsoleArrangement.forget(context, m.keyId)
+                        // And the beacon stops carrying the key that is gone.
+                        BleSpikeService.keysChanged(context)
                         Toast.makeText(context, "移走了「${m.name}」。", Toast.LENGTH_LONG).show()
                         nav.go(Screen.HOME)
                     }

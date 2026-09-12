@@ -176,7 +176,14 @@ class AppStore(context: Context) {
      */
     fun noteMacId(keyId: Int, macId: String) {
         val list = storedRecords()
-        val existing = list.firstOrNull { it.keyId == keyId } ?: return
+        val existing = list.firstOrNull { it.keyId == keyId }
+        if (existing == null) {
+            // A slot with no record: paired by a build that kept none. The
+            // beacon verified, so the slot is real; give it the record the
+            // list already shows for it, now with an id.
+            saveMacs(list + PairedMac(keyId = keyId, name = "一台 Mac", pairedAt = "", macId = macId))
+            return
+        }
         if (existing.macId != null) return
         saveMacs(list.map { if (it.keyId == keyId) it.copy(macId = macId) else it })
     }

@@ -55,8 +55,16 @@ enum class MacBeaconState(val byte: Int) {
     }
 }
 
-/** One Mac, as this phone currently believes it to be. */
-data class MacSighting(val macId: Int, val state: MacLockState, val beacon: MacBeaconState)
+/**
+ * One Mac, as this phone currently believes it to be.
+ *
+ * [keyId] is the slot the beacon verified under. It is the identity that
+ * matters to the home screen: a tag that verified under key 166 was minted by
+ * whichever Mac holds key 166, and that is the Mac the card for slot 166 is
+ * about -- whether or not the phone has ever stored its four hex digits.
+ * 0 means the caller did not say (older tests).
+ */
+data class MacSighting(val macId: Int, val state: MacLockState, val beacon: MacBeaconState, val keyId: Int = 0)
 
 object MacState {
 
@@ -71,7 +79,9 @@ object MacState {
      * Each entry ages out on its own clock: walking away from one Mac must not
      * make the phone forget a second one it is still hearing.
      */
-    private val heard = java.util.concurrent.ConcurrentHashMap<Int, Pair<MacBeaconState, Long>>()
+    private class Entry(val beacon: MacBeaconState, val at: Long, val keyId: Int)
+
+    private val heard = java.util.concurrent.ConcurrentHashMap<Int, Entry>()
 
     /**
      * Recorded only for a tag that verified. An unverified beacon is not news.
@@ -86,15 +96,31 @@ object MacState {
     fun heard(macId: Int, locked: Boolean, nowUptime: Long = SystemClock.elapsedRealtime()) =
         heard(macId, if (locked) MacBeaconState.LOCKED else MacBeaconState.UNLOCKED, nowUptime)
 
-    fun heard(macId: Int, beacon: MacBeaconState, nowUptime: Long = SystemClock.elapsedRealtime()) {
+    fun heard(
+        macId: Int,
+        beacon: MacBeaconState,
+        nowUptime: Long = SystemClock.elapsedRealtime(),
+        keyId: Int = 0,
+    ) {
         // Guard the sentinel: a clock reading of 0 would mean "forget it".
-        heard[macId] = beacon to if (nowUptime == 0L) 1L else nowUptime
+        heard[macId] = Entry(beacon, if (nowUptime == 0L) 1L else nowUptime, keyId)
         SpikeState.notifyListeners()
     }
 
     /** The latest thing one Mac said, if it said it recently enough. */
     fun beaconOf(macId: Int, nowUptime: Long = SystemClock.elapsedRealtime()): MacBeaconState? =
-        heard[macId]?.takeIf { nowUptime - it.second <= SpikeContract.MAC_STATE_STALE_MS }?.first
+        heard[macId]?.takeIf { nowUptime - it.at <= SpikeContract.MAC_STATE_STALE_MS }?.beacon
+
+    /**
+     * The Mac broadcasting under one key slot, if it was heard recently enough.
+     *
+     * This is how a card finds its Mac. The bug it replaces: cards matched by
+     * the four hex digits in the stored record, and a slot paired by an older
+     * build had no record -- so the real Mac verified beacon after beacon and
+     * its card stayed grey.
+     */
+    fun sightingFor(keyId: Int, nowUptime: Long = SystemClock.elapsedRealtime()): MacSighting? =
+        sightings(nowUptime).firstOrNull { it.keyId == keyId }
 
     fun forget() {
         heard.clear()
@@ -111,7 +137,7 @@ object MacState {
      */
     fun sightings(nowUptime: Long = SystemClock.elapsedRealtime()): List<MacSighting> =
         heard.entries
-            .filter { nowUptime - it.value.second <= SpikeContract.MAC_STATE_STALE_MS }
-            .sortedByDescending { it.value.second }
-            .map { MacSighting(it.key, it.value.first.lock, it.value.first) }
+            .filter { nowUptime - it.value.at <= SpikeContract.MAC_STATE_STALE_MS }
+            .sortedByDescending { it.value.at }
+            .map { MacSighting(it.key, it.value.beacon.lock, it.value.beacon, it.value.keyId) }
 }

@@ -66,8 +66,17 @@ class MacStateScanner(private val context: Context) {
             val beacon = MacBeaconState.of(payload[4].toInt() and 0xFF) ?: return
             val tag = payload.copyOfRange(5, PAYLOAD_LEN)
 
-            if (verify(keyId, macId, beacon.byte, tag)) {
-                MacState.heard(macId, beacon)
+            if (!verify(keyId, macId, beacon.byte, tag)) {
+                // Heard, and not believed. This is the 「钥匙对不上」 case the
+                // design doc lists as undrawn: the Mac re-paired, or the clocks
+                // disagree by more than a window. Logged, because it is the only
+                // way to tell it apart from silence.
+                Log.i(TAG, "state beacon from key $keyId mac ${"%04X".format(macId)} did not verify (state=${beacon.byte})")
+                return
+            }
+            Log.i(TAG, "mac ${"%04X".format(macId)} says ${beacon.name} (key $keyId)")
+            run {
+                MacState.heard(macId, beacon, keyId = keyId)
                 // 「量成功过」 is learned here, from the Mac's signed verdict --
                 // not on the calibration screen, which may have been rebuilt or
                 // closed while you stood there not looking at it.

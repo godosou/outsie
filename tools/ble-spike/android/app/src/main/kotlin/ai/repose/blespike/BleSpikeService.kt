@@ -115,6 +115,30 @@ class BleSpikeService : Service() {
         }
 
         /**
+         * The set of keys changed under a running service: rebuild its beacons,
+         * or stop it when nothing is left to advertise.
+         *
+         * Pairing already sends [ACTION_REBUILD_BEACON]; removal did not. So
+         * 「移走」 deleted the key from the keystore and the service went on
+         * advertising under it (logcat: `advertising started for keyId=17`
+         * with key_ids already empty) -- a beacon nobody could verify, on a
+         * phone whose screen said the Mac was gone. Not running: nothing to
+         * do; the next start reads the keys fresh. `advertiseWanted` is left
+         * alone: the person switched the key on, and pairing a new Mac should
+         * find it still on.
+         */
+        fun keysChanged(context: Context) {
+            if (!SpikeState.serviceRunning) return
+            val intent = Intent(context, BleSpikeService::class.java)
+            if (PresenceKey.hasAny(context)) {
+                runCatching { context.startForegroundService(intent.setAction(ACTION_REBUILD_BEACON)) }
+            } else {
+                context.stopService(intent)
+                SpikeState.event("没有钥匙了，停止广播")
+            }
+        }
+
+        /**
          * Queue a command for the Mac. Returns false, and queues nothing, when
          * [canSend] says no -- a button that silently does nothing is worse
          * than one that says why, and a byte parked in a stopped service is

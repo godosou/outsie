@@ -88,4 +88,20 @@ class MacStateTest {
         assertEquals(null, MacState.beaconOf(0x9999, t0 + 500))
         assertEquals(null, MacState.beaconOf(MAC_A, t0 + SpikeContract.MAC_STATE_STALE_MS + 1))
     }
+
+    @Test fun `a sighting is findable by the key slot it verified under`() {
+        // The bug this replaces: the home card matched a Mac by the four hex
+        // digits stored in its record, and a slot paired by an older build has
+        // no record -- so the real Mac verified beacon after beacon and its card
+        // stayed grey. The slot IS the identity: a tag that verified under key
+        // 166 was minted by the Mac that holds key 166, whatever its id.
+        MacState.forget()
+        MacState.heard(macId = MAC_A, beacon = MacBeaconState.UNLOCKED, keyId = 166, nowUptime = t0)
+        MacState.heard(macId = MAC_B, beacon = MacBeaconState.LOCKED, keyId = 17, nowUptime = t0)
+        assertEquals(MAC_A, MacState.sightingFor(166, t0 + 500)?.macId)
+        assertEquals(MacLockState.LOCKED, MacState.sightingFor(17, t0 + 500)?.state)
+        assertEquals(null, MacState.sightingFor(15, t0 + 500))
+        assertEquals(null, MacState.sightingFor(166, t0 + SpikeContract.MAC_STATE_STALE_MS + 1))
+        assertEquals(166, MacState.sightings(t0 + 500).first { it.macId == MAC_A }.keyId)
+    }
 }
