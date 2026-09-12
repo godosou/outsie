@@ -88,7 +88,7 @@ class ConsoleServer(private val context: Context) {
 
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartFailure(errorCode: Int) {
-            lastError = "打不开取列表的通道（错误码 $errorCode）"
+            lastError = "打不开接收的通道。关掉再开一次蓝牙试试。"
             Log.e(TAG, "advertise failed $errorCode")
         }
     }
@@ -147,7 +147,7 @@ class ConsoleServer(private val context: Context) {
         if (parsed == null) {
             // Dropped, and the previous catalogue is kept. This is the one place
             // where "show it anyway" would undo the entire point of signing it.
-            lastError = "收到的东西签名对不上，已经丢掉了——它不是你配对的那台 Mac 发的。"
+            lastError = "收到的东西不是你配对的那台 Mac 发的，已经丢掉。"
             SpikeState.event(lastError!!)
             Log.w(TAG, "catalogue failed verification")
             return false
@@ -190,24 +190,28 @@ class ConsoleServer(private val context: Context) {
             android.Manifest.permission.BLUETOOTH_ADVERTISE,
         )) {
             if (context.checkSelfPermission(p) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                lastError = "还没有蓝牙权限。"
+                lastError = "还没允许用蓝牙。先去主屏打开手机钥匙。"
                 return false
             }
         }
         val manager = context.getSystemService(BluetoothManager::class.java)
         val adapter = manager?.adapter
         if (adapter == null || !adapter.isEnabled) {
-            lastError = "蓝牙没有打开"
+            lastError = "蓝牙关着。先打开蓝牙。"
             return false
         }
         if (!PresenceKey.hasAny(context)) {
-            lastError = "还没有配对，Mac 不会理会这个请求。"
+            lastError = "还没有配对。先在主屏添加电脑。"
             return false
         }
 
         awaiting = true
         val server = runCatching { manager.openGattServer(context, serverCallback) }
-            .getOrElse { e -> lastError = "打不开通道：${e.message}"; null } ?: return false
+            .getOrElse { e ->
+                lastError = "打不开接收的通道。关掉再开一次蓝牙试试。"
+                Log.e(TAG, "openGattServer failed", e)
+                null
+            } ?: return false
 
         val service = BluetoothGattService(
             SpikeContract.CONSOLE_SERVICE_UUID,
@@ -235,7 +239,7 @@ class ConsoleServer(private val context: Context) {
             .build()
         adapter.bluetoothLeAdvertiser
             ?.startAdvertising(settings, data, AdvertiseData.Builder().setIncludeDeviceName(true).build(), advertiseCallback)
-            ?: run { lastError = "这台设备不能做外围"; return false }
+            ?: run { lastError = "这部手机的蓝牙不支持这个。"; return false }
 
         // And tell the Mac to look. The request rides the beacon it already
         // trusts, so a Mac that is not paired with this phone ignores it.
@@ -256,7 +260,7 @@ class ConsoleServer(private val context: Context) {
             // would otherwise fail in silence, because the FIRST one's
             // catalogue is still sitting there looking like success.
             if (awaiting && lastError == null) {
-                lastError = "没同步成。Mac 要在附近，而且电脑上开着 Outsie。"
+                lastError = "没同步成。Mac 要在附近，而且开着 Outsie。"
                 SpikeState.event(lastError!!)
                 SpikeState.notifyListeners()
             }

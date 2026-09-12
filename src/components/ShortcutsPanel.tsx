@@ -111,13 +111,16 @@ export function ShortcutsPanel({ bridge, onToast }: {
     setRunning(action.id)
     try {
       await bridge.run({ appId, actionId: action.id })
-      onToast?.(`按了「${action.name}」`)
+      // The switch to the app is the visible half of a press, so the toast
+      // names it first -- the same order the phone's toast uses.
+      const app = status.apps.find(a => a.id === appId)
+      onToast?.(app ? `切到「${app.name}」，按了「${action.name}」` : `按了「${action.name}」`)
     } catch (e) {
-      onToast?.(typeof e === 'string' ? e : `「${action.name}」没有按成功`)
+      onToast?.(typeof e === 'string' ? e : `「${action.name}」没按成。再试一次。`)
     } finally {
       setRunning(null)
     }
-  }, [bridge, onToast])
+  }, [bridge, status.apps, onToast])
 
   // The app whose keys are on screen. Falls back to the first, so the page is
   // never a tab row with nothing beneath it — and a selection that has just
@@ -147,7 +150,7 @@ export function ShortcutsPanel({ bridge, onToast }: {
             <h2>能按的操作</h2>
             {/* Activating the app is visible — whatever was in front goes
                 behind. Saying it before the press, not after. */}
-            <p>{status.apps.length ? '「试一次」会把那个 App 切到最前面再按键，和手机按下去时一样。' : '还没有。'}</p>
+            <p>{status.apps.length ? '「试一次」会把那个 App 切到最前面再按键，和手机上按下去时一样。' : '还没有。'}</p>
           </div>
         </div>
 
@@ -160,7 +163,7 @@ export function ShortcutsPanel({ bridge, onToast }: {
             shows the new answer. */}
         {loaded && !status.trusted && (
           <p className="security-limit" style={{ marginTop: 0, marginBottom: 14 }}>
-            这台 Mac 还没拿到「替你按键」的权限，所以下面的「试一次」按不了，手机按下去也不会有反应。
+            现在按什么都不会有反应。Outsie 还没被允许替你按键。
             去「手机控制」那一页允许它，自动锁屏用的也是同一个开关。
           </p>
         )}
@@ -169,7 +172,7 @@ export function ShortcutsPanel({ bridge, onToast }: {
           // 6.4: an empty state answers what this is, not just offers a button.
           <div className="pk-device-empty">
             <p>
-              一个操作就是「在某个 App 里按某几个键」，比如在终端里按 ⌃b 再按 % 来左右分屏。
+              一个操作就是「在某个 App 里按某几个键」。比如在终端里按 ⌃b 再按 %，就是左右分屏。
               先加一个 App，再往里面加操作。
             </p>
           </div>
@@ -361,7 +364,7 @@ function KeyRecorder({ onDone, onCancel, initialName, asksForName }: {
               type="text"
               value={name}
               autoFocus
-              placeholder="比如：左右分屏"
+              placeholder="比如「左右分屏」"
               onChange={e => setName(e.target.value)}
             />
           </label>
@@ -377,7 +380,7 @@ function KeyRecorder({ onDone, onCancel, initialName, asksForName }: {
         <p className="pk-pair-hint">
           {armed
             ? '这里按的键不会传到别的 App，只是记下来。'
-            : '先给它起个名字，再开始录——不然打字的每个字母都会被当成按键记下来。'}
+            : '先给它起个名字，再开始录。不然打字的每个字母都会被当成按键记下来。'}
         </p>
         <div className="pk-modal-actions">
           <button className="button light" onClick={onCancel}>算了</button>

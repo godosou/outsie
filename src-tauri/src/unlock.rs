@@ -952,7 +952,7 @@ pub fn assess(f: &HostFacts) -> Assessment {
         components.push(component(
             ComponentId::Component,
             Health::Degraded,
-            "组件已安装，但锁屏规则没有引用它 —— 解锁不会发生，密码照常可用。",
+            "组件已安装，但锁屏规则没有引用它 —— 解锁不会发生，密码照常能登录。",
             Some(Remediation::RepairRule),
         ));
     } else if f.bundle_present {
@@ -1007,8 +1007,7 @@ pub fn assess(f: &HostFacts) -> Assessment {
         (PresenceKeyState::Missing, _) => component(
             ComponentId::Transport,
             Health::Degraded,
-            "还没有和手机配对。任何设备都无法通过认证，所以不会自动解锁 —— \
-             密码照常可用。点上面的「配对手机」，一分钟就能配好。",
+            "还没有和手机配对，所以不会自动解锁。密码照常能登录。点上面的「配一部新手机」。",
             Some(Remediation::RePair),
         ),
         // A key exists; now, is anything actually watching? "Away" is the
@@ -1017,26 +1016,26 @@ pub fn assess(f: &HostFacts) -> Assessment {
         (PresenceKeyState::Ok { .. }, PresenceReport::NeverRan) => component(
             ComponentId::Transport,
             Health::Degraded,
-            "在场监测还没有运行过。手机钥匙不会生效，密码照常可用。",
+            "在场监测还没有运行过。手机钥匙不会生效，密码照常能登录。",
             Some(Remediation::ReinstallComponent),
         ),
         (PresenceKeyState::Ok { .. }, PresenceReport::NotRunning) => component(
             ComponentId::Transport,
             Health::Degraded,
-            "在场监测没有在运行 —— 这不是「手机不在」，是没人在看。密码照常可用。",
+            "在场监测没有在运行 —— 这不是「手机不在」，是没人在看。密码照常能登录。",
             Some(Remediation::ReinstallComponent),
         ),
         (PresenceKeyState::Ok { .. }, PresenceReport::NoAuthorization) => component(
             ComponentId::Transport,
             Health::Degraded,
             "在场监测没有拿到管理员授权，所以只有扫描在跑，没有任何东西在验证 —— \
-             手机钥匙不会生效，密码照常可用。把开关关掉再打开，这次在密码框里完成授权。",
+             手机钥匙不会生效，密码照常能登录。把开关关掉再打开，这次在密码框里完成授权。",
             Some(Remediation::ReinstallComponent),
         ),
         (PresenceKeyState::Ok { .. }, PresenceReport::Unreadable) => component(
             ComponentId::Transport,
             Health::Degraded,
-            "在场监测的状态读不出来，当作没有在运行处理。密码照常可用。",
+            "在场监测的状态读不出来，当作没有在运行处理。密码照常能登录。",
             Some(Remediation::ReinstallComponent),
         ),
         (PresenceKeyState::Ok { paired }, PresenceReport::Fresh { state, .. }) => component(
@@ -2161,7 +2160,7 @@ pub fn calibrated_bands(app: &AppHandle) -> String {
 }
 
 fn lock_poisoned() -> UnlockError {
-    UnlockError::new(UnlockErrorCode::Unsupported, "校准状态读不到了，请重新开始")
+    UnlockError::new(UnlockErrorCode::Unsupported, "量距离的记录丢了。再量一次。")
 }
 
 
@@ -3439,7 +3438,7 @@ mod tests {
         assert_eq!(find(&a, ComponentId::Component).health, Health::Degraded);
         // This direction is safe -- no rule, no fail-open -- so it must not be
         // dressed up in the same red as the dangling case.
-        assert!(find(&a, ComponentId::Component).detail.contains("密码照常可用"));
+        assert!(find(&a, ComponentId::Component).detail.contains("密码照常能登录"));
     }
 
     #[test]
@@ -3455,7 +3454,7 @@ mod tests {
         let a = assess(&HostFacts { presence_key: PresenceKeyState::Missing, ..facts() });
         let t = find(&a, ComponentId::Transport);
         assert_eq!(t.health, Health::Degraded);
-        assert!(t.detail.contains("密码照常可用"));
+        assert!(t.detail.contains("密码照常能登录"));
     }
 
     #[test]
@@ -4494,7 +4493,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
             assert_eq!(a.presence, Presence::TransportUnavailable, "{report:?}");
             let t = find(&a, ComponentId::Transport);
             assert_eq!(t.health, Health::Degraded, "{report:?}");
-            assert!(t.detail.contains("密码照常可用") || t.detail.contains("没有在运行"), "{report:?}: {}", t.detail);
+            assert!(t.detail.contains("密码照常能登录") || t.detail.contains("没有在运行"), "{report:?}: {}", t.detail);
         }
     }
 

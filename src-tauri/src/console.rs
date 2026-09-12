@@ -1,4 +1,4 @@
-//! 快捷控制 — what this Mac can be asked to press, and whether it is allowed to.
+//! 快捷键设置 — what this Mac can be asked to press, and whether it is allowed to.
 //!
 //! The phone half is not here yet. What is here is the half that can be
 //! verified on one machine: the configuration (which app, which keys), the
@@ -282,7 +282,7 @@ fn cstr(s: &str) -> Result<std::ffi::CString, String> {
 #[cfg(target_os = "macos")]
 pub fn run_action(app: &ConsoleApp, action: &ConsoleAction) -> Result<(), String> {
     if !trusted(false) {
-        return Err("macOS 还没允许 Outsie 替你按键。去「系统设置 → 隐私与安全性 → 辅助功能」把它打开。".into());
+        return Err("macOS 还没允许 Outsie 替你按键。去「手机控制」那一页允许它。".into());
     }
     match action_health(action) {
         ActionHealth::Empty => return Err("这个操作还没有配按键，按下去不会有任何事发生。".into()),
@@ -302,7 +302,7 @@ pub fn run_action(app: &ConsoleApp, action: &ConsoleAction) -> Result<(), String
         _ => return Err(format!("没能把「{}」切到前面来。", app.name)),
     }
 
-    for (i, step) in action.steps.iter().enumerate() {
+    for step in action.steps.iter() {
         if step.delay_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(step.delay_ms.min(2_000)));
         }
@@ -315,8 +315,7 @@ pub fn run_action(app: &ConsoleApp, action: &ConsoleAction) -> Result<(), String
             1 => return Err("macOS 撤回了辅助功能权限，按键没有发出去。".into()),
             3 => {
                 return Err(format!(
-                    "第 {} 步的「{}」不是这套键盘布局认得的按键。",
-                    i + 1,
+                    "「{}」这个键，这套键盘布局不认得。回「快捷键设置」重新录一次。",
                     step.key
                 ))
             }
@@ -325,8 +324,8 @@ pub fn run_action(app: &ConsoleApp, action: &ConsoleAction) -> Result<(), String
             // land somewhere nobody asked for.
             _ => {
                 return Err(format!(
-                    "按到第 {} 步时「{}」已经不在最前面了，剩下的没有发出去。",
-                    i + 1,
+                    "还没按到「{}」，「{}」就不在最前面了。剩下的没有发出去。再试一次。",
+                    step.key,
                     app.name
                 ))
             }
@@ -498,7 +497,7 @@ fn console_key(app: &AppHandle, key_id: u8) -> Option<String> {
 /// giving up before that would report failure while it was still listening.
 fn send_catalogue(app: &AppHandle, key_id: u8) -> Result<(), String> {
     let key = console_key(app, key_id)
-        .ok_or("这部手机配对时没有留下用来签名的钥匙，重新配对一次就有了")?;
+        .ok_or("这部手机配对时没留下需要的钥匙。重新配一次。")?;
     let config = ensure_cmd_bytes(app);
     let json = catalogue_json(&config);
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -619,7 +618,7 @@ pub fn start_command_watcher(app: AppHandle) {
                         serde_json::json!({
                             "action": serde_json::Value::Null,
                             "ok": false,
-                            "detail": "这部手机还没被允许按键。在「手机控制」里打开它的快捷控制开关。",
+                            "detail": "这部手机还没被允许按键。在「手机控制」里打开它的「按快捷键」。",
                         }),
                     );
                     continue;
@@ -800,8 +799,23 @@ pub fn console_save(app: AppHandle, value: SaveArgs) -> Result<ConsoleConfig, St
     // Write beside and rename, so an interrupted save cannot leave a truncated
     // file where the configuration used to be.
     let tmp = path.with_extension("json.writing");
-    std::fs::write(&tmp, body).map_err(|e| format!("写不进去：{e}"))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("存不下来：{e}"))?;
+    // The io::Error is for the log, not the toast: it is English plus an OS
+    // error code, and the panel shows a string error to the person as-is.
+    let failed = |what: &str, e: std::io::Error| -> String {
+        if let Ok(dir) = app.path().app_data_dir() {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join("console.log"))
+            {
+                let _ = writeln!(f, "{} 没能保存快捷键设置（{what}）：{e}", now_iso());
+            }
+        }
+        "没能保存。再试一次。".to_string()
+    };
+    std::fs::write(&tmp, body).map_err(|e| failed("写临时文件", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| failed("换掉旧文件", e))?;
     Ok(config)
 }
 

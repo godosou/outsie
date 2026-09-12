@@ -112,10 +112,20 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
   // The permission can be granted in System Settings while this window is open,
   // and there is no notification for it. Polling is how the row stops saying
   // 「还没允许」 after the user has just allowed it.
+  //
+  // It can also be taken away -- in System Settings, or by macOS after an
+  // update re-signs the app -- and that has no notification either. The poll
+  // used to stop the moment it saw trusted, so 「已允许」 could never turn back
+  // into 「还没允许」 without a relaunch. Now it only slows down: every 2 s while
+  // waiting for the grant, every 15 s once granted, plus one look whenever the
+  // window comes back to the front, which is when someone has just been in
+  // System Settings.
   useEffect(() => {
-    if (!consoleBridge || consoleStatus.trusted) return
-    const timer = window.setInterval(() => { void refreshConsole() }, 2000)
-    return () => window.clearInterval(timer)
+    if (!consoleBridge) return
+    const timer = window.setInterval(() => { void refreshConsole() }, consoleStatus.trusted ? 15000 : 2000)
+    const onFocus = () => { void refreshConsole() }
+    window.addEventListener('focus', onFocus)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
   }, [consoleBridge, consoleStatus.trusted, refreshConsole])
 
   // Mount: pull the first snapshot, subscribe to updates.
@@ -342,11 +352,15 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
     <>
     <section className={`panel preferences-panel phone-key-panel${degraded ? ' is-degraded' : ''}`}>
       <div className="section-heading">
-        {/* The page is already titled 手机就是钥匙; repeating 手机钥匙 here says
-            nothing. This panel is the pair of switches, so it is named for
-            them. The 「Mac 桌面版」 badge is noise inside the Mac app -- kept
-            only where it is news, which is the web preview. */}
-        <div><h2>锁与开</h2><p>锁得紧不紧，和回来要不要输密码。</p></div>
+        {/* Named for what it gives you, the way the design doc's macPhonePage
+            does; the line under it is the switch's state, in the doc's words.
+            The web preview has no switch to read, so there it says what the
+            feature is instead. The 「Mac 桌面版」 badge is noise inside the Mac
+            app -- kept only where it is news, which is the web preview. */}
+        <div><h2>用手机解锁</h2>
+          <p>{!degraded && loaded
+            ? (enabled ? '开着 · 留意着你的手机' : '关着 · 回来要输密码')
+            : '手机在身边，回来不用输密码。'}</p></div>
         {degraded && <span className="subtle-badge"><Monitor size={13} />桌面版专属</span>}
       </div>
 
@@ -435,7 +449,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
                   : '已关闭 · 离开电脑不会自动锁屏'}
             </p>
             <p>
-              这两个是一对：锁得越紧越安全，而上面那个负责让你不为此多输一次密码。
+              这两个是一对。锁得越勤越放心，而它负责让你不用多输一次密码。
               {enabled
                 ? ''
                 : '关掉解锁之前，先想想会不会顺手也把这个关了——那才是真正变不安全的那一步。'}
@@ -557,7 +571,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
 
           {!degraded && (
             <button className="button outline full-width" disabled={busy} onClick={() => setShowManifest(true)} style={{ marginTop: 14 }}>
-              不再使用，把 Mac 改回原样
+              不用了，把 Mac 改回原样
             </button>
           )}
         </details>
@@ -566,7 +580,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
       {/* One line, always present, everywhere. The single most important
           sentence in this feature: whatever is broken, the password works. */}
       <p className="security-limit">
-        不管这些开关是什么状态，<b>Mac 密码一直都能登录。</b>
+        不管这些开关怎么设，<b>密码一直都能登录。</b>
       </p>
 
       {showInstall && <InstallDisclosure onClose={() => setShowInstall(false)} onConfirm={() => void confirmInstall()} variant={snapshot.variant} pre={pre} />}
@@ -884,8 +898,8 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
     <section className="panel preferences-panel">
       <div className="section-heading">
         <div>
-          <h2>能打开这台 Mac 的</h2>
-          <p>{devices.length === 0 ? '还没有。' : devices.length === 1 ? '现在只有它。' : `一共 ${devices.length} 部。`}</p>
+          <h2>你的手机</h2>
+          <p>每一部能做什么，在这里定。</p>
         </div>
       </div>
 
@@ -927,10 +941,14 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
                 <span>按快捷键</span>
               </label>
             </div>
+            {/* The unpaired key is the one installed over USB during
+                development. How it got there is a developer's fact, not the
+                reader's (design doc §01, rule 4), so the row only says what
+                it can do. */}
             <p className="pk-device-meta">
               {device.paired
                 ? `在这台 Mac 上配对${formatPairedAt(device.pairedAt)}`
-                : '不是配对来的，是开发时用 USB 装进去的一把钥匙。它一样能开这台 Mac。'}
+                : '不是配对来的钥匙。它一样能开这台 Mac。'}
             </p>
             {/* A key from before pairing recorded whose phone it was. It works;
                 what the Mac cannot do is recognise that phone again, so a
@@ -973,6 +991,16 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
 
       {devices.length > 0 && (
         <>
+          {/* The one thing to know on the day a phone goes missing, said where
+              the switches are (design doc macPhonePage). Nothing on the phone
+              is needed: the Mac is what decides, and this is the Mac. */}
+          <div className="security-alert" role="note" style={{ marginTop: 16, marginBottom: 0 }}>
+            <Smartphone size={19} />
+            <div>
+              <strong>手机丢了？</strong>
+              <p>先在这里把它的两个开关关掉，马上生效，不用碰到手机。每一台配过它的 Mac 都要关一次。</p>
+            </div>
+          </div>
           {/* There was no way to pair a second phone without first deleting the
               first one's key -- which, on a Mac that already works, means
               breaking it to extend it. The Mac holds a set of keys now, so this
@@ -999,10 +1027,10 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
  */
 function radioTrouble(radio: UnlockSnapshot['radio']): string | null {
   switch (radio) {
-    case 'no-answer': return '已开启 · 但还没拿到蓝牙权限，可能有个弹窗在等你点'
-    case 'denied': return '已开启 · 但 macOS 没让 Outsie 用蓝牙，现在什么都收不到。更新过 App 之后会这样，去系统设置里重新允许一次'
-    case 'off': return '已开启 · 但这台 Mac 的蓝牙关着'
-    case 'unsupported': return '已开启 · 但这台 Mac 没有能用的蓝牙'
+    case 'no-answer': return '已开启 · 还没拿到蓝牙权限。可能有个弹窗在等你点。'
+    case 'denied': return '已开启 · macOS 没让 Outsie 用蓝牙，什么都听不到。更新过 App 之后会这样。去系统设置里重新允许一次。'
+    case 'off': return '已开启 · 这台 Mac 的蓝牙关着。打开蓝牙就好。'
+    case 'unsupported': return '已开启 · 这台 Mac 没有能用的蓝牙。密码照常能用。'
     default: return null
   }
 }
@@ -1096,9 +1124,10 @@ function InstallDisclosure(
  * Deliberately absent: a "跳过核对" escape, and any auto-confirm after a
  * timeout. Both would turn the defence into a formality.
  */
-// Four steps, not five: the design's ④ 校准 is not built yet, and a step a
-// person cannot finish is worse than no steps at all (ui-conventions 6.3).
-// It slots in here the day it exists.
+// Four steps, not five: the design's ④ 量距离 is not a stage of this exchange.
+// It lives in its own sheet (CalibrationSheet) and is driven from the phone,
+// because you walk away from this screen while it runs; the 「先量一下距离」
+// button on the done stage is how you get there from here.
 const PAIR_STEPS: { key: PairingSession['stage']; label: string }[] = [
   { key: 'scanning', label: '找到手机' },
   { key: 'compare', label: '核对数字' },
@@ -1154,6 +1183,9 @@ function PairingSheet(
             <span className="pk-pair-dot" /><span className="pk-pair-dot" /><span className="pk-pair-dot" />
           </div>
           <p className="pk-pair-hint">找到之后，两边会各显示一串六位数字。</p>
+          {/* The one way this step stalls, named while it is happening
+              (design doc §05 按下之后: 停在「正在找」，说去哪儿开). */}
+          <p className="pk-pair-hint">手机上要开着蓝牙，并且打开 Outsie。三分钟找不到会停下来，重新开始就好。</p>
           <div className="pk-modal-actions">
             <button className="button light" onClick={onClose}>取消</button>
           </div>
@@ -1221,11 +1253,11 @@ function PairingSheet(
               the digits for the reader's attention. */}
           {session.fingerprint && (
             <details className="pk-pair-tech">
-              <summary>技术细节</summary>
+              <summary>更多</summary>
               <p className="pk-pair-fingerprint">
                 <span>密钥指纹</span><b>{session.fingerprint}</b>
               </p>
-              <p>手机上「这把钥匙 → 技术细节」里是同一串。核对它不是必须的——刚才的六位数字已经做完了这件事。</p>
+              <p>手机主屏「更多」里是同一串。核对它不是必须的。刚才的六位数字已经做完了这件事。</p>
             </details>
           )}
           <div className="pk-modal-actions">

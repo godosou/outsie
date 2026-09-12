@@ -4,24 +4,27 @@ import android.content.Context
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
 /**
- * Screen 1 — 配对.
+ * Screen 1 — 配对, phone side (design doc §05「配对，然后量距离」).
  *
  * Three views, in priority order:
  *
  *   1. A pairing window is open  -> the six digits, or "waiting for the Mac"
- *   2. A key exists              -> its short id, and a way to re-pair
+ *   2. A key exists              -> 配好了 and 量一次距离 right after a pairing;
+ *                                   otherwise the Macs this phone already opens
  *   3. Neither                   -> start pairing
  *
- * The window beats the key on purpose. Somebody re-pairing needs the digits in
- * front of them, not the id of the key they are in the middle of replacing.
+ * The window beats the key on purpose. Somebody adding a second Mac needs the
+ * digits in front of them, not the list of Macs they are in the middle of
+ * adding to.
  *
- * This screen has now been rewritten four times, twice for the same reason: it
+ * This screen has now been rewritten five times, twice for the same reason: it
  * said things the code did not do. The first showed a locally-invented code and
  * claimed the Mac was showing it too. The second said plainly that no key
  * exchange existed. One does now, and the copy has to be equally careful in the
@@ -30,15 +33,33 @@ import android.widget.Toast
  * formality to tap past.
  *
  * The fourth pass was about shape rather than truth: four stacked paragraphs on
- * a flat background read as a debug build, and a debug build is not a thing
- * anyone should hand their lock screen to. Hero, cards, and a step row now say
+ * a flat background read as a debug build. Hero, cards, and a step row now say
  * where you are.
+ *
+ * The fifth pass is the design doc's wording (§01 rules, §05 phone frames):
+ * short sentences, no protocol explanations on the surface, technical detail
+ * under 「更多」, and one 「返回」 instead of 取消 / 继续 / 先跳过. It also drops
+ * the old single-Mac name field: this phone can hold a key per Mac, and the
+ * screen names them from [AppStore.pairedMacs].
  */
+
+/**
+ * Set by 「一样，完成配对」, read once by the very next build.
+ *
+ * A key in the Keystore answers "is this phone paired", not "did you just pair".
+ * Both the person who just watched the digits match and the person who came
+ * from 「＋ 添加电脑」 land on the same view, and only the first should be told
+ * 配好了 and sent to measure.
+ */
+private var justPaired = false
+
 fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView {
     val pal = ReposeTheme.of(context)
     val provisioned = PresenceKey.hasAny(context)
     val fingerprint = PresenceKey.fingerprint(context)
     val windowOpen = Pairing.isOpen || Pairing.digits != null
+    val fresh = justPaired
+    justPaired = false
 
     // 已配对 answers "is there a key in the Keystore", which is NOT "did the
     // pairing you just did work". A failed pairing leaves an older key
@@ -46,11 +67,31 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
     // just watched it fail -- and who had, in their words, done nothing at all.
     val justFailed = Pairing.lastError != null && !windowOpen
 
+    // One 返回, and only where there is somewhere to go. With no key the home
+    // screen has nothing on it, so this screen is the way in, not a detour;
+    // the old 「先跳过」 dropped people exactly there.
+    val onBack: (() -> Unit)? = when {
+        provisioned -> {
+            {
+                Pairing.stop()
+                nav.go(Screen.HOME)
+            }
+        }
+        windowOpen -> {
+            {
+                Pairing.stop()
+                nav.go(Screen.PAIRING)
+            }
+        }
+        else -> null
+    }
+
     val root = screenScaffold(
         context = context,
         pal = pal,
         title = "",
         showTitle = false,
+        onBack = onBack,
     ) { column ->
         // Said first, and said plainly: this is the screen where somebody finds
         // out whether the thing they just did worked.
@@ -59,10 +100,9 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
                 Ui.amberNote(
                     context,
                     pal,
-                    (Pairing.lastError ?: "这次配对没有完成。") +
+                    (Pairing.lastError ?: "这次没配成。") +
                         if (provisioned) {
-                            "\n\n下面那把是上一次留下的钥匙，本身还能用 —— " +
-                                "但如果 Mac 刚刚重新配过，它就对不上了，得再配一次。"
+                            "\n\n上一次的钥匙还在，照样能用。要是那台 Mac 刚重新配过，就对不上了，再配一次。"
                         } else {
                             ""
                         },
@@ -73,7 +113,7 @@ fun buildPairingScreen(context: Context, store: AppStore, nav: Nav): ScreenView 
 
         when {
             windowOpen -> renderPairingWindow(context, pal, store, nav, column)
-            provisioned -> renderProvisioned(context, pal, store, nav, column, fingerprint)
+            provisioned -> renderProvisioned(context, pal, store, nav, column, fingerprint, fresh)
             else -> renderNoKey(context, pal, nav, column)
         }
     }
@@ -111,10 +151,10 @@ private fun renderPairingWindow(
         column.addView(
             heroCard(
                 context, pal,
-                chip = "手机这边 · 第 2 步，共 2 步",
+                chip = "第 2 步，共 2 步",
                 glyph = "👀",
                 headline = "核对这六位数字",
-                body = "Mac 上现在也应该显示同一串。",
+                body = "Mac 上现在也显示着同一串。",
             ),
             Ui.lp(top = context.dp(6)),
         )
@@ -133,24 +173,20 @@ private fun renderPairingWindow(
         )
         column.addView(card, Ui.lp(top = context.dp(14)))
         column.addView(
-            Ui.amberNote(
-                context,
-                pal,
-                "为什么两边都要点：任何「对方已确认」的消息都要走无线，而中间人能把它拆开重发。" +
-                    "你的手指是两台设备之间唯一伪造不了的通道。\n\n" +
-                    "两边不一样就按「不一样」，换个地方从头重配 —— 不要就着这次再试。",
-            ),
-            Ui.lp(top = context.dp(16)),
+            Ui.secondary(context, pal, "两边一样，中间就没有人冒充。").apply {
+                gravity = Gravity.CENTER
+            },
+            Ui.lp(top = context.dp(12)),
         )
         column.addView(
             Ui.primaryButton(context, pal, "一样，完成配对") {
                 if (Pairing.confirm()) {
-                    store.paired = true
-                    Toast.makeText(context, "配对完成。", Toast.LENGTH_LONG).show()
+                    justPaired = true
+                    Toast.makeText(context, "配好了。", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(
                         context,
-                        Pairing.lastError ?: "配对没有完成。",
+                        Pairing.lastError ?: "这次没配成。",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -158,10 +194,12 @@ private fun renderPairingWindow(
             },
             Ui.lp(top = context.dp(20)),
         )
+        // A real answer, not a cancel (design doc §05): this session is void,
+        // and the next attempt starts from nothing.
         column.addView(
             Ui.ghostButton(context, pal, "不一样，停下") {
                 Pairing.reject()
-                Toast.makeText(context, "已中止。", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "停下了。这次作废，从头再配。", Toast.LENGTH_LONG).show()
                 nav.go(Screen.PAIRING)
             },
             Ui.lp(top = context.dp(10)),
@@ -170,45 +208,34 @@ private fun renderPairingWindow(
         column.addView(
             heroCard(
                 context, pal,
-                chip = "手机这边 · 第 1 步，共 2 步",
+                chip = "第 1 步，共 2 步",
                 glyph = "📡",
-                headline = "手机准备好了",
-                body = "等 Mac 那边开始。",
+                headline = "准备好了",
+                body = "在 Mac 上点「配一部新手机」，这里会自己接上。",
             ),
             Ui.lp(top = context.dp(6)),
         )
-        val how = sectionCard(context, pal, "💻", "在 Mac 上")
-        how.addView(
-            Ui.body(
-                context,
-                pal,
-                "打开 ${Brand.NAME}，左边选「手机控制」，点「配对手机」。",
-            ),
+        val next = sectionCard(context, pal, "🔢", "接下来")
+        next.addView(
+            Ui.body(context, pal, "两边会各显示六位数字。看一眼是不是一样。"),
             Ui.lp(top = context.dp(12)),
         )
-        how.addView(
-            Ui.secondary(
-                context,
-                pal,
-                "两边会各显示一串六位数字，看一眼是不是一样，再分别确认。" +
-                    "三分钟内没配好就会自己停下，重新开始即可。",
-            ),
+        next.addView(
+            Ui.secondary(context, pal, "三分钟没接上，这里会自己停下。再开始一次就行。"),
             Ui.lp(top = context.dp(10)),
         )
-        column.addView(how, Ui.lp(top = context.dp(14)))
+        column.addView(next, Ui.lp(top = context.dp(14)))
         Pairing.lastError?.let {
             column.addView(Ui.amberNote(context, pal, it), Ui.lp(top = context.dp(14)))
         }
-        column.addView(
-            Ui.ghostButton(context, pal, "取消") {
-                Pairing.stop()
-                nav.go(Screen.PAIRING)
-            },
-            Ui.lp(top = context.dp(20)),
-        )
     }
 }
 
+/**
+ * A key exists. Right after a pairing this is the doc's 配好了 frame and its one
+ * button, 量一次距离. Any other time it is the list of Macs this phone opens,
+ * with a way to add one.
+ */
 private fun renderProvisioned(
     context: Context,
     pal: Palette,
@@ -216,66 +243,103 @@ private fun renderProvisioned(
     nav: Nav,
     column: LinearLayout,
     fingerprint: String?,
+    fresh: Boolean,
 ) {
-    val macName = AppStore(context).pairedMac
+    val macs = store.pairedMacs(context)
+    // ISO-8601 timestamps order as strings; a record with no timestamp sorts
+    // first, so the Mac that was just written wins.
+    val newest = macs.maxByOrNull { it.pairedAt }
+    val failed = Pairing.lastError != null
+    val showFresh = fresh && !failed && newest != null
+
     column.addView(
         heroCard(
             context, pal,
-            chip = "已配对",
-            glyph = "🔑",
-            headline = if (Pairing.lastError != null) {
-                "这次没配成"
-            } else {
-                macName?.let { "已经和「$it」配对" } ?: "已经配对好了"
+            chip = if (showFresh) "手机这边" else "你的 Mac",
+            glyph = if (showFresh) "✅" else "🔑",
+            headline = when {
+                showFresh -> "配好了"
+                failed -> "这次没配成"
+                macs.size == 1 -> "这台 Mac 认得你的手机"
+                else -> "这 ${macs.size} 台 Mac 都认得你的手机"
             },
-            body = "这台 Mac 认得你的手机。",
+            body = when {
+                showFresh -> "接下来量一次距离，Mac 才知道你什么时候算「在」。"
+                failed -> "要再配一次，在 Mac 上点「配一部新手机」。"
+                else -> "要再配一台，在那台 Mac 上点「配一部新手机」。"
+            },
         ),
         Ui.lp(top = context.dp(6)),
     )
 
-    val card = sectionCard(context, pal, "💻", "配对的电脑")
+    val card = sectionCard(context, pal, "💻", if (macs.size == 1) "配好的 Mac" else "配好的 ${macs.size} 台 Mac")
+    for (mac in macs) {
+        card.addView(
+            TextView(context).apply {
+                text = mac.name
+                setTextColor(pal.textPrimary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            },
+            Ui.lp(top = context.dp(12)),
+        )
+    }
     card.addView(
-        TextView(context).apply {
-            text = macName ?: "（这台 Mac 没有报名字）"
-            setTextColor(if (macName != null) pal.textPrimary else pal.textSecondary)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        },
-        Ui.lp(top = context.dp(12)),
-    )
-    card.addView(
-        Ui.secondary(context, pal, "名字是那台电脑自己报的，只是方便你认，不用拿它做核对。"),
+        Ui.secondary(context, pal, "名字是它自己报的，只是方便你认。"),
         Ui.lp(top = context.dp(8)),
     )
     column.addView(card, Ui.lp(top = context.dp(14)))
 
-    column.addView(
-        Ui.infoNote(
-            context,
-            pal,
-            "钥匙存在手机的安全芯片里，谁也拿不出来，包括这个 App。",
-        ),
-        Ui.lp(top = context.dp(14)),
+    if (showFresh) {
+        val target = newest!!
+        column.addView(
+            Ui.primaryButton(context, pal, "量一次距离") {
+                calMac(target.keyId)
+                nav.go(Screen.CAL)
+            },
+            Ui.lp(top = context.dp(20)),
+        )
+    } else {
+        // Add without destroying first. The only route used to be "delete, then
+        // hope pairing works", which leaves a Mac trusting nothing if anything
+        // goes wrong in between -- and makes testing a change mean breaking a
+        // setup that works.
+        column.addView(
+            Ui.primaryButton(context, pal, if (failed) "再配一次" else "再配一台 Mac") {
+                Pairing.start(context) { nav.go(Screen.PAIRING) }
+                nav.go(Screen.PAIRING)
+            },
+            Ui.lp(top = context.dp(20)),
+        )
+    }
+
+    // ---- 更多: what you read once ----
+    //
+    // The fingerprint is technical detail; the surface stays in plain words
+    // (design doc §01 rule 4). Same fold as the home screen.
+    val more = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        visibility = View.GONE
+    }
+    val moreToggle = TextView(context).apply {
+        text = "▸ 更多"
+        setTextColor(pal.textSecondary)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        setPadding(context.dp(4), context.dp(16), context.dp(4), context.dp(4))
+        isClickable = true
+        setOnClickListener {
+            val open = more.visibility == View.VISIBLE
+            more.visibility = if (open) View.GONE else View.VISIBLE
+            text = if (open) "▸ 更多" else "▾ 更多"
+        }
+    }
+    column.addView(moreToggle, Ui.lp(width = WRAP_CONTENT))
+    more.addView(
+        Ui.infoNote(context, pal, "每台 Mac 一把钥匙，都存在这部手机里，导不出去。"),
+        Ui.lp(top = context.dp(6)),
     )
-    column.addView(techDetails(context, pal, fingerprint), Ui.lp(top = context.dp(14)))
-    column.addView(
-        Ui.primaryButton(context, pal, "继续") {
-            store.paired = true
-            nav.go(Screen.HOME)
-        },
-        Ui.lp(top = context.dp(20)),
-    )
-    // Replace without destroying first. The only route used to be "delete, then
-    // hope pairing works", which leaves a Mac trusting nothing if anything goes
-    // wrong in between -- and makes testing a change mean breaking a setup that
-    // works.
-    column.addView(
-        Ui.ghostButton(context, pal, "换一台 Mac，重新配一次") {
-            Pairing.start(context) { nav.go(Screen.PAIRING) }
-            nav.go(Screen.PAIRING)
-        },
-        Ui.lp(top = context.dp(10)),
-    )
+    more.addView(techDetails(context, pal, fingerprint), Ui.lp(top = context.dp(6)))
+    column.addView(more)
 }
 
 private fun renderNoKey(context: Context, pal: Palette, nav: Nav, column: LinearLayout) {
@@ -284,8 +348,8 @@ private fun renderNoKey(context: Context, pal: Palette, nav: Nav, column: Linear
             context, pal,
             chip = "还没开始",
             glyph = "🔗",
-            headline = "先和你的 Mac 配对",
-            body = "配好之后，人在电脑前就能直接回车解锁。",
+            headline = "手机就是钥匙",
+            body = "人在电脑前，回车就能解锁。先和你的 Mac 配一次。",
             muted = true,
         ),
         Ui.lp(top = context.dp(6)),
@@ -296,20 +360,11 @@ private fun renderNoKey(context: Context, pal: Palette, nav: Nav, column: Linear
     )
     val card = sectionCard(context, pal, "🔢", "配对怎么做")
     card.addView(
-        Ui.body(
-            context,
-            pal,
-            "两边各显示一串六位数字，你看一眼是不是一样。",
-        ),
+        Ui.body(context, pal, "两边各显示六位数字。你看一眼是不是一样。"),
         Ui.lp(top = context.dp(12)),
     )
     card.addView(
-        Ui.secondary(
-            context,
-            pal,
-            "这一眼就是全部的安全保障：不一样，就说明中间有人在冒充。" +
-                "现在 Mac 会看见这台手机，但认不出它是你的，所以不会解锁。",
-        ),
+        Ui.secondary(context, pal, "两边一样，中间就没有人冒充。"),
         Ui.lp(top = context.dp(10)),
     )
     column.addView(card, Ui.lp(top = context.dp(14)))
@@ -322,9 +377,5 @@ private fun renderNoKey(context: Context, pal: Palette, nav: Nav, column: Linear
             nav.go(Screen.PAIRING)
         },
         Ui.lp(top = context.dp(20)),
-    )
-    column.addView(
-        Ui.ghostButton(context, pal, "先跳过") { nav.go(Screen.HOME) },
-        Ui.lp(top = context.dp(10)),
     )
 }

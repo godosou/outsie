@@ -49,9 +49,9 @@ const navGroups: { label: string; items: { id: Page; label: string; icon: typeof
     label: '手机控制',
     items: [
       { id: 'phone', label: '手机控制', icon: Smartphone },
-      // 快捷键设置, not 快捷控制: this page is where you write the shortcuts
-      // down, and it is the phone that does the controlling. The old name
-      // read as a place to press them, which is the other end of the wire.
+      // 快捷键设置: this page is where you write the shortcuts down, and it is
+      // the phone that does the controlling. The old name read as a place to
+      // press them, which is the other end of the wire.
       { id: 'shortcuts', label: '快捷键设置', icon: Command },
     ],
   },
@@ -62,8 +62,8 @@ const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }>
   schedule: { title: '找到自己的节奏。', subtitle: '没有唯一正确的频率，舒服的节奏就是好节奏。', eyebrow: 'MAKE ROOM FOR YOURSELF' },
   ideas: { title: '小小休息，大有不同。', subtitle: '离开屏幕的这一刻，可以用来做很多美好的小事。', eyebrow: 'SMALL MOMENTS, BIG DIFFERENCE' },
   activity: { title: '每一次停顿，都算数。', subtitle: '慢慢积累的好习惯，正在成为生活的一部分。', eyebrow: 'A KINDER WAY TO KEEP GOING' },
-  phone: { title: '手机就是钥匙。', subtitle: '哪几部手机能碰这台 Mac，各自允许做什么。', eyebrow: 'YOUR PHONE, YOUR KEY' },
-  shortcuts: { title: '一点，就到。', subtitle: '手机上能按哪些键，在这里定；哪几部手机可以按，在「手机控制」里。', eyebrow: 'ONE TAP, ONE SHORTCUT' },
+  phone: { title: '手机就是钥匙。', subtitle: '哪几部手机能碰这台 Mac，各自能做什么。', eyebrow: 'YOUR PHONE, YOUR KEY' },
+  shortcuts: { title: '一点，就到。', subtitle: '手机上能按哪些键，在这里定。哪几部手机可以按，在「手机控制」里。', eyebrow: 'ONE TAP, ONE SHORTCUT' },
   settings: { title: '让 Outsie 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
 }
 
@@ -184,9 +184,9 @@ export default function App() {
     try {
       if (strictBreak && window.repose) {
         const accepted = await window.repose.postponeBreak()
-        if (!accepted) showToast('本次休息暂时无法延迟，请继续休息')
+        if (!accepted) showToast('这次延迟不了。继续休息吧。')
       } else timer.postponeBreak()
-    } catch { showToast('延迟请求未成功，请继续休息') }
+    } catch { showToast('没能延迟。继续休息吧。') }
     finally { setPostponePending(false) }
   }
   const navigate = (next: Page) => { setPage(next); setMobileMenu(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
@@ -220,9 +220,18 @@ export default function App() {
   // phone only knows it sent something -- whether a key was actually pressed is
   // this Mac's to report, and a press that quietly did nothing is the failure
   // this whole feature is most likely to have.
+  //
+  // Shaped as 「手机要按「X」。切到「Y」，按了。」-- what the phone asked for,
+  // then what this Mac did about it. The switch comes before the press
+  // because the switch is the part that visibly happens on screen.
   useEffect(() => window.repose?.console?.onCommand(e => {
-    if (e.ok) showToast(`手机按了「${e.action}」${e.app ? ` · ${e.app}` : ''}`)
-    else showToast(e.detail ?? `「${e.action ?? '那个按钮'}」没有按成功`)
+    // Not every event names an action: the phone asking for the button list,
+    // a phone this Mac has not allowed to press, and a byte no action matches
+    // all arrive with `action: null`, and their `detail` is the whole story.
+    if (!e.action) { showToast(e.detail ?? (e.ok ? '手机说了一句，办好了。' : '手机说了一句，没办成。')); return }
+    const said = `手机要按「${e.action}」。`
+    if (e.ok) showToast(`${said}${e.app ? `切到「${e.app}」，` : ''}按了。`)
+    else showToast(`${said}没按成。${e.detail ?? '再试一次。'}`)
   }), [])
 
   useEffect(() => window.repose?.onCommand(({ command, breakId: completedBreakId }) => {
@@ -234,7 +243,7 @@ export default function App() {
     if (command === 'idle-lock-failed') {
       setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: false }))
       setSecurityError(true)
-      showToast('安全锁屏未生效：请在系统设置中授予 Outsie 辅助功能权限，再重新开启')
+      showToast('自动锁屏没开成。Outsie 还没被允许替你按下锁屏键。去「手机控制」那一页允许它，再打开一次。')
     }
   }), [strictBreak, inBreak, timer.toggleRunning, timer.startBreak, timer.completeBreak, timer.postponeBreak])
   useEffect(() => {
@@ -320,7 +329,7 @@ export default function App() {
   const breakStatus = <div className="break-session-status"><div className="break-total-label">{phase === 'long' ? '大休息剩余' : '本次休息剩余'}</div><div className="break-timer" role="timer" aria-label={`休息剩余 ${time(remaining)}`}>{time(remaining)}</div><div className="break-progress"><span style={{ width: `${timer.progress * 100}%` }} /></div><span className="break-encouragement">{running ? phase === 'long' ? '跟着舒服的幅度慢慢活动，不必追求标准。' : '二十秒而已。我相信你和工作都撑得住。' : '休息计时已暂停。你很会给休息再安排一次休息。'}</span><div className="break-actions">
       {canPostpone && <button className="button postpone-button" disabled={postponePending} onClick={() => void postponeCurrentBreak()}><Clock3 size={16} />{postponePending ? '正在延迟…' : `延迟 ${postponeSeconds / 60} 分钟`}<span>仅此一次</span></button>}
       {strictBreak ? <span className="strict-break-note"><ShieldCheck size={15} />{canPostpone ? '准备好后，安心休息' : '已使用延迟机会，倒计时结束后自动恢复'}</span> : <><button className="button primary" onClick={timer.toggleRunning}>{running ? <Pause size={16} /> : <Play size={16} />}{running ? '暂停休息' : '继续休息'}</button><button className="text-button" onClick={() => { timer.skipBreak(); showToast('已跳过这次休息，记得稍后照顾一下自己') }}>跳过这次<ArrowRight size={15} /></button></>}
-    </div>{phase === 'long' && <p className="long-session-safety">动作以舒适为准；如有疼痛或眩晕，请立即停止。</p>}</div>
+    </div>{phase === 'long' && <p className="long-session-safety">动作以舒适为准。疼了或头晕，马上停下。</p>}</div>
 
   return <div className="app-shell" onPointerDown={initAudio}>
     {mobileMenu && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setMobileMenu(false)} />}
@@ -451,7 +460,7 @@ export default function App() {
             enabled: desktopPreferences.idleLockEnabled,
             error: securityError,
             onToggle: () => {
-              if (!window.repose) { showToast('全局键鼠检测与系统锁屏需要使用 Outsie Mac App'); return }
+              if (!window.repose) { showToast('自动锁屏只有 Mac 桌面版能做。'); return }
               setSecurityError(false)
               setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: !previous.idleLockEnabled }))
             },
@@ -467,14 +476,14 @@ export default function App() {
       {page === 'settings' && <div className="page-enter preferences-page">
         <section className="panel preferences-panel security-panel">
           <div className="section-heading"><div><h2>强制休息</h2><p>休息时专心休息。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
-          <div className="preference-row"><span className="preference-icon"><ShieldCheck size={21} /></span><div><h3>强制休息</h3><p>覆盖全部显示器，屏蔽应用切换。每次可延迟一次；重新提醒后，倒计时完成前无法跳过、暂停或退出。</p></div><Toggle label="强制休息" enabled={desktopPreferences.strictBreaks} onChange={() => { if (!window.repose) { showToast('全屏强制休息需要打开 Outsie Mac App'); return }; setDesktopPreferences(previous => ({ ...previous, strictBreaks: !previous.strictBreaks })) }} /></div>
+          <div className="preference-row"><span className="preference-icon"><ShieldCheck size={21} /></span><div><h3>强制休息</h3><p>覆盖全部显示器，屏蔽应用切换。每次可以延迟一次。再次提醒后，倒计时走完之前不能跳过、暂停或退出。</p></div><Toggle label="强制休息" enabled={desktopPreferences.strictBreaks} onChange={() => { if (!window.repose) { showToast('强制休息只有 Mac 桌面版能做。'); return }; setDesktopPreferences(previous => ({ ...previous, strictBreaks: !previous.strictBreaks })) }} /></div>
           {/* 自动锁屏 moved to 手机控制, beside 用手机解锁.
               The whole reason the phone key exists is so that locking
               aggressively stops costing anything. Kept on separate pages, the
               product invites the very thing it was built to prevent: somebody
               lengthening or disabling their lock delay to avoid the password. */}
-          <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '首次使用安全锁屏，请在系统设置中允许 Outsie 使用辅助功能；如果系统询问自动化权限，也请允许。锁屏只检测空闲时长，不读取或记录按键内容。' : '网页仅预览界面。全局活动检测、跨屏遮罩和 macOS 安全锁屏均在 Mac App 中运行。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
-          <p className="security-limit">强制休息限制日常操作；系统级结束进程或关机仍由 macOS 管理。</p>
+          <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '你离开时，是 Outsie 替你按下锁屏键。这要在系统设置里允许一次，macOS 把它叫辅助功能。要是系统再问「自动化」，也允许。它只看你多久没动，不读也不记你按了什么。' : '网页只能看看界面。看你有没有在动、盖住所有屏幕、锁屏，都只有 Mac 桌面版能做。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
+          <p className="security-limit">强制休息拦的是日常操作。强制退出和关机，还是 macOS 说了算。</p>
         </section>
 <section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Outsie · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
 
