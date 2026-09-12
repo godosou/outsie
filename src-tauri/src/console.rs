@@ -187,6 +187,23 @@ pub fn assign_cmd_bytes(config: &mut ConsoleConfig) {
     }
 }
 
+/// Put back the bytes a config lost on its way through the panel: by app id
+/// for the App's own byte, by (app id, action id) for each action. Only
+/// where the incoming config has none -- a byte it does carry is trusted.
+pub fn carry_cmd_bytes(stored: &ConsoleConfig, config: &mut ConsoleConfig) {
+    for app in &mut config.apps {
+        let Some(was) = stored.apps.iter().find(|a| a.id == app.id) else { continue };
+        if app.cmd_byte.is_none() {
+            app.cmd_byte = was.cmd_byte;
+        }
+        for action in &mut app.actions {
+            if action.cmd_byte.is_none() {
+                action.cmd_byte = was.actions.iter().find(|a| a.id == action.id).and_then(|a| a.cmd_byte);
+            }
+        }
+    }
+}
+
 /// The App a command byte asks to switch to, if the byte is an App's own.
 pub fn app_for_cmd(config: &ConsoleConfig, byte: u8) -> Option<&ConsoleApp> {
     config.apps.iter().find(|app| app.cmd_byte == Some(byte))
@@ -847,7 +864,14 @@ pub struct SaveArgs {
 #[tauri::command]
 pub fn console_save(app: AppHandle, value: SaveArgs) -> Result<ConsoleConfig, String> {
     let mut config = value.config;
-    config.revision = load_config(&app).revision.wrapping_add(1);
+    let stored = load_config(&app);
+    config.revision = stored.revision.wrapping_add(1);
+    // The panel does not carry command bytes (its model has no such field),
+    // so a config that came back from it has none. Without this, every save
+    // from 快捷键设置 renumbered the whole file, and a phone holding
+    // yesterday's list pressed 「粘贴」 when it asked for 「搜索」 -- seen on
+    // the device 2026-09-12. Bytes belong to ids, and ids survive the trip.
+    carry_cmd_bytes(&stored, &mut config);
     assign_cmd_bytes(&mut config);
     // Fill in `kind` only when it is genuinely absent, and by shape.
     //
@@ -1338,5 +1362,38 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["apps"][0]["b"], serde_json::json!(c.apps[0].cmd_byte.unwrap()));
         assert_eq!(v["apps"][0]["a"][0]["b"], serde_json::json!(c.apps[0].actions[0].cmd_byte.unwrap()));
+    }
+
+    #[test]
+    fn a_save_from_the_panel_keeps_every_byte_the_panel_did_not_carry() {
+        // What the file holds.
+        let mut stored = ConsoleConfig {
+            revision: 4,
+            apps: vec![ConsoleApp {
+                id: "lark".into(), name: "飞书".into(), bundle_id: "com.electron.lark".into(), app_path: None,
+                actions: vec![
+                    ConsoleAction { id: "search".into(), name: "搜索".into(), cmd_byte: Some(100), ..Default::default() },
+                    ConsoleAction { id: "paste".into(), name: "粘贴".into(), cmd_byte: Some(102), ..Default::default() },
+                ],
+                cmd_byte: Some(105),
+            }],
+        };
+        // What the panel sends back: same ids, no bytes, one new action.
+        let mut incoming = stored.clone();
+        incoming.apps[0].cmd_byte = None;
+        for a in &mut incoming.apps[0].actions { a.cmd_byte = None; }
+        incoming.apps[0].actions.push(ConsoleAction { id: "new".into(), name: "新".into(), ..Default::default() });
+        carry_cmd_bytes(&stored, &mut incoming);
+        assign_cmd_bytes(&mut incoming);
+        assert_eq!(incoming.apps[0].cmd_byte, Some(105));
+        assert_eq!(incoming.apps[0].actions[0].cmd_byte, Some(100));
+        assert_eq!(incoming.apps[0].actions[1].cmd_byte, Some(102));
+        let fresh = incoming.apps[0].actions[2].cmd_byte.expect("the new action got a byte");
+        assert!(fresh >= CONSOLE_CMD_BASE && ![100, 102, 105].contains(&fresh));
+        // An app the file never had gets bytes of its own, and nothing else moves.
+        stored.apps.clear();
+        let mut other = incoming.clone();
+        carry_cmd_bytes(&stored, &mut other);
+        assert_eq!(other, incoming);
     }
 }
