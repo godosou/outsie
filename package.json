@@ -14,7 +14,7 @@
     "test": "node --import tsx --test src/lib/*.test.ts",
     "desktop": "tauri dev",
     "desktop:dev": "tauri dev",
-    "package:mac": "tauri build --bundles app",
+    "package:mac": "node scripts/package-tauri-dev.mjs",
     "package:mac:release": "node scripts/package-tauri-mac.mjs"
   },
   "dependencies": {

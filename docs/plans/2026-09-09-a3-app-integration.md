@@ -165,7 +165,7 @@ A3 在当前分支**新建 `src-tauri/src/unlock.rs`**，定义：
 1. **`NSBluetoothAlwaysUsageDescription`**：当前 `src-tauri/` **没有 Info.plist**，`tauri.conf.json` 没有 `bundle.macOS` plist-merge。要么给 sidecar 自己的 bundle 一份用途说明，要么（若扫描器作为 App 的 helper）给 App 加。字符串可从 `.worktrees/phone-work-console/src-tauri/Info.plist` 抄。
 2. **`bundle.resources`**（当前**完全缺失**）：把 `install.sh`/`uninstall.sh`/`healthcheck.sh`/`authdb-edit`/`*.healthcheck.plist`/`ReposeSpike.bundle`/`rssi-scan`(编译后二进制)/`permit-bridge.sh` 打进 `.app`；运行时 `app.path().resource_dir()` 解析。**当前它们在 repo 根的 `native/`+`tools/`，装出来的 App 找不到。**
 3. **sidecar 二进制**：`rssi-scan.swift` 编译成 `rssi-scan`（已在 `tools/ble-spike/mac/rssi-scan`），作为 `bundle.externalBin` 或普通 resource 由 `Command` 起。
-4. **代码签名 / hardened runtime**：当前 `tauri.conf.json` `bundle.macOS` 只有 `minimumSystemVersion: 14.0`。Stage 1（个人、ad-hoc）够用——ad-hoc 在 SIP 开启下能加载（A1 已证），BT TCC 在 ad-hoc 下每次 rebuild 可能重弹但可接受。Stage 2 分发才必须 Developer ID + notarization（Gatekeeper/quarantine、稳定 BT TCC、SMAppService 注册）。
+4. **代码签名 / hardened runtime**：当前 `tauri.conf.json` `bundle.macOS` 只有 `minimumSystemVersion: 14.0`。Stage 1（个人、ad-hoc）够用——ad-hoc 在 SIP 开启下能加载（A1 已证），BT TCC 在 ad-hoc 下每次 rebuild 会重弹（2026-09-12 实测：重装一版后监测悄悄停掉）。**更正**：稳定 BT TCC 不需要 Developer ID——TCC 记的是签名要求，本机自签证书就够，见 `scripts/dev-signing-identity.mjs`。Stage 2 分发才必须 Developer ID + notarization（Gatekeeper/quarantine、SMAppService 注册）。
 
 ---
 

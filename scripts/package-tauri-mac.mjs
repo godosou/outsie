@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ensureIdentity } from './dev-signing-identity.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const metadata = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
@@ -31,7 +32,11 @@ const licenses = path.join(source, 'Contents/Resources/licenses')
 await mkdir(licenses, { recursive: true })
 await copyFile(path.join(root, 'src/assets/STRETCH-HUMAN-LICENSE.md'), path.join(licenses, 'Stretch-Human.md'))
 await copyFile(path.join(root, 'node_modules/three/LICENSE'), path.join(licenses, 'Three-MIT.txt'))
-run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', source])
+// The same local identity the dev build uses. Ad-hoc ("-") would put the
+// designated requirement back on a cdhash, and every release would cost the
+// person a fresh Bluetooth grant.
+const identity = ensureIdentity() || '-'
+run('/usr/bin/codesign', ['--force', '--deep', '--sign', identity, source])
 run('/usr/bin/codesign', ['--verify', '--deep', '--strict', source])
 await mkdir(release, { recursive: true })
 const app = path.join(release, 'Outsie.app')
@@ -45,7 +50,7 @@ try {
   run('/usr/bin/hdiutil', ['verify', dmg])
   const hash = createHash('sha256').update(await readFile(dmg)).digest('hex')
   await writeFile(path.join(release, 'SHA256SUMS.txt'), `${hash}  ${path.basename(dmg)}\n`)
-  console.log(`App: ${app}\nDMG: ${dmg}\nLocal ad hoc signing only; not Apple notarized.`)
+  console.log(`App: ${app}\nDMG: ${dmg}\nSigned as ${identity === '-' ? 'ad hoc' : `"${identity}" (self-signed)`}; not Apple notarized.`)
 } finally {
   // Only the unique staging directory created above; published releases stay intact.
   await rm(stage, { recursive: true, force: true })
