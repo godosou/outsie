@@ -538,6 +538,7 @@ class BleSpikeService : Service() {
             NotificationChannel(CHANNEL_ID, "BLE spike", NotificationManager.IMPORTANCE_LOW),
         )
         startForeground(NOTIFICATION_ID, buildNotification())
+        SpikeState.addListener(refreshNotification)
         SpikeState.startedAtUptime = SystemClock.elapsedRealtime()
         // One fresh set of facts: whatever the last run left behind is not
         // this run's radio.
@@ -725,6 +726,7 @@ class BleSpikeService : Service() {
     }
 
     override fun onDestroy() {
+        SpikeState.removeListener(refreshNotification)
         handler.removeCallbacks(heartbeat)
         unregisterBluetoothReceiver()
         teardownRadio()
@@ -740,12 +742,15 @@ class BleSpikeService : Service() {
         super.onDestroy()
     }
 
+    /** The same sentence the home screen shows, so the shade never says something the app does not. */
+    private val refreshNotification: () -> Unit = {
+        runCatching { getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification()) }
+    }
+
     private fun buildNotification(): Notification =
         Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("${Brand.NAME} 手机钥匙")
-            .setContentText(
-                if (SpikeState.authentic) "正在让你的 Mac 认出这台手机" else "还没有配对，Mac 认不出这台手机",
-            )
+            .setContentText(SpikeState.radio.let { it.phase(SystemClock.elapsedRealtime()).sentence(it.failure) })
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setOngoing(true)
             .build()
