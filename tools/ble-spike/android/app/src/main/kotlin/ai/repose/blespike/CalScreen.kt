@@ -121,6 +121,10 @@ fun buildCalScreen(context: Context, nav: Nav, store: AppStore): ScreenView {
             CalStep.INTRO -> {
                 body.addView(heroCard(context, pal, chip = "量距离", glyph = "📏", headline = "教它认出你的距离",
                     body = "Mac 靠信号强弱猜你在不在。每个房间都不一样，所以要在你平常用它的地方量一次。坐着量 20 秒，走开再量 20 秒。"))
+                // The Mac does the measuring, so it has to be awake and running
+                // Outsie; a phone that starts without saying so waits sixty
+                // seconds for an answer that was never coming.
+                body.addView(Ui.infoNote(context, pal, "Mac 上要开着 Outsie，屏幕别锁着。量的是 Mac 听到的信号。"), Ui.lp(top = context.dp(12)))
                 body.addView(Ui.infoNote(context, pal,
                     if (calibrated) "量过一次。重新量的时候，旧的先照常用着；量不出结果，旧的也不会变。"
                     else "这台电脑还没量过。"), Ui.lp(top = context.dp(12)))

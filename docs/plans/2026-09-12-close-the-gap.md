@@ -224,3 +224,8 @@ APK；走一遍量距离（远处站到听不见的地方）；控制页看按�
 - **版本 0.7.0**：DMG（hdiutil，自签）+ APK + SHA256SUMS。GitHub 仓库 godosou/outsie 的历史和本地是两条线（同名提交、不同哈希），
   本地 main 快进合并 feat 分支；推到 origin 一条新分支 phone-key，release v0.7.0 打在它上面；官网（website/）在 origin/main 上改
   release.ts 和下载区，推 main 触发 Pages。
+- **22:47 用户重新量距离**：近 −57（n=29，均值 −53.6，sd 3.5）、远 −79（n=23，真量到）。量完 Outsie 自动重启监测（输了一次密码），
+  bridge 换成新判定并带新阈值（bands=72:-57:-79）。装手机包时信标停了 121 秒，触发一次「没信号 120 秒」锁屏——说明兜底按设计工作。
+- 量距离开始前那一屏加了「Mac 上要开着 Outsie，屏幕别锁着」。
+- 打包踩坑两处：`[[bin]] outsie` 和 tauri 写出的 `target/release/Outsie` 在大小写不敏感的卷上是同一个文件，改名 `outsie-cli`；
+  打包前先删旧 bundle。命令行软链 `~/.local/bin/outsie` → `Outsie.app/Contents/MacOS/outsie-cli`。
