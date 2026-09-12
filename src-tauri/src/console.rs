@@ -530,6 +530,17 @@ fn send_catalogue(app: &AppHandle, key_id: u8) -> Result<(), String> {
 
 // ---- the watcher ----------------------------------------------------------
 
+/// Where a freshly started watcher begins: after the newest command of ANY
+/// kind already in the file. It used to look at shortcut presses only, so on a
+/// day with none of those and one calibration, relaunching the app replayed
+/// the calibration command and the Mac measured an empty chair.
+pub fn watcher_start_mark(csv: &str) -> i64 {
+    let presses = console_commands_since(csv, 0).into_iter().map(|(_, at, _)| at).max();
+    let requests = console_requests_since(csv, 0).into_iter().map(|(_, at)| at).max();
+    let legs = crate::unlock::calibration_commands_since(csv, 0).into_iter().map(|(_, at, _)| at).max();
+    presses.into_iter().chain(requests).chain(legs).max().unwrap_or(0)
+}
+
 /// Watch the verifier's output and press what the phone asks for.
 ///
 /// In the app, not in the privileged half, and that is not an accident:
@@ -551,7 +562,7 @@ pub fn start_command_watcher(app: AppHandle) {
             Err(_) => return,
         };
         let mut mark: i64 = std::fs::read_to_string(&path)
-            .map(|csv| console_commands_since(&csv, 0).last().map_or(0, |(_, at, _)| *at))
+            .map(|csv| watcher_start_mark(&csv))
             .unwrap_or(0);
 
         loop {
@@ -846,6 +857,22 @@ pub async fn console_run(app: AppHandle, value: RunArgs) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_fresh_watcher_starts_after_the_newest_command_of_any_kind() {
+        // The bug this pins: the mark was taken from the newest SHORTCUT row
+        // only. On a day with no shortcut presses and one calibration, an app
+        // relaunch replayed that calibration command -- the Mac started a near
+        // leg with nobody there and wrote 「没听到手机」 twenty seconds later.
+        let csv = "\
+1000,rssi=-50,auth=VALID,x,72,cmd=16,seq=1,a,b\n\
+2000,rssi=-50,auth=VALID,x,72,cmd=4,seq=2,a,b\n\
+2500,rssi=-50,auth=NOKEY,x,72,cmd=3,seq=3,a,b\n";
+        assert_eq!(super::watcher_start_mark(csv), 2000);
+        let requests_only = "3000,rssi=-50,auth=VALID,x,72,cmd=3,seq=4,a,b\n";
+        assert_eq!(super::watcher_start_mark(requests_only), 3000);
+        assert_eq!(super::watcher_start_mark(""), 0);
+    }
+
     use super::*;
 
     fn step(key: &str, mods: &[&str]) -> ConsoleStep {
