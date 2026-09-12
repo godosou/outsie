@@ -622,10 +622,13 @@ fn set_status(app: AppHandle, shared: State<'_, Arc<SharedState>>, value: TimerS
 }
 
 #[tauri::command]
-fn set_preferences(shared: State<'_, Arc<SharedState>>, value: Preferences) {
+fn set_preferences(app: AppHandle, shared: State<'_, Arc<SharedState>>, value: Preferences) {
     if value.idle_lock_seconds != 30 {
         return;
     }
+    // 「你离开，电脑自动锁屏」 is mostly the bridge's job now: it locks the
+    // moment the phone is judged gone, and reads this flag to know whether to.
+    unlock::set_autolock(&app, value.idle_lock_enabled);
     let mut state = shared.runtime.lock().expect("state poisoned");
     if state.preferences.idle_lock_enabled != value.idle_lock_enabled {
         state.idle_enabled_at = Instant::now();
@@ -773,6 +776,11 @@ fn run_idle_monitor(app: AppHandle, shared: Arc<SharedState>) {
             let idle = unsafe { repose_idle_seconds() };
             #[cfg(not(target_os = "macos"))]
             let idle = 0.0;
+            // The phone beside you means you have not left, however still the
+            // keyboard is. The idle timer only counts while the phone is not heard.
+            if !unlock::idle_lock_allowed(&unlock::HostMacBackend::presence_report(&app)) {
+                continue;
+            }
             let should_lock = {
                 let mut state = shared.runtime.lock().expect("state poisoned");
                 if !state.preferences.idle_lock_enabled {

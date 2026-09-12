@@ -261,9 +261,10 @@ export default function App() {
     if (command === 'strict-break-finished' && completedBreakId) timer.completeBreak(completedBreakId)
     if (command === 'postpone-break') timer.postponeBreak()
     if (command === 'idle-lock-failed') {
-      setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: false }))
+      // The switch stays on: walking away still locks (the bridge does that,
+      // no permission needed). Only the keyboard-idle half failed.
       setSecurityError(true)
-      showToast('自动锁屏没开成。Outsie 还没被允许替你按下锁屏键。去「手机控制」那一页允许它，再打开一次。')
+      showToast('手机走远会锁屏。键盘半分钟没动那一路没按成：macOS 还没允许 Outsie 按键。去「手机控制」那一页允许它。')
     }
   }), [strictBreak, inBreak, timer.toggleRunning, timer.startBreak, timer.completeBreak, timer.postponeBreak])
   useEffect(() => {

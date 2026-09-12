@@ -187,6 +187,21 @@ REFRESH_S="${REPOSE_REFRESH_S:-5}"     # re-assert the permit this often while p
 # presence-pipeline.sh checks. With a delay, this blanks the screen and leaves
 # the session open, so the guard is not optional.
 LOCK_CMD="${REPOSE_LOCK_CMD:-launchctl asuser \$(stat -f %u /dev/console) /usr/bin/pmset displaysleepnow}"
+
+# 「你离开，电脑自动锁屏」. The app keeps this file while the switch is on; the
+# bridge checks for it at the moment it decides the phone is gone (LEAVE or
+# STALE) and locks the screen the same way the phone's 锁定 button does. Root,
+# no accessibility grant, no idle timer -- until 2026-09-12 that switch was a
+# 30-second idle timer pressing a key, which needed a permission nobody had
+# granted and had nothing to do with where the phone was, so walking away had
+# never once locked this Mac.
+AUTOLOCK_FILE="${REPOSE_AUTOLOCK_FILE:-}"
+autolock_wanted() { [ -n "${AUTOLOCK_FILE}" ] && [ -e "${AUTOLOCK_FILE}" ]; }
+lock_on_away() {
+    autolock_wanted || return 0
+    log "AWAY ($1) -> locking the screen, 自动锁屏 is on"
+    run_command lock
+}
 PERMIT_ON_CMD="${REPOSE_PERMIT_ON_CMD:-${REPOSE_SSH:-} 'sudo mkdir -p /var/run/repose-spike && sudo chmod 755 /var/run/repose-spike && sudo touch /var/run/repose-spike/permit'}"
 PERMIT_OFF_CMD="${REPOSE_PERMIT_OFF_CMD:-${REPOSE_SSH:-} 'sudo rm -f /var/run/repose-spike/permit'}"
 
@@ -426,6 +441,7 @@ while :; do
                     log "LEAVE (rssi=${rssi}) -> clearing permit"
                     publish away "${rssi}"
                     clear_permit
+                    lock_on_away "rssi=${rssi}"
                 fi
             fi
             # between FAR and NEAR: hold current state (that is the hysteresis).
@@ -439,6 +455,7 @@ while :; do
         log "STALE (no sample for $((now - last_sample))s) -> clearing permit"
         publish away
         clear_permit
+        lock_on_away "no sample for $((now - last_sample))s"
     fi
 
     # Keep the permit fresh while present.

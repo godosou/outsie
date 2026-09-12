@@ -463,13 +463,14 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
                 claimed 开着 above a grey switch. */}
             <p className={`pk-row-state${idleLock.enabled ? ' is-on' : ''}`}>
               {idleLock.enabled
-                ? '已开启'
-                : idleLock.error
-                  ? '已关闭 · macOS 拒绝了，因为缺辅助功能权限'
-                  : '已关闭 · 离开电脑不会自动锁屏'}
+                ? (idleLock.error
+                  ? '已开启 · 手机走远就锁屏。键盘半分钟没动那一路，macOS 还没允许它按键'
+                  : '已开启 · 手机走远就锁屏')
+                : '已关闭 · 你走开，电脑不会自己锁'}
             </p>
             <p>
               这两个是一对。锁得越勤越放心，而它负责让你不用多输一次密码。
+              手机走远、Mac 认定你不在的那一刻就锁屏。手机在旁边时，键盘半分钟没动也不锁。
               {enabled
                 ? ''
                 : '关掉解锁之前，先想想会不会顺手也把这个关了——那才是真正变不安全的那一步。'}

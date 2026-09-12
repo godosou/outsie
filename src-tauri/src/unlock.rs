@@ -1134,7 +1134,7 @@ impl HostMacBackend {
     /// without reading the key -- which is the point, this process has no
     /// business holding it.
     /// Read the bridge's published line, if there is one.
-    fn presence_report(app: &AppHandle) -> PresenceReport {
+    pub(crate) fn presence_report(app: &AppHandle) -> PresenceReport {
         // Not a security input: this file only decides what the panel says. The
         // permit the plugin actually reads is root-only and written elsewhere.
         let now = run_capture("/bin/date", &["+%s"])
@@ -1753,6 +1753,33 @@ pub fn calibration_samples(csv: &str, since_ms: i64, key_id: u8) -> Vec<(i32, i6
 /// Where a finished calibration lives. Next to the pairing state, not next to
 /// the key: it describes this room, not this phone, and it is not a secret.
 pub const CALIBRATION_FILE: &str = "calibration.json";
+
+/// Under presence-run. Exists while 「你离开，电脑自动锁屏」 is on; the bridge
+/// checks for it the moment it decides the phone is gone and locks the screen.
+pub const AUTOLOCK_FILE: &str = "autolock";
+
+/// Keep the flag file in step with the switch. The bridge reads the file, not
+/// the preference, so a toggle takes effect without a pipeline restart -- and
+/// without the password prompt a restart costs.
+pub fn set_autolock(app: &AppHandle, enabled: bool) {
+    let Ok(dir) = app.path().app_data_dir() else { return };
+    let work = dir.join("presence-run");
+    let _ = std::fs::create_dir_all(&work);
+    let path = work.join(AUTOLOCK_FILE);
+    if enabled {
+        let _ = std::fs::write(&path, "on\n");
+    } else {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+/// Whether the 30-second idle lock may fire. Not while the phone is heard
+/// nearby: 「你离开」 means the phone walked, and a person reading at their
+/// desk with the phone beside them has not left. Anything other than a fresh
+/// 「near」 -- away, stale, no bridge at all -- leaves the idle lock in charge.
+pub fn idle_lock_allowed(report: &PresenceReport) -> bool {
+    !matches!(report, PresenceReport::Fresh { state, .. } if state == "near")
+}
 
 /// One leg of the walk, as a window into what the verifier was writing at the
 /// time. Storing the window rather than the samples means finish() re-reads the
@@ -2649,6 +2676,7 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         // its own conservative defaults rather than on zeroes.
         .env("REPOSE_BANDS", &bands)
         .env("REPOSE_DISABLED_FILE", work.join("disabled-keys"))
+        .env("REPOSE_AUTOLOCK_FILE", work.join(AUTOLOCK_FILE))
         .env("REPOSE_PIPELINE_DIR", &work)
         // We raise the authorization ourselves, below.
         .env("REPOSE_SKIP_PRIVILEGED", "1")
@@ -2722,8 +2750,9 @@ fn start_pipeline(app: &AppHandle) -> Result<(), UnlockError> {
         "do shell script \"REPOSE_MODE=local REPOSE_BIN={bin} REPOSE_KEY_DIR={keys} \
          REPOSE_RAW={raw} REPOSE_VERIFIED={verified} REPOSE_RUNFLAG={flag} \
          REPOSE_PERMIT_DIR={permit} REPOSE_STATUS_FILE={status} REPOSE_LOG_DIR={work} \
-         REPOSE_BANDS={bands} REPOSE_DISABLED_FILE={disabled} \
+         REPOSE_BANDS={bands} REPOSE_DISABLED_FILE={disabled} REPOSE_AUTOLOCK_FILE={autolock} \
          {priv_sh}\" with administrator privileges",
+        autolock = applescript_quote(&work.join(AUTOLOCK_FILE).to_string_lossy()),
         bin = applescript_quote(&dir.to_string_lossy()),
         keys = applescript_quote(PRESENCE_KEY_DIR),
         raw = applescript_quote(&work.join("raw.csv").to_string_lossy()),
@@ -3863,6 +3892,25 @@ mod tests {
     }
 
     #[test]
+    fn the_idle_lock_waits_while_the_phone_is_heard_nearby() {
+        // Sitting at the desk reading, phone beside you, is not 「你离开」.
+        assert!(!idle_lock_allowed(&PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) }));
+        assert!(idle_lock_allowed(&PresenceReport::Fresh { state: "away".into(), rssi: None }));
+        assert!(idle_lock_allowed(&PresenceReport::NeverRan));
+        assert!(idle_lock_allowed(&PresenceReport::NotRunning));
+    }
+
+    #[test]
+    fn the_pipeline_hands_the_bridge_the_autolock_flag() {
+        let sh = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../tools/ble-spike/mac/permit-bridge.sh"),
+        )
+        .expect("permit-bridge.sh should be readable");
+        assert!(sh.contains("AUTOLOCK_FILE=\"${REPOSE_AUTOLOCK_FILE:-}\""));
+        assert_eq!(AUTOLOCK_FILE, "autolock");
+    }
+
+    #[test]
     fn bands_are_per_phone_and_sorted() {
         let raw = r#"{"byKey":{"15":{"nearDbm":-58,"farDbm":-79},"3":{"nearDbm":-60,"farDbm":-80}}}"#;
         assert_eq!(calibration_bands(raw), "15:-58:-79,3:-60:-80");
@@ -4414,6 +4462,13 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
         .expect("permit-bridge.sh should be readable");
         assert!(sh.contains("refresh_disabled"), "the bridge never re-reads the list");
         assert!(sh.contains("REPOSE_DISABLED_FILE"), "the bridge never reads the list at all");
+        // 「你离开，电脑自动锁屏」: the moment the bridge decides the phone is
+        // gone -- by signal or by silence -- it locks, if the switch is on.
+        assert!(sh.contains("REPOSE_AUTOLOCK_FILE"), "the bridge never reads the autolock flag");
+        let leave = sh.find("LEAVE (rssi=").expect("a LEAVE branch");
+        let stale = sh.find("STALE (no sample").expect("a STALE branch");
+        assert!(sh[leave..leave + 400].contains("lock_on_away"), "LEAVE does not lock");
+        assert!(sh[stale..stale + 400].contains("lock_on_away"), "STALE does not lock");
         // A switched-off phone must not still be able to lock the Mac.
         assert!(
             sh.contains(r#"[ "${disabled}" = 1 ] || run_command lock"#),
