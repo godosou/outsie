@@ -112,6 +112,10 @@ function clockAfter(seconds: number) { return new Date(Date.now() + seconds * 10
 function BrandMark({ small = false }: { small?: boolean }) {
   return <span className={`brand-mark ${small ? 'small' : ''}`} aria-hidden="true"><img src="./favicon.svg" alt="" /></span>
 }
+function holdLabel(hold: { type: 'short' | 'long'; duration: number }): string {
+  return hold.duration < 60 ? `${hold.duration} 秒` : `${Math.round(hold.duration / 60)} 分钟`
+}
+
 function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: () => void; label: string }) {
   return <button className={`toggle ${enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={enabled} aria-label={label} onClick={onChange}><span /></button>
 }
@@ -330,7 +334,7 @@ export default function App() {
     } catch { showToast('通知暂不可用，应用内仍会提醒你') }
   }
   const exportHistory = () => {
-    const rows = ['日期,专注分钟,休息分钟,完成休息,跳过休息', ...timer.weeklyStats.map(day => `${day.date},${Math.floor(day.focusSeconds / 60)},${Math.floor(day.breakSeconds / 60)},${day.completedBreaks},${day.skippedBreaks}`)]
+    const rows = ['日期,专注分钟,会议分钟,休息分钟,完成休息,跳过休息', ...timer.weeklyStats.map(day => `${day.date},${Math.floor(day.focusSeconds / 60)},${Math.floor(day.meetingSeconds / 60)},${Math.floor(day.breakSeconds / 60)},${day.completedBreaks},${day.skippedBreaks}`)]
     const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `outsie-${today.toLocaleDateString('sv-SE')}.csv`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
     showToast('最近 7 天的记录已导出')
@@ -384,7 +388,7 @@ export default function App() {
 
     <main className="main-content">
       <div className="topbar"><div className="topbar-left"><button className="icon-button mobile-toggle" aria-label="打开导航" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><span className="breadcrumb">我的空间</span><ChevronRight size={13} /><span>{page === 'settings' ? '偏好设置' : navigation.find(item => item.id === page)?.label}</span></div><div className="topbar-right"><span className="date-text"><CalendarDays size={14} />{today.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}</span><span className="topbar-separator" /><span className="welcome-mark"><Sun size={17} /></span></div></div>
-      <header className="page-heading"><div><div className="eyebrow">{titles[page].eyebrow}</div><h1>{titles[page].title}</h1><p>{titles[page].subtitle}</p></div><button className={`reminder-status ${running ? '' : 'is-paused'}`} disabled={Boolean(postponedBreak)} onClick={() => { initAudio(); timer.toggleRunning() }}><span className={`status-dot ${running ? '' : 'paused'}`} />{postponedBreak ? '已延迟一次 · 即将休息' : running ? '休息提醒已开启' : '休息提醒已暂停'}<ChevronRight size={14} /></button></header>
+      <header className="page-heading"><div><div className="eyebrow">{titles[page].eyebrow}</div><h1>{titles[page].title}</h1><p>{titles[page].subtitle}</p></div><button className={`reminder-status ${running ? '' : 'is-paused'}`} disabled={Boolean(postponedBreak) || Boolean(meetingHold)} onClick={() => { initAudio(); timer.toggleRunning() }}><span className={`status-dot ${running ? '' : 'paused'}`} />{meetingHold ? '会议中 · 结束后休息' : postponedBreak ? '已延迟一次 · 即将休息' : meeting ? '会议中 · 到点不打扰' : running ? '休息提醒已开启' : '休息提醒已暂停'}<ChevronRight size={14} /></button></header>
 
       {/* The 「安全锁屏尚未开启」 banner is gone. Its 「前往设置」 pointed at the
           page the reader was already on, and the setting now lives on 手机控制
@@ -394,8 +398,8 @@ export default function App() {
         <div className="hero-grid">
           <section className="timer-card" aria-label="休息计时器">
             <div className="timer-grain" />
-            <div className="timer-card-top"><span className="focus-label"><span className={`status-dot ${running ? '' : 'paused'}`} />{inBreak ? '享受片刻休息' : running ? '心无旁骛，专注当下' : '慢一点，也没关系'}</span><button className="icon-button timer-reset" aria-label="重置计时" disabled={Boolean(postponedBreak)} title={postponedBreak ? '本次延迟不能重复或重置' : '重新开始这一轮计时'} onClick={() => { timer.resetTimer(); showToast('已重新开始这一轮专注') }}><RotateCcw size={17} /></button></div>
-            <div className="timer-main"><div className="timer-copy"><p className="timer-kicker">{inBreak ? '这一刻，属于你' : postponedBreak ? `距离已延迟的${postponedBreak === 'long' ? '大' : '小'}休息` : '距离下一次小憩'}</p><div className="countdown" role="timer" aria-label={`剩余 ${time(remaining)}`}>{time(remaining).split(':')[0]}<span>:</span>{time(remaining).split(':')[1]}</div><p className="timer-description">{inBreak ? '放下手中的事，让身体轻轻松下来' : <><span>{phase === 'focus' && (postponedBreak === 'long' || (!postponedBreak && completedCycles >= settings.longEvery)) ? `${settings.longDuration} 分钟长休息` : `${settings.shortDuration} 秒短休息`}</span><span className="small-dot">·</span>让身心重新充电</>}</p><div className="timer-actions"><button className="button primary" disabled={Boolean(postponedBreak)} onClick={() => { initAudio(); timer.toggleRunning() }}>{running ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}{postponedBreak ? '已延迟一次' : running ? '暂停计时' : '继续计时'}</button><button className="button light" onClick={() => beginBreak('short')}><Coffee size={17} />{postponedBreak ? '提前开始休息' : '现在休息'}</button></div></div><div className="hero-art"><img src="./illustrations/still-life.svg" alt="绿叶与平衡的石头，安静地享受阳光" /><span className="art-caption">a moment for yourself</span></div></div>
+            <div className="timer-card-top"><span className="focus-label"><span className={`status-dot ${running ? '' : 'paused'}`} />{inBreak ? '享受片刻休息' : meeting ? '会议中 · 到点不打扰' : running ? '心无旁骛，专注当下' : '慢一点，也没关系'}</span><button className="icon-button timer-reset" aria-label="重置计时" disabled={Boolean(postponedBreak) || Boolean(meetingHold)} title={meetingHold ? '会议结束后先休息，再开始新一轮' : postponedBreak ? '本次延迟不能重复或重置' : '重新开始这一轮计时'} onClick={() => { timer.resetTimer(); showToast('已重新开始这一轮专注') }}><RotateCcw size={17} /></button></div>
+            <div className="timer-main"><div className="timer-copy"><p className="timer-kicker">{inBreak ? '这一刻，属于你' : meetingHold ? '会议中，结束后休息' : postponedBreak ? `距离已延迟的${postponedBreak === 'long' ? '大' : '小'}休息` : '距离下一次小憩'}</p>{meetingHold ? <div className="countdown countdown-held" role="timer" aria-label={`会议结束后休息 ${holdLabel(meetingHold)}`}>{holdLabel(meetingHold)}</div> : <div className="countdown" role="timer" aria-label={`剩余 ${time(remaining)}`}>{time(remaining).split(':')[0]}<span>:</span>{time(remaining).split(':')[1]}</div>}<p className="timer-description">{inBreak ? '放下手中的事，让身体轻轻松下来' : <><span>{phase === 'focus' && (postponedBreak === 'long' || (!postponedBreak && completedCycles >= settings.longEvery)) ? `${settings.longDuration} 分钟长休息` : `${settings.shortDuration} 秒短休息`}</span><span className="small-dot">·</span>让身心重新充电</>}</p><div className="timer-actions"><button className="button primary" disabled={Boolean(postponedBreak) || Boolean(meetingHold)} onClick={() => { initAudio(); timer.toggleRunning() }}>{running ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}{meetingHold ? '等会议结束' : postponedBreak ? '已延迟一次' : running ? '暂停计时' : '继续计时'}</button><button className="button light" onClick={() => beginBreak('short')}><Coffee size={17} />{postponedBreak || meetingHold ? '提前开始休息' : '现在休息'}</button></div></div><div className="hero-art"><img src="./illustrations/still-life.svg" alt="绿叶与平衡的石头，安静地享受阳光" /><span className="art-caption">a moment for yourself</span></div></div>
             <div className="timer-footer"><div className="cycle-dots" aria-label={`已完成 ${completedCycles} / ${settings.longEvery} 次短休息`}>{Array.from({ length: Math.min(settings.longEvery, 12) }).map((_, i) => <span key={i} className={i < completedCycles ? 'complete' : i === completedCycles ? 'current' : ''}>{i < completedCycles && <Check size={8} strokeWidth={3} />}</span>)}</div><span>每 {settings.longEvery} 次短休息，享受一次长休息</span><span className="cycle-count">{completedCycles}<span> / {settings.longEvery}</span></span></div>
             <div className="timer-progress" style={{ width: `${timer.progress * 100}%` }} />
           </section>
@@ -406,6 +410,7 @@ export default function App() {
           <div className="stat-card"><div className="stat-icon sage"><Coffee size={20} strokeWidth={1.6} /></div><div><span className="stat-label">今日休息</span><div className="stat-number">{stats.completedBreaks}<span>次</span></div></div><div className="stat-aside"><span className="tiny-leaf"><Leaf size={15} /></span><span>{stats.completedBreaks ? '每次停顿，都有意义' : '从第一次小憩开始'}</span></div></div>
           <div className="stat-card"><div className="stat-icon peach"><Clock3 size={20} strokeWidth={1.6} /></div><div><span className="stat-label">专注时光</span><div className="stat-number">{minuteLabel(stats.focusSeconds)}<span>分钟</span></div></div><div className="stat-aside"><div className="mini-bars" aria-hidden="true">{[10, 19, 15, 25, 20, 30, 24].map((h, i) => <i key={i} style={{ height: h }} />)}</div><span>一步一步，正在前进</span></div></div>
           <div className="stat-card"><div className="stat-icon lavender"><Heart size={20} strokeWidth={1.6} /></div><div><span className="stat-label">为自己留白</span><div className="stat-number">{minuteLabel(stats.breakSeconds)}<span>分钟</span></div></div><div className="stat-aside"><span className="little-sun"><Sun size={24} strokeWidth={1.3} /></span><span>照顾自己，也很重要</span></div></div>
+          <div className="stat-card"><div className="stat-icon blue"><Video size={20} strokeWidth={1.6} /></div><div><span className="stat-label">会议</span><div className="stat-number">{minuteLabel(stats.meetingSeconds)}<span>分钟</span></div></div><div className="stat-aside"><span>{meeting ? '正在会议中' : '开会时不会被打断'}</span></div></div>
         </div>
 
         <div className="lower-grid"><section className="inspiration-section"><div className="section-heading"><div><h2>小休息，换个好状态<span className="heading-dot">.</span></h2><p>不用做很多，做一点就很好。</p></div><button className="text-button" onClick={() => navigate('ideas')}>全部灵感<ArrowRight size={15} /></button></div><div className="exercise-grid">{exercises.map(item => <ExerciseCard key={item.id} exercise={item} onClick={() => setExercise(item)} />)}</div></section>
@@ -438,29 +443,30 @@ export default function App() {
 
         <section className="panel chart-panel">
           <div className="section-heading activity-chart-heading">
-            <div><h2>一天的节奏</h2><p>看看专注与休息，在一天里如何自然交替。</p></div>
+            <div><h2>一天的节奏</h2><p>看看专注、会议与休息，在一天里如何自然交替。</p></div>
             <div className="activity-date-switcher" aria-label="选择记录日期">
               <button type="button" aria-label="前一天" disabled={activityDate <= oldestActivityDate} onClick={() => chooseActivityDate(shiftLocalDay(activityDate, -1))}><ChevronLeft size={15} /></button>
               <span><CalendarDays size={14} />{activityDateLabel}</span>
               <button type="button" aria-label="后一天" disabled={activityIsToday} onClick={() => chooseActivityDate(shiftLocalDay(activityDate, 1))}><ChevronRight size={15} /></button>
             </div>
           </div>
-          <div className="activity-chart-legend" aria-label="图例"><span><i className="focus" />专注</span><span><i className="rest" />休息</span><small>本地记录 · 每小时</small></div>
+          <div className="activity-chart-legend" aria-label="图例"><span><i className="focus" />专注</span><span><i className="meeting" />会议</span><span><i className="rest" />休息</span><small>本地记录 · 每小时</small></div>
           {hasHourlyActivity ? <>
-            <div className="daily-chart" aria-label={`${activityDateLabel}每小时专注与休息图表`}>
+            <div className="daily-chart" aria-label={`${activityDateLabel}每小时专注、会议与休息图表`}>
               <div className="daily-chart-y" aria-hidden="true"><span>{activityDurationLabel(activityPeak)}</span><span>0</span></div>
               <div className="daily-chart-plot">
                 {activityPoints.map(point => <button
                   type="button"
                   className={`daily-chart-column ${selectedHour === point.hour ? 'selected' : ''}`}
                   key={point.hour}
-                  aria-label={`${String(point.hour).padStart(2, '0')}:00 至 ${String((point.hour + 1) % 24).padStart(2, '0')}:00，专注 ${activityDurationLabel(point.focusSeconds)}，休息 ${activityDurationLabel(point.breakSeconds)}`}
+                  aria-label={`${String(point.hour).padStart(2, '0')}:00 至 ${String((point.hour + 1) % 24).padStart(2, '0')}:00，专注 ${activityDurationLabel(point.focusSeconds)}，会议 ${activityDurationLabel(point.meetingSeconds)}，休息 ${activityDurationLabel(point.breakSeconds)}`}
                   aria-pressed={selectedHour === point.hour}
                   onClick={() => setSelectedHour(point.hour)}
                 >
                   <span className="daily-chart-track">
                     {point.totalSeconds > 0 && <span className="daily-chart-stack" style={{ height: `${point.heightPercent}%` }}>
                       <i className="focus" style={{ height: `${point.focusPercent}%` }} />
+                      <i className="meeting" style={{ height: `${point.meetingPercent}%` }} />
                       <i className="rest" style={{ height: `${point.breakPercent}%` }} />
                     </span>}
                   </span>
@@ -471,6 +477,7 @@ export default function App() {
             <div className="hour-detail" aria-live="polite">
               <div className="hour-detail-title"><Clock3 size={17} /><span>{String(selectedActivityHour.hour).padStart(2, '0')}:00–{String((selectedActivityHour.hour + 1) % 24).padStart(2, '0')}:00</span></div>
               <div><i className="focus" /><span>专注</span><strong>{activityDurationLabel(selectedActivityHour.focusSeconds)}</strong></div>
+              <div><i className="meeting" /><span>会议</span><strong>{activityDurationLabel(selectedActivityHour.meetingSeconds)}</strong></div>
               <div><i className="rest" /><span>休息</span><strong>{activityDurationLabel(selectedActivityHour.breakSeconds)}</strong></div>
               <span className="hour-detail-total">合计 {activityDurationLabel(selectedActivityHour.totalSeconds)}</span>
             </div>
