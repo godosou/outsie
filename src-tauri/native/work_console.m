@@ -51,23 +51,26 @@ int repose_console_activate(const char *bundle, const char *path, ReposeConsoleG
     NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
     NSURL *url = chosenURL ?: [workspace URLForApplicationWithBundleIdentifier:identifier];
     if (!url) { result = 1; return; }
-    NSRunningApplication *target = nil;
-    for (NSRunningApplication *candidate in [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier]) {
-      if (consoleMatchesTarget(candidate, identifier, chosenURL)) { target = candidate; break; }
-    }
-    if (!target) {
-      NSError *error = nil;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-      target = [workspace launchApplicationAtURL:url options:(NSWorkspaceLaunchWithoutActivation | (chosenURL ? NSWorkspaceLaunchNewInstance : 0)) configuration:@{} error:&error];
-#pragma clang diagnostic pop
-      if (!target || error) return;
-    }
-    if (valid(context) && [target activateWithOptions:0]) result = 0;
+    // Not -[NSRunningApplication activateWithOptions:]. From a process that is
+    // not itself the active app -- which this one never is when a phone
+    // command arrives -- macOS 14+ accepts that call (it returns YES) and then
+    // does nothing: measured on 2026-09-12, six tries against 飞书 and Codex,
+    // none frontmost after 5.6 s. The same six through openApplicationAtURL:
+    // with activates=YES were frontmost within 30-90 ms. This is the path
+    // `open -a` takes, and it works from anywhere.
+    NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration configuration];
+    config.activates = YES;
+    config.createsNewApplicationInstance = chosenURL ? YES : NO;
+    [workspace openApplicationAtURL:url configuration:config completionHandler:^(NSRunningApplication *opened, NSError *error) {
+      (void)opened; (void)error;
+    }];
+    result = 0;
   });
   if (result) return result;
-  // Activation acknowledgement is asynchronous. Do not send keys before it settles.
-  for (int attempt=0; attempt<60; attempt++) {
+  // Activation is asynchronous. Do not send keys before it settles. Three
+  // seconds: an Electron app that has to unminimise takes a while; a
+  // background one that is already up takes under 100 ms.
+  for (int attempt=0; attempt<120; attempt++) {
     if (!valid(context)) return 2;
     __block bool front = false;
     onMainSync(^{ front = sessionAvailable() && consoleMatchesTarget([[NSWorkspace sharedWorkspace] frontmostApplication], identifier, chosenURL); });
