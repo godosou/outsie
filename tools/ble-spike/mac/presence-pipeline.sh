@@ -237,7 +237,10 @@ SCAN_PID=$!
 # Optional: an older bundle without the binary still runs presence, it just
 # cannot tell the phone anything back.
 if [ -x "${HERE}/state-advertise" ]; then
-  tail -n +1 -f "${VERIFIED}" | "${HERE}/state-advertise" \
+  # The phase file is how the app tells the beacon a calibration is in
+  # progress (design doc §05); the beacon advertises it instead of the lock
+  # state while it is fresh, so the phone can follow along.
+  tail -n +1 -f "${VERIFIED}" | REPOSE_PHASE_FILE="${WORK}/calibration-phase" "${HERE}/state-advertise" \
     2>> "${WORK}/state.log" &
   STATE_PID=$!
 else

@@ -19,8 +19,44 @@ import android.os.SystemClock
  */
 enum class MacLockState { LOCKED, UNLOCKED, UNKNOWN }
 
+/**
+ * What the Mac's state beacon can say (protocol §14). 0 and 1 are the lock
+ * state; 2..7 are the phases of a distance calibration the phone asked for.
+ *
+ * While the Mac is measuring, the byte carries the phase INSTEAD of the lock
+ * state, so a calibrating Mac is heard but its lock state is unknown -- see
+ * [lock].
+ */
+enum class MacBeaconState(val byte: Int) {
+    UNLOCKED(0), LOCKED(1),
+    /** Sampling the near leg. */
+    CAL_NEAR(2),
+    /** Near leg done. Waiting for the person to walk away and say 「到了」. */
+    CAL_WAIT(3),
+    /** Sampling the far leg. */
+    CAL_FAR(4),
+    /** Both legs separated cleanly; the new thresholds are in force. */
+    CAL_OK(5),
+    /** The two legs overlapped. The old thresholds are untouched. */
+    CAL_FAIL(6),
+    /** A leg produced too few readings: the Mac could not hear the phone. */
+    CAL_SILENT(7);
+
+    val lock: MacLockState
+        get() = when (this) {
+            LOCKED -> MacLockState.LOCKED
+            UNLOCKED -> MacLockState.UNLOCKED
+            else -> MacLockState.UNKNOWN
+        }
+
+    companion object {
+        /** Null for a byte this build does not know. An unknown state is not news. */
+        fun of(byte: Int): MacBeaconState? = entries.firstOrNull { it.byte == byte }
+    }
+}
+
 /** One Mac, as this phone currently believes it to be. */
-data class MacSighting(val macId: Int, val state: MacLockState)
+data class MacSighting(val macId: Int, val state: MacLockState, val beacon: MacBeaconState)
 
 object MacState {
 
@@ -35,7 +71,7 @@ object MacState {
      * Each entry ages out on its own clock: walking away from one Mac must not
      * make the phone forget a second one it is still hearing.
      */
-    private val heard = java.util.concurrent.ConcurrentHashMap<Int, Pair<MacLockState, Long>>()
+    private val heard = java.util.concurrent.ConcurrentHashMap<Int, Pair<MacBeaconState, Long>>()
 
     /**
      * Recorded only for a tag that verified. An unverified beacon is not news.
@@ -47,12 +83,18 @@ object MacState {
      * elapsedRealtime() in a unit test returns 0 and 0 is how this records
      * "never heard anything".
      */
-    fun heard(macId: Int, locked: Boolean, nowUptime: Long = SystemClock.elapsedRealtime()) {
-        val state = if (locked) MacLockState.LOCKED else MacLockState.UNLOCKED
+    fun heard(macId: Int, locked: Boolean, nowUptime: Long = SystemClock.elapsedRealtime()) =
+        heard(macId, if (locked) MacBeaconState.LOCKED else MacBeaconState.UNLOCKED, nowUptime)
+
+    fun heard(macId: Int, beacon: MacBeaconState, nowUptime: Long = SystemClock.elapsedRealtime()) {
         // Guard the sentinel: a clock reading of 0 would mean "forget it".
-        heard[macId] = state to if (nowUptime == 0L) 1L else nowUptime
+        heard[macId] = beacon to if (nowUptime == 0L) 1L else nowUptime
         SpikeState.notifyListeners()
     }
+
+    /** The latest thing one Mac said, if it said it recently enough. */
+    fun beaconOf(macId: Int, nowUptime: Long = SystemClock.elapsedRealtime()): MacBeaconState? =
+        heard[macId]?.takeIf { nowUptime - it.second <= SpikeContract.MAC_STATE_STALE_MS }?.first
 
     fun forget() {
         heard.clear()
@@ -71,7 +113,7 @@ object MacState {
         heard.entries
             .filter { nowUptime - it.value.second <= SpikeContract.MAC_STATE_STALE_MS }
             .sortedByDescending { it.value.second }
-            .map { MacSighting(it.key, it.value.first) }
+            .map { MacSighting(it.key, it.value.first.lock, it.value.first) }
 
     /**
      * The one-line answer for the home screen, aged out.

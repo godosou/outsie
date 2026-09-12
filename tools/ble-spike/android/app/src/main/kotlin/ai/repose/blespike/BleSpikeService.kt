@@ -100,6 +100,8 @@ class BleSpikeService : Service() {
             SpikeState.event(
                 when (cmd) {
                     SpikeContract.CMD_LOCK -> "已发出：锁定 Mac"
+                    SpikeContract.CMD_CALIBRATE_NEAR -> "已发出：开始量近处"
+                    SpikeContract.CMD_CALIBRATE_FAR -> "已发出：开始量远处"
                     in SpikeContract.CMD_SHORTCUT_BASE..255 -> "已发出：快捷操作 $cmd"
                     else -> "已发出指令 $cmd"
                 },

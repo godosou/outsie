@@ -248,7 +248,7 @@ func verify(keyId: UInt8, tag: Data, now: Int64, keys: KeyStore,
 /// Same shape as the phone's, different label and a state byte instead of a
 /// command. The counter is still derived from each side's own clock and never
 /// transmitted, so a recording ages out within a window either way.
-func macStateMessage(keyId: UInt8, macId: UInt16, counter: Int64, locked: Bool) -> Data {
+func macStateMessage(keyId: UInt8, macId: UInt16, counter: Int64, state: UInt8) -> Data {
     var d = Data(macStateLabel.utf8)
     d.append(keyId)
     // Inside the pre-image, not merely alongside it: a mac id the phone reads
@@ -260,11 +260,11 @@ func macStateMessage(keyId: UInt8, macId: UInt16, counter: Int64, locked: Bool) 
     for shift in stride(from: 56, through: 0, by: -8) {
         d.append(UInt8((u >> UInt64(shift)) & 0xFF))
     }
-    d.append(locked ? 1 : 0)
+    d.append(state)
     return d
 }
 
-/// Emit tags for BOTH states, every window, on stdout.
+/// Emit a tag for EVERY state, every window, on stdout.
 ///
 /// WHY BOTH, AND WHY THIS PROCESS
 ///
@@ -280,12 +280,17 @@ func macStateMessage(keyId: UInt8, macId: UInt16, counter: Int64, locked: Bool) 
 func emitMacStateTags(keys: KeyStore, keyId: UInt8, now: Int64) {
     guard let k = keys.key(for: keyId) else { return }
     let c = now / windowSeconds
-    let tag = { (locked: Bool) -> String in
+    // One tag per state the beacon may need to say: 0/1 for the lock state,
+    // 2..7 for the phases of a calibration the phone asked for (design doc
+    // §05, protocol §14). Minted here because only this process holds the
+    // key; the beacon process picks one without ever seeing K.
+    let tag = { (state: UInt8) -> String in
         Data(HMAC<SHA256>.authenticationCode(
-            for: macStateMessage(keyId: keyId, macId: macId, counter: c, locked: locked), using: k))
+            for: macStateMessage(keyId: keyId, macId: macId, counter: c, state: state), using: k))
             .prefix(tagLen).map { String(format: "%02x", $0) }.joined()
     }
-    print("macstate,\(keyId),\(c),\(tag(false)),\(tag(true)),\(String(format: "%04x", macId))")
+    let tags = (0...7).map { tag(UInt8($0)) }.joined(separator: ",")
+    print("macstate,\(keyId),\(c),\(tags),\(String(format: "%04x", macId))")
 }
 
 // MARK: - command replay defence
@@ -385,7 +390,7 @@ func selfTest() -> Int32 {
     for (i, v) in macStateVectors.enumerated() {
         let k = SymmetricKey(data: hexDecode(v.keyHex)!)
         let got = Data(HMAC<SHA256>.authenticationCode(
-            for: macStateMessage(keyId: v.keyId, macId: v.macId, counter: v.counter, locked: v.locked),
+            for: macStateMessage(keyId: v.keyId, macId: v.macId, counter: v.counter, state: v.locked ? 1 : 0),
             using: k)).prefix(tagLen)
         let gotHex = got.map { String(format: "%02x", $0) }.joined()
         if gotHex == v.tagHex {

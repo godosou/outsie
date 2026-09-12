@@ -86,6 +86,21 @@ object SpikeContract {
      */
     const val CMD_REQUEST_CATALOGUE = 3
 
+    /**
+     * "Start measuring the near leg" / "start measuring the far leg".
+     *
+     * Calibration is driven from the phone (design doc §05): you are walking
+     * with it and cannot see the Mac. The Mac is the ruler -- it hears the
+     * signal, the phone cannot -- so the phone only says when to start each
+     * leg, and reads the Mac's progress back off the state beacon.
+     *
+     * Two commands, not one: the far leg must NOT begin the moment the near leg
+     * is done. The walk would land in the far set, and that is how you get
+     * 「两边太像」. The person says 「到了」; only then does 5 go out.
+     */
+    const val CMD_CALIBRATE_NEAR = 4
+    const val CMD_CALIBRATE_FAR = 5
+
     // --- the shortcut catalogue (repose-console-v1) ---------------------------
     //
     // A separate service from pairing, and connectable only while the user is

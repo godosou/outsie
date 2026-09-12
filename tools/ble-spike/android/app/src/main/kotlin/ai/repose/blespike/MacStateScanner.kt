@@ -61,11 +61,13 @@ class MacStateScanner(private val context: Context) {
             // read as permanently unknown.
             if (!PresenceKey.activeIds(context).contains(keyId)) return
             val macId = ((payload[2].toInt() and 0xFF) shl 8) or (payload[3].toInt() and 0xFF)
-            val locked = (payload[4].toInt() and 0xFF) == 1
+            // One byte: lock state, or a calibration phase (protocol §14). A
+            // value this build does not know is dropped, not guessed at.
+            val beacon = MacBeaconState.of(payload[4].toInt() and 0xFF) ?: return
             val tag = payload.copyOfRange(5, PAYLOAD_LEN)
 
-            if (verify(keyId, macId, locked, tag)) {
-                MacState.heard(macId, locked)
+            if (verify(keyId, macId, beacon.byte, tag)) {
+                MacState.heard(macId, beacon)
                 // Only from a beacon that verified. An id taken from an
                 // unverified one would let anyone with a radio put a label on
                 // this phone's list of Macs.
@@ -86,14 +88,14 @@ class MacStateScanner(private val context: Context) {
      * ±1 window, same tolerance the Mac gives the phone: two clocks that agree
      * to within thirty seconds is all either side assumes.
      */
-    private fun verify(keyId: Int, macId: Int, locked: Boolean, tag: ByteArray): Boolean {
+    private fun verify(keyId: Int, macId: Int, state: Int, tag: ByteArray): Boolean {
         if (!PresenceKey.has(keyId)) return false
         val c0 = System.currentTimeMillis() / 1000L / SpikeContract.WINDOW_SECONDS
         for (c in longArrayOf(c0 - 1, c0, c0 + 1)) {
             val msg = SpikeContract.MAC_STATE_LABEL.toByteArray(Charsets.US_ASCII) +
                 byteArrayOf(keyId.toByte(), ((macId shr 8) and 0xFF).toByte(), (macId and 0xFF).toByte()) +
                 PresenceBeacon.beLong(c) +
-                byteArrayOf(if (locked) 1 else 0)
+                byteArrayOf(state.toByte())
             val full = runCatching { PresenceKey.hmac(keyId, msg) }.getOrNull() ?: return false
             if (constantTimeEquals(full.copyOf(SpikeContract.TAG_LEN), tag)) return true
         }

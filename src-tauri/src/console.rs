@@ -558,7 +558,25 @@ pub fn start_command_watcher(app: AppHandle) {
         loop {
             std::thread::sleep(std::time::Duration::from_millis(700));
             let Ok(csv) = std::fs::read_to_string(&path) else { continue };
-            for (byte, at) in console_requests_since(&csv, mark) {
+            // One mark for the whole poll. Advancing it inside the first loop
+            // let a request at t2 hide a command at t1 < t2 from the loops after.
+            let since = mark;
+            // The phone asked to start a calibration leg. The driver answers
+            // through the state beacon; here it only needs to be started.
+            for (cmd, at, key_id) in crate::unlock::calibration_commands_since(&csv, since) {
+                mark = at.max(mark);
+                let near = cmd == crate::unlock::CAL_CMD_NEAR;
+                let started = crate::unlock::drive_calibration(app.clone(), key_id, near);
+                if let Ok(dir) = app.path().app_data_dir() {
+                    use std::io::Write;
+                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("console.log")) {
+                        let _ = writeln!(f, "{} cmd={cmd} 钥匙 {key_id} 要{}{}", now_iso(),
+                            if near { "量近处" } else { "量远处" },
+                            if started { "，开始了" } else { "，不是时候，没理" });
+                    }
+                }
+            }
+            for (byte, at) in console_requests_since(&csv, since) {
                 mark = at.max(mark);
                 let outcome = send_catalogue(&app, byte);
                 let _ = app.emit(
@@ -573,7 +591,7 @@ pub fn start_command_watcher(app: AppHandle) {
                     }),
                 );
             }
-            for (byte, at, key_id) in console_commands_since(&csv, mark) {
+            for (byte, at, key_id) in console_commands_since(&csv, since) {
                 mark = at.max(mark);
                 // Written as well as emitted, and defined BEFORE the first thing
                 // that can refuse. A toast is gone in four seconds and the person

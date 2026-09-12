@@ -281,7 +281,7 @@ private fun sectionLabel(context: Context, pal: Palette, text: String) = TextVie
  */
 private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppStore, m: PairedMac): LinearLayout {
     val seen = m.macId?.toIntOrNull(16)?.let { id -> MacState.sightings().firstOrNull { it.macId == id } }
-    val heard = seen?.state == MacLockState.LOCKED || seen?.state == MacLockState.UNLOCKED
+    val heard = seen != null
 
     val card = Ui.card(context, pal)
     val top = LinearLayout(context).apply {
@@ -316,9 +316,10 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppSto
             addView(
                 Ui.secondary(
                     context, pal,
-                    when (seen?.state) {
-                        MacLockState.LOCKED -> "锁着。走过去，密码框留空，按回车。"
-                        MacLockState.UNLOCKED -> "开着，不用解锁。"
+                    when {
+                        seen?.state == MacLockState.LOCKED -> "锁着。走过去，密码框留空，按回车。"
+                        seen?.state == MacLockState.UNLOCKED -> "开着，不用解锁。"
+                        seen != null -> "正在量距离。"
                         else -> "没听到它。可能不在附近、睡着了，或者没开 Outsie。"
                     },
                 ),
@@ -350,9 +351,24 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppSto
     )
     card.addView(actions, Ui.lp(top = context.dp(12)))
 
-    // Quiet, and on the card it acts on. Small type because it is rare and not
-    // undone without re-pairing, not because it is unimportant.
-    card.addView(
+    // Two quiet links under the buttons. Small type because they are rare, not
+    // because they are unimportant.
+    val links = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+    links.addView(
+        TextView(context).apply {
+            // Calibration lives on the phone (design doc §05 §06): you walk with
+            // it and cannot see the Mac. Gated like the buttons -- the Mac has to
+            // be listening for the command to reach it.
+            text = "重新量距离"
+            setTextColor(if (heard) pal.textSecondary else pal.divider)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, context.dp(10), context.dp(18), 0)
+            isClickable = heard
+            if (heard) setOnClickListener { calMac(m.keyId); nav.go(Screen.CAL) }
+        },
+        Ui.lp(width = WRAP_CONTENT),
+    )
+    links.addView(
         TextView(context).apply {
             text = "移走"
             setTextColor(pal.textSecondary)
@@ -380,6 +396,7 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppSto
         },
         Ui.lp(width = WRAP_CONTENT),
     )
+    card.addView(links)
     return card
 }
 

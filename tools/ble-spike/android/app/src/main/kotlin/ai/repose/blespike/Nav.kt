@@ -10,7 +10,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /** The product screens. CONTROL belongs to one Mac and opens from its card (design doc §04). */
-enum class Screen { PAIRING, HOME, KEEPALIVE, CONTROL }
+enum class Screen { PAIRING, HOME, KEEPALIVE, CONTROL, CAL }
 
 /** How screens ask the host to move between screens. */
 interface Nav {

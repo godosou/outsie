@@ -82,4 +82,26 @@ class MacStateTest {
         assertEquals(MAC_B, seen[0].macId)
         assertEquals(MacLockState.LOCKED, MacState.current(later + 2_000))
     }
+
+    @Test fun `a calibrating Mac is heard but its lock state is not claimed`() {
+        // While the Mac is measuring, its beacon carries the phase instead of
+        // the lock state. The card must still count it as present (the buttons
+        // stay live) without pretending to know whether it is locked.
+        MacState.forget()
+        MacState.heard(macId = MAC_A, beacon = MacBeaconState.CAL_NEAR, nowUptime = t0)
+        val s = MacState.sightings(t0 + 1_000).single()
+        assertEquals(MacBeaconState.CAL_NEAR, s.beacon)
+        assertEquals(MacLockState.UNKNOWN, s.state)
+        assertEquals(MacLockState.UNKNOWN, MacState.current(t0 + 1_000))
+    }
+
+    @Test fun `the beacon for one Mac is readable by its id`() {
+        MacState.forget()
+        MacState.heard(macId = MAC_A, beacon = MacBeaconState.CAL_WAIT, nowUptime = t0)
+        MacState.heard(macId = MAC_B, locked = true, nowUptime = t0)
+        assertEquals(MacBeaconState.CAL_WAIT, MacState.beaconOf(MAC_A, t0 + 500))
+        assertEquals(MacBeaconState.LOCKED, MacState.beaconOf(MAC_B, t0 + 500))
+        assertEquals(null, MacState.beaconOf(0x9999, t0 + 500))
+        assertEquals(null, MacState.beaconOf(MAC_A, t0 + SpikeContract.MAC_STATE_STALE_MS + 1))
+    }
 }

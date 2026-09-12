@@ -90,8 +90,24 @@ struct Tags {
     /// it was not handed a tag for.
     let macId: UInt16
     let counter: Int64
-    let unlocked: Data
-    let locked: Data
+    /// Index = state byte: 0 unlocked, 1 locked, 2..7 calibration phases.
+    let tags: [Data]
+}
+
+/// The calibration phase the app wants on the air, if any (design doc §05).
+///
+/// A small file the app writes: `<state> <until_ms>`. Read here rather than
+/// received on stdin because the app is not the process on the other end of
+/// stdin -- the key-holding verifier is -- and the app must not have to go
+/// through it to say 「等你走开」. Anything unreadable, out of range or expired
+/// means "no phase", and the lock state is advertised as usual.
+func calibrationPhase() -> UInt8? {
+    guard let path = ProcessInfo.processInfo.environment["REPOSE_PHASE_FILE"],
+          let raw = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+    let f = raw.split(separator: " ", omittingEmptySubsequences: true)
+    guard f.count >= 2, let state = UInt8(f[0]), let until = Int64(f[1]), (2...7).contains(state) else { return nil }
+    let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+    return (until == 0 || nowMs < until) ? state : nil
 }
 
 final class Advertiser: NSObject, CBPeripheralManagerDelegate {
@@ -101,7 +117,7 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
     /// time, so `current` says which, and `rotateKey` moves it along.
     private var tagsByKey: [UInt8: Tags] = [:]
     private var current: UInt8?
-    private var onAir: (UInt8, Int64, Bool)?   // (keyId, counter, locked) on air
+    private var onAir: (UInt8, Int64, UInt8)?  // (keyId, counter, state) on air
 
     func start() { manager = CBPeripheralManager(delegate: self, queue: nil) }
 
@@ -169,16 +185,20 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
     /// happens on a state change or a window roll, not on a timer.
     func refresh() {
         guard ready, let id = current, let t = tagsByKey[id] else { return }
-        let locked = screenIsLocked()
-        if let cur = onAir, cur == (t.keyId, t.counter, locked) { return }
+        // A calibration in progress takes the byte over from the lock state:
+        // the phone is following it, and while you are measuring you are at
+        // the Mac anyway.
+        let state: UInt8 = calibrationPhase() ?? (screenIsLocked() ? 1 : 0)
+        if let cur = onAir, cur == (t.keyId, t.counter, state) { return }
+        guard Int(state) < t.tags.count else { return }
 
-        let tag = locked ? t.locked : t.unlocked
+        let tag = t.tags[Int(state)]
         var payload = Data([
             macStateVersion,
             t.keyId,
             UInt8((t.macId >> 8) & 0xFF),
             UInt8(t.macId & 0xFF),
-            locked ? 1 : 0,
+            state,
         ])
         payload.append(tag)
 
@@ -202,8 +222,8 @@ final class Advertiser: NSObject, CBPeripheralManagerDelegate {
             // security-relevant: the tag covers the bytes, not their spelling.
             CBAdvertisementDataLocalNameKey: base64url(payload),
         ])
-        onAir = (t.keyId, t.counter, locked)
-        log("advertising state=\(locked ? "locked" : "unlocked") window=\(t.counter) key=\(t.keyId)")
+        onAir = (t.keyId, t.counter, state)
+        log("advertising state=\(state) window=\(t.counter) key=\(t.keyId)")
     }
 }
 
@@ -245,15 +265,16 @@ DispatchQueue.global().async {
 DispatchQueue.global().async {
     while let line = readLine(strippingNewline: true) {
         let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-        // Six fields now: the mac id came last so a v1 verifier's five-field
-        // line is rejected outright rather than being read as a v2 line with a
-        // zero id, which would advertise a Mac that claims to be no Mac.
-        guard f.count == 6, f[0] == "macstate",
+        // Twelve fields: eight tags, one per state the beacon may say. The mac
+        // id stays last, so an older verifier's shorter line is rejected
+        // outright rather than read as a line with a zero id.
+        guard f.count == 12, f[0] == "macstate",
               let keyId = UInt8(f[1]), let counter = Int64(f[2]),
-              let unlocked = hexDecode(f[3]), let locked = hexDecode(f[4]),
-              let macId = UInt16(f[5], radix: 16)
+              let macId = UInt16(f[11], radix: 16)
         else { continue }
-        let t = Tags(keyId: keyId, macId: macId, counter: counter, unlocked: unlocked, locked: locked)
+        let decoded = f[3...10].compactMap(hexDecode)
+        guard decoded.count == 8 else { continue }
+        let t = Tags(keyId: keyId, macId: macId, counter: counter, tags: decoded)
         DispatchQueue.main.async { advertiser.accept(t) }
     }
     log("input ended; nothing left to authenticate a state with, stopping")

@@ -154,6 +154,7 @@ class MainActivity : Activity(), Nav {
             Screen.HOME -> buildHomeScreen(this, store, this) { enable -> onAdvertiseChange(enable) }
             Screen.KEEPALIVE -> buildKeepAliveScreen(this, this)
             Screen.CONTROL -> buildControlScreen(this, this, console, store)
+            Screen.CAL -> buildCalScreen(this, this, store)
         }
         currentView = view
         contentFrame.removeAllViews()
@@ -166,7 +167,7 @@ class MainActivity : Activity(), Nav {
     override fun back() {
         when (current) {
             Screen.KEEPALIVE -> go(Screen.HOME)
-            Screen.CONTROL -> go(Screen.HOME)
+            Screen.CONTROL, Screen.CAL -> go(Screen.HOME)
             else -> finish()
         }
     }
@@ -174,7 +175,7 @@ class MainActivity : Activity(), Nav {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (current) {
-            Screen.KEEPALIVE, Screen.CONTROL -> go(Screen.HOME)
+            Screen.KEEPALIVE, Screen.CONTROL, Screen.CAL -> go(Screen.HOME)
             else -> super.onBackPressed()
         }
     }

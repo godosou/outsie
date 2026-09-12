@@ -1164,7 +1164,8 @@ seq        手机持久化递增；Mac 只接受严格更大的</code></pre>
   <pre class="proto"><code>服务 UUID  0xFFF7
 载荷       version(1) ‖ keyId(1) ‖ macId(2) ‖ state(1) ‖ tag(8)       13 字节
 承载       BLE 本地名，base64url 18 字符
-state      0 开着 · 1 锁着 · <b>2 量近处 · 3 量远处 · 4 量好了 · 5 两边太像</b>   ← 量距离在手机上，靠这几个值报进度
+state      0 开着 · 1 锁着 · <b>2 量近处 · 3 近处好了，等你走开 · 4 量远处 · 5 量好了 · 6 两边太像 · 7 没听到手机</b>
+           ← 量距离在手机上，靠这几个值报进度。3 是必须有的：远处不自动开始，Mac 要说「等你」
 macId      硬件 UUID 的 SHA-256 前两字节，纳入预映像</code></pre>
   <h3 style="margin-top:24px">按钮列表 <code>repose-console-v1</code>（Mac → 手机，短时可连接）</h3>
   <pre class="proto"><code>服务 UUID  0xFFF9   特征 0xFFFA

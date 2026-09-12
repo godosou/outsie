@@ -1834,6 +1834,203 @@ pub fn unlock_calibrate_sample(app: AppHandle) -> Result<CalibrationProgress, Un
     })
 }
 
+// ---- calibration driven from the phone (design doc §05 §06) ---------------
+//
+// The phone says when each leg starts (cmd 4 near, cmd 5 far); this side
+// samples and reports its phase to the phone through the state beacon. The
+// phase is a small file that the unprivileged beacon process reads once a
+// second and advertises in place of the lock state while it is fresh.
+//
+// The far leg never starts on its own. When the near leg has enough, this side
+// writes PHASE_WAIT and stops; only the phone's second command begins the far
+// leg. Sampling while the person is still walking puts the walk into the far
+// set, and that is the most common way to get 「两边太像」.
+
+/// Under presence-run, where the beacon process already reads verified.csv.
+pub const CALIBRATION_PHASE_FILE: &str = "calibration-phase";
+
+/// The two command bytes (protocol §14).
+pub const CAL_CMD_NEAR: u8 = 4;
+pub const CAL_CMD_FAR: u8 = 5;
+
+/// State-beacon values for a calibration in progress (protocol §14).
+pub const PHASE_NEAR: u8 = 2;
+pub const PHASE_WAIT: u8 = 3;
+pub const PHASE_FAR: u8 = 4;
+pub const PHASE_OK: u8 = 5;
+pub const PHASE_FAIL: u8 = 6;
+pub const PHASE_SILENT: u8 = 7;
+
+/// Sampling a leg gives up after this long without filling up.
+pub const CALIBRATION_LEG_TIMEOUT_MS: i64 = 90_000;
+/// How long 「等你走开」 stays on the air before the Mac goes back to its lock state.
+const PHASE_WAIT_TTL_MS: i64 = 10 * 60_000;
+/// How long a verdict stays on the air. Long enough to survive the pipeline
+/// restart that a good verdict triggers.
+const PHASE_VERDICT_TTL_MS: i64 = 120_000;
+
+/// `<state> <until_ms>`. until_ms 0 means "until replaced".
+pub fn phase_line(state: u8, until_ms: i64) -> String {
+    format!("{state} {until_ms}")
+}
+
+/// The phase to advertise now, or None when the file is absent, malformed,
+/// out of range, or expired. Anything unreadable falls back to the lock state
+/// rather than to a phase the phone would act on.
+pub fn parse_phase(raw: &str, now_ms: i64) -> Option<u8> {
+    let mut it = raw.split_whitespace();
+    let state: u8 = it.next()?.parse().ok()?;
+    let until: i64 = it.next()?.parse().ok()?;
+    if !(PHASE_NEAR..=PHASE_SILENT).contains(&state) {
+        return None;
+    }
+    (until == 0 || now_ms < until).then_some(state)
+}
+
+/// Both the count and the span, because the scanner reports the same reading
+/// many times a second and a count alone is not time.
+pub fn calibration_leg_ready(p: &CalibrationProgress) -> bool {
+    p.samples >= p.needed && p.elapsed_ms >= p.needed_ms
+}
+
+/// What the beacon says after a verdict. Overlap is 「两边太像」; too few or too
+/// brief means this Mac could not hear the phone, which is a different fix.
+pub fn phase_for_outcome(o: &CalibrationOutcome) -> u8 {
+    match o {
+        CalibrationOutcome::Ok { .. } => PHASE_OK,
+        CalibrationOutcome::TooSimilar { .. } => PHASE_FAIL,
+        CalibrationOutcome::NotEnoughSamples { .. } | CalibrationOutcome::TooBrief { .. } => PHASE_SILENT,
+    }
+}
+
+/// Calibration commands (4 and 5) new since `after_ms`, with the key slot of
+/// the phone that sent them: (cmd, at_ms, key_id). Same rows as the shortcut
+/// watcher reads, same VALID-only rule.
+pub fn calibration_commands_since(csv: &str, after_ms: i64) -> Vec<(u8, i64, u8)> {
+    csv.lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split(',').collect();
+            if fields.len() < 9 {
+                return None;
+            }
+            let field = |name: &str| fields.iter().find_map(|f| f.trim().strip_prefix(name).map(str::trim));
+            if field("auth=") != Some("VALID") {
+                return None;
+            }
+            let cmd: u8 = field("cmd=")?.parse().ok()?;
+            if cmd != CAL_CMD_NEAR && cmd != CAL_CMD_FAR {
+                return None;
+            }
+            let at: i64 = fields[0].trim().parse().ok()?;
+            let key_id: u8 = fields[4].trim().parse().ok()?;
+            (at > after_ms).then_some((cmd, at, key_id))
+        })
+        .collect()
+}
+
+fn phase_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("presence-run").join(CALIBRATION_PHASE_FILE))
+}
+
+pub fn write_calibration_phase(app: &AppHandle, state: u8, until_ms: i64) {
+    if let Some(p) = phase_path(app) {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(p, phase_line(state, until_ms));
+    }
+}
+
+/// Close the leg being walked without judging anything yet.
+fn calibrate_close_leg() {
+    if let Ok(mut st) = CALIBRATION.lock() {
+        if let Some(near) = st.active_near {
+            let stamp = now_ms();
+            if near {
+                if let Some(l) = st.near.as_mut() {
+                    l.to_ms = Some(stamp)
+                }
+            } else if let Some(l) = st.far.as_mut() {
+                l.to_ms = Some(stamp)
+            }
+        }
+        st.active_near = None;
+    }
+}
+
+/// Which leg the phone-driven calibration is in: 0 idle, else a PHASE_ value.
+static CAL_DRIVE: std::sync::Mutex<u8> = std::sync::Mutex::new(0);
+
+fn drive_set(v: u8) {
+    *CAL_DRIVE.lock().unwrap_or_else(|e| e.into_inner()) = v;
+}
+
+/// Whether a request for `near` is in turn, given the driver's phase.
+///
+/// A far leg is only in turn while a near leg is waiting; a near leg is always
+/// in turn (「再量一次」 restarts from the beginning) unless one is already
+/// being walked.
+pub fn calibration_in_turn(phase: u8, near: bool) -> bool {
+    match (near, phase) {
+        (true, p) => p != PHASE_NEAR,
+        (false, p) => p == PHASE_WAIT,
+    }
+}
+
+/// The phone asked for a leg. Returns false when the request is out of turn.
+pub fn drive_calibration(app: AppHandle, key_id: u8, near: bool) -> bool {
+    {
+        let mut d = CAL_DRIVE.lock().unwrap_or_else(|e| e.into_inner());
+        if !calibration_in_turn(*d, near) {
+            return false;
+        }
+        *d = if near { PHASE_NEAR } else { PHASE_FAR };
+    }
+    std::thread::spawn(move || {
+        let kind = if near { "near" } else { "far" };
+        let args = CalibrateArgs { kind: kind.into(), device_id: key_id.to_string() };
+        if unlock_calibrate_start(app.clone(), args).is_err() {
+            drive_set(0);
+            return;
+        }
+        write_calibration_phase(&app, if near { PHASE_NEAR } else { PHASE_FAR }, 0);
+        let started = now_ms();
+        let ready = loop {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+            if let Ok(p) = unlock_calibrate_sample(app.clone()) {
+                if calibration_leg_ready(&p) {
+                    break true;
+                }
+            }
+            if now_ms() - started > CALIBRATION_LEG_TIMEOUT_MS {
+                break false;
+            }
+        };
+        if !ready {
+            calibrate_close_leg();
+            write_calibration_phase(&app, PHASE_SILENT, now_ms() + PHASE_VERDICT_TTL_MS);
+            drive_set(0);
+            return;
+        }
+        if near {
+            calibrate_close_leg();
+            write_calibration_phase(&app, PHASE_WAIT, now_ms() + PHASE_WAIT_TTL_MS);
+            drive_set(PHASE_WAIT);
+            return;
+        }
+        // The far leg: judge, and say so. On success finish() restarts the
+        // pipeline to load the new thresholds; the phase file outlives that
+        // restart, so the new beacon process still reports the verdict.
+        let phase = match unlock_calibrate_finish(app.clone()) {
+            Ok(r) => phase_for_outcome(&r.outcome),
+            Err(_) => PHASE_SILENT,
+        };
+        write_calibration_phase(&app, phase, now_ms() + PHASE_VERDICT_TTL_MS);
+        drive_set(0);
+    });
+    true
+}
+
 #[tauri::command]
 pub fn unlock_calibrate_finish(app: AppHandle) -> Result<CalibrationResult, UnlockError> {
     let st = {
@@ -3778,6 +3975,67 @@ macstate,1,59638225,cc,dd,ab12
             "overlapping spreads must not produce an inverted band: {:?}",
             r.outcome,
         );
+    }
+
+    // ---- calibration driven from the phone --------------------------------
+
+    #[test]
+    fn a_phase_line_round_trips_and_expires() {
+        assert_eq!(parse_phase(&phase_line(PHASE_WAIT, 0), 5_000), Some(PHASE_WAIT));
+        assert_eq!(parse_phase(&phase_line(PHASE_OK, 10_000), 9_999), Some(PHASE_OK));
+        // Expired: the Mac goes back to saying whether it is locked.
+        assert_eq!(parse_phase(&phase_line(PHASE_OK, 10_000), 10_000), None);
+    }
+
+    #[test]
+    fn an_unreadable_phase_falls_back_to_the_lock_state_not_to_a_guess() {
+        assert_eq!(parse_phase("", 0), None);
+        assert_eq!(parse_phase("garbage", 0), None);
+        assert_eq!(parse_phase("5", 0), None);
+        // Lock states are not phases: the file must not be able to claim 「锁着」.
+        assert_eq!(parse_phase("1 0", 0), None);
+        assert_eq!(parse_phase("9 0", 0), None);
+    }
+
+    #[test]
+    fn a_leg_needs_both_enough_readings_and_enough_time() {
+        let p = |samples, elapsed_ms| CalibrationProgress {
+            near_leg: true, samples, needed: 20, elapsed_ms, needed_ms: 15_000, latest_dbm: None,
+            monitor_running: true,
+        };
+        assert!(calibration_leg_ready(&p(20, 15_000)));
+        assert!(!calibration_leg_ready(&p(19, 15_000)));
+        // 400 readings in three seconds is the scanner repeating itself.
+        assert!(!calibration_leg_ready(&p(400, 3_000)));
+    }
+
+    #[test]
+    fn the_verdict_becomes_the_beacon_value_the_phone_screen_keys_on() {
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::Ok { near_dbm: -60, far_dbm: -80 }), PHASE_OK);
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::TooSimilar { gap_db: 3.0, needed_db: 12.0 }), PHASE_FAIL);
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::NotEnoughSamples { near: 2, far: 0, needed: 20 }), PHASE_SILENT);
+        assert_eq!(phase_for_outcome(&CalibrationOutcome::TooBrief { near_ms: 100, far_ms: 0, needed_ms: 15_000 }), PHASE_SILENT);
+    }
+
+    #[test]
+    fn the_far_leg_is_only_in_turn_while_a_near_leg_is_waiting() {
+        assert!(calibration_in_turn(0, true));
+        assert!(calibration_in_turn(PHASE_WAIT, true));       // 再量一次
+        assert!(!calibration_in_turn(PHASE_NEAR, true));      // already walking it
+        assert!(calibration_in_turn(PHASE_WAIT, false));
+        assert!(!calibration_in_turn(0, false));              // far before near
+        assert!(!calibration_in_turn(PHASE_FAR, false));
+    }
+
+    #[test]
+    fn calibration_commands_are_read_off_the_same_stream_as_the_shortcuts() {
+        let csv = "\
+1000,rssi=-50,auth=VALID,x,166,cmd=4,seq=1,a,b\n\
+1500,rssi=-50,auth=NOKEY,x,166,cmd=4,seq=2,a,b\n\
+2000,rssi=-50,auth=VALID,x,166,cmd=16,seq=3,a,b\n\
+2500,rssi=-50,auth=VALID,x,17,cmd=5,seq=4,a,b\n";
+        assert_eq!(calibration_commands_since(csv, 0), vec![(4, 1000, 166), (5, 2500, 17)]);
+        assert_eq!(calibration_commands_since(csv, 1000), vec![(5, 2500, 17)]);
     }
 
     #[test]
