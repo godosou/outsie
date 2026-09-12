@@ -425,9 +425,9 @@ const fresh = () => ({
   macTab:'phone', presence:true, idleLock:true, a11y:false, more:false,
   phones:[
     { id:'p1', name:'真我GT5 Pro', unlock:true, control:true, seen:'刚刚见到', paired:'9 月 11 日配好',
-      near:-60, far:-78, calAt:'9 月 11 日', place:'书房' },
+      near:-60, far:-78, calAt:'9 月 11 日' },
     { id:'p2', name:'备用机 Pixel 6a', unlock:false, control:true, seen:'3 天前见到', paired:'8 月 2 日配好',
-      near:null, far:null, calAt:null, place:null },
+      near:null, far:null, calAt:null },
   ],
   apps:[
     { id:'tmux', name:'终端 · tmux', bundle:'com.apple.Terminal', actions:[
@@ -544,7 +544,7 @@ function macPhonePage() {
               <label class="cap" data-act="cap" data-v="${d.id}:control"><span class="toggle sm ${d.control ? 'on' : ''}"><span></span></span>按快捷键</label>
             </span>
             <span class="bands"><span class="ico" style="width:18px;color:var(--ink-icon)">${svg(ICON.ruler)}</span>
-              <span class="when">${d.near == null ? '还没量过你的距离' : `${d.calAt} 在「${d.place}」量的距离`}</span>
+              <span class="when">${d.near == null ? '还没量过你的距离' : `${d.calAt}量的距离`}</span>
               <span class="chip no">换了地方，在手机上重新量</span></span>
           </span></div>`).join('')}
     </div>
@@ -702,7 +702,7 @@ function phoneCal() {
   const body = [
     `<div class="phero"><div class="disc">📏</div><h3>教它认出你的距离</h3>
       <p>Mac 靠信号强弱猜你在不在。每个房间都不一样，所以要在<b>你平常用它的地方</b>量一次。</p></div>
-     <div class="pnote info">${p.near == null ? '这台电脑还没量过。' : `上次是 ${p.calAt} 在「${p.place}」量的。重新量的时候，旧的先照常用着；量不出结果，旧的也不会变。`}</div>
+     <div class="pnote info">${p.near == null ? '这台电脑还没量过。' : `上次是 ${p.calAt}量的。重新量的时候，旧的先照常用着；量不出结果，旧的也不会变。`}</div>
      <div class="pbtn primary" style="margin-top:14px" data-act="calNext">先坐到平常的位置</div>`,
     `<div class="phero"><div class="disc">🪑</div><h3>坐着别动</h3><p>正在量你在座位上时的信号。看这块屏就好，Mac 那边什么都不用做。</p></div>
      <div class="pbar"><i style="width:${c.pct || 0}%"></i></div><p class="ptiny" style="margin-top:4px">${c.secs || 0} 秒了。</p>`,
@@ -833,7 +833,7 @@ const CH = [
   <table class="voice">
     <tr><td class="no">按下去，那台 Mac 会先切到这个 App，再按键。</td><td class="yes">按一下，那台 Mac 会先切到这个 App，再替你按键。</td></tr>
     <tr><td class="no">点下去只代表发出了。有没有按成要在 Mac 上看——太远、钥匙关着、或者没给「辅助功能」权限，都会按不了。</td><td class="yes">按钮只负责发出去。按没按成，要看那台 Mac。</td></tr>
-    <tr><td class="no">近 −60 dBm · 远 −78 dBm</td><td class="yes">9 月 11 日在「书房」量的距离</td></tr>
+    <tr><td class="no">近 −60 dBm · 远 −78 dBm</td><td class="yes">9 月 11 日量的距离</td></tr>
     <tr><td class="no">替你按键的权限 · 还没允许。macOS 把「替别的 App 按键」当成辅助功能权限。</td><td class="yes">手机选操作，Mac 替你按键 · 还没允许。离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键。</td></tr>
     <tr><td class="no">隐藏只是不显示，那个键照样能发。要禁止这部手机按键，去 Mac 上关掉它的「让它按快捷键」。</td><td class="yes">收起来只是这里不显示。要真的不让这部手机按键，去 Mac 上关掉它。</td></tr>
     <tr><td class="no">不在附近 · 也可能是它睡着了、关机了，或者没开 Outsie</td><td class="yes">没听到它。可能不在附近、睡着了，或者没开 Outsie。</td></tr>
@@ -873,7 +873,7 @@ const CH = [
       <p style="font-size:13px;color:var(--page-ink)"><b>休息</b><br>今日概览 · 休息计划 · 休息灵感 · 我的记录</p>
       <p style="font-size:13px;color:var(--page-ink)"><b>手机控制</b><br>
         <b style="color:var(--accent)">手机控制</b> —— 谁能做什么<br>&nbsp;&nbsp;用手机解锁 · 自动锁屏 · <b>让 Outsie 替你按键</b><br>
-        &nbsp;&nbsp;你的手机（解锁 / 按快捷键）<br>&nbsp;&nbsp;每部手机：上次在哪量的距离<br>&nbsp;&nbsp;手机丢了 · 更多（试一次 · 技术细节 · 改回原样）<br>
+        &nbsp;&nbsp;你的手机（解锁 / 按快捷键）<br>&nbsp;&nbsp;每部手机：上次什么时候量的距离<br>&nbsp;&nbsp;手机丢了 · 更多（试一次 · 技术细节 · 改回原样）<br>
         <b style="color:var(--accent)">快捷键设置</b> —— 能做什么<br>&nbsp;&nbsp;App 标签 → 这个 App 的操作<br>&nbsp;&nbsp;录一组按键 · 试一次 · 删除</p>
       <p style="font-size:13px;color:var(--page-ink)"><b>其它</b><br>偏好设置</p></div>
     <div class="spec" style="padding:20px 22px"><h4>手机 · 没有 tab 栏</h4>
@@ -900,7 +900,7 @@ const CH = [
     macPhone:`<h4>这一页</h4><p><b>两个面板。</b>上面回答「锁和开这一对现在什么状态」，下面回答「谁能开」。</p>
       <p><b>自动锁屏在这里。</b>手机钥匙存在的全部理由，就是让人敢把自动锁屏开到最紧。分开放，人就会为了少输密码去关锁屏。</p>
       <p><b>替你按键的权限也在这里。</b>上面两件事都要它。试着允许它，再去「快捷键设置」看那条提示消失。</p>
-      <p><b>距离那一行不写数字。</b>写的是「什么时候、在哪量的」，重新量在手机上。数字在「更多」里。</p>`,
+      <p><b>距离那一行不写数字。</b>写的是「什么时候量的」，重新量在手机上。数字在「更多」里。</p>`,
     macShort:`<h4>这一页</h4><p><b>先点 App，再出按钮。</b>三个 App 加起来 87 个操作，平铺超过四屏。那么长的列表是划过去的，不是读的。</p>
       <p><b>没权限时，提示指回「手机控制」。</b>不留一个点不动的「试一次」。</p>`,
     pHome:`<h4>这一屏</h4><p><b>一台电脑一张卡</b>：状态、锁定、控制，下面两行小字：重新量距离、移走。</p>
@@ -920,7 +920,7 @@ const CH = [
     <div class="scroller">${frame}</div></div>${spec(notes[sub])}</div>
   ${after([
     ['用手机解锁','关掉之后状态行改成「回来要输密码」。','—'],
-    ['你离开，电脑自动锁屏','和上面是一对。','没允许替你按键时它开着也不生效，所以权限行紧跟在下面。'],
+    ['你离开，电脑自动锁屏','和上面是一对。','没允许替你按键时，它会被关掉并说明原因；权限行就在下面一行。'],
     ['去系统设置里允许','打开系统设置；回来时这一行自己变成「已允许」。','系统里撤销了，这一行自己变回去。'],
     ['解锁 / 按快捷键','马上生效。','关掉「按快捷键」之后，这部手机发来的快捷键 Mac 会拒收。'],
     ['当你的钥匙','开关信标。','厂商后台杀掉时会悄悄停，所以有那条提示和「去设置」。'],
@@ -951,12 +951,12 @@ const CH = [
     <h4>「不一样，停下」是一个真答案</h4><p>不是取消。按了之后不要就着这次重试。允许重试等于让对方一直猜，六位数字就不再是六位数字。</p>
     <h4>远处不自动开始</h4><p>近处量完，手机停在「走开」那一屏，等你按「到了」。路上的信号是从近到远的一条斜线，混进远处那一组，两组就会挨在一起。这是「两边太像」最常见的成因，靠一个按钮就能挡掉。</p>
     <h4>量距离必须能失败</h4><p>两边太像时给原因和两个出口。一个不能失败的校准，只会写进一个它自己都不信的数字。</p>
-    <h4>Mac 是尺子，手机是遥控器</h4><p>信号是 Mac 听到的，手机自己量不了。所以手机发指令、Mac 采样、Mac 把进度用状态信标报回来。这需要状态字节多几个取值，见第 13 章。</p>`)}</div>
+    <h4>Mac 是尺子，手机是遥控器</h4><p>信号是 Mac 听到的，手机自己量不了。所以手机发指令、Mac 采样、Mac 把进度用状态信标报回来。这需要状态字节多几个取值，见第 14 章。</p>`)}</div>
   ${after([
     ['配一部新手机','Mac 开始找；手机上打开 Outsie 就出现。','手机没开蓝牙时停在「正在找」，说去哪儿开。'],
     ['和手机上一样','Mac 记下这次交换，等手机用上新钥匙。','两边不一样：按「不一样，停下」，这次作废，不重试。'],
-    ['一样，完成配对（手机）','手机写入钥匙，开始用它签名。','钥匙位被占时 Mac 回一个「换一个」，手机换一个位。'],
-    ['先坐到平常的位置','Mac 采近处，手机显示进度。量完停在「走开」那一屏。','采得太少或太短，不算数，让你再坐一会儿。'],
+    ['一样，完成配对（手机）','手机写入钥匙，开始用它签名。','钥匙位被占的情形还没处理（未实现，见第 15 章）。'],
+    ['先坐到平常的位置','Mac 采近处，手机显示进度。量完停在「走开」那一屏。','90 秒内一直在量，就是「再坐一会儿」；90 秒还不够，Mac 说「没听到手机」。'],
     ['到了，开始量','这时才采远处。路上不量。','走动中的信号混进去，两边就会像，所以远处不自动开始。'],
     ['（远处量完）','出结果。','两边太像：走失败屏，给原因和两个出口。'],
     ['再量一次','回到「先坐到平常的位置」。旧的还在用。','—'],
@@ -973,7 +973,7 @@ const CH = [
     { n:'④', cap:'站定了才量', html: at({ pScreen:'cal', cal:{ step:3, pct:30, secs:7 } }, () => phone('sm')) },
     { n:'⑤', cap:'成功', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
     { n:'⑤', cap:'失败：上次的一个数都没变', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
-    { n:'Mac', cap:'Mac 上只写什么时候在哪量的', html: at({ macTab:'phone' }, () => macWindow('narrow')) },
+    { n:'Mac', cap:'Mac 上只写什么时候量的', html: at({ macTab:'phone' }, () => macWindow('narrow')) },
   ];
   return `<span class="chnum">06</span><h2>重新量距离</h2>
   <p class="section-lede">换了座位、换了房间，就重新量。入口在手机的电脑卡片上。</p>
@@ -1009,7 +1009,7 @@ const CH = [
     ['＋ App','打开系统选 App 的面板，选中的加进来并展开。','同一个 App 加两次会被挡下。'],
     ['＋ 加一个操作','弹窗：先问名字，再录键。','名字为空，「开始录」点不动。'],
     ['就这些','写进配置，读回来显示。','没按任何键，点不动。'],
-    ['试一次','切到那个 App，按下那组键。','没权限：不执行，提示指回「手机控制」。'],
+    ['试一次','切到那个 App，按下那组键。','没权限：按钮变灰，上方一句话指回「手机控制」。'],
     ['🗑 / 移掉这个 App','写盘后读回。','—'],
   ])}`;
 }},
@@ -1186,6 +1186,7 @@ keyId       手机首次配对时自己取 1..255；Mac 槽位被占则回「换
   <div class="tbl-wrap"><table class="after"><tr><th style="width:32%">能力</th><th style="width:16%">状态</th><th>证据 / 缺什么</th></tr>
   ${[
     ['配对（核对六位数字）','ok','两端同时显示同一串；自检含 OpenSSL 已知答案'],
+    ['配对时钥匙位被占→换一个','no','第 14 章协议里写了这一步；Mac 不回「换一个」，手机也不换位，两端都没实现。第 05 章那一行直说'],
     ['在场信标 + 签名','ok','真机 16/16 有效，冒充者 0/24'],
     ['插件在 macOS 26.6.2 上放行 / 拒绝','ok','放行多次；手机关机时拒绝，本机实测'],
     ['手机 → Mac 锁屏','ok','25 秒内收到 21 次'],
@@ -1205,7 +1206,7 @@ keyId       手机首次配对时自己取 1..255；Mac 槽位被占则回「换
     ['「这把钥匙」删掉，收进主屏「更多」','no','第 03 章'],
     ['技术细节收进「更多」','no','第 01 章第 4 条'],
     ['远程停用','no','界面上直说做不到'],
-    ['<b>更新 App 之后蓝牙权限会丢</b>','no','实测：重新装一版 Outsie，macOS 把它当成另一个 App，蓝牙授权作废，监测悄悄停掉。面板会说「没让 Outsie 用蓝牙」，但根治要一个固定的签名身份（Developer ID），那不在这一轮'],
+    ['<b>更新 App 之后蓝牙权限会丢</b>','no','实测：重新装一版 Outsie，macOS 把它当成另一个 App，蓝牙授权作废，监测悄悄停掉。面板会说「没让 Outsie 用蓝牙」，但根治是用本机自签的证书签包：TCC 记的是签名要求，ad-hoc 只有 cdhash，有证书就稳定。不需要 Developer ID。已排进计划'],
     ['真·中间人测试','no','需要第二台 Android'],
     ['需要手机确认才解锁','skip','不做'],
     ['<b>面板跟随 Mac 前台 App</b>（官网承诺）','no','官网「电脑切到哪，面板跟到哪」。今天的信标单向，Mac 报不出前台 App；要状态信标多带一个字段。先在官网上改口，或者排进下一版协议'],
@@ -1309,7 +1310,7 @@ document.addEventListener('click', e => {
     goCal: () => { S.controlMac = v || S.controlMac; S.macSheet = null; S.pScreen = 'cal'; S.cal = { step:0, pct:0, secs:0, forceFail: S.controlMac === 'm3' }; },
     calNext: () => { S.cal.step = 1; S.cal.pct = 0; S.cal.secs = 0; step(calTick, 380); },
     calFar: () => { S.cal.step = 3; S.cal.pct = 0; S.cal.secs = 0; step(calTick, 380); },
-    calDone: () => { if (S.cal.step === 4) { const p = S.phones[0]; p.near = -57; p.far = -80; p.calAt = '9 月 12 日'; p.place = '书房'; } S.cal = null; S.pScreen = 'home'; },
+    calDone: () => { if (S.cal.step === 4) { const p = S.phones[0]; p.near = -57; p.far = -80; p.calAt = '9 月 12 日'; } S.cal = null; S.pScreen = 'home'; },
     msClose: () => { S.macSheet = null; if (S.pScreen === 'pair') S.pScreen = 'home'; S.pair = null; },
     addApp: () => { const id = 'app' + (S.apps.length + 1); S.apps.push({ id, name:'新加的 App', bundle:'com.example.new', actions:[] }); S.macApp = id; toast('加上了。给它加一个操作。'); },
     delApp: () => { S.apps = S.apps.filter(a => a.id !== v); if (!S.apps.length) S.apps.push({ id:'x', name:'空', bundle:'—', actions:[] }); S.macApp = S.apps[0].id; },

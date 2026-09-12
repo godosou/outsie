@@ -69,3 +69,14 @@ E 在 A–D 上真机看过之后再动。
   等真机走一遍手机流程之后再删，不在验证之前拆掉唯一能用的路。
 - **真机没验**：要先在系统设置里把蓝牙重新允许给 Outsie（更新 App 之后丢了），
   然后一个人拿着手机走一遍。
+
+## 进展（2026-09-12 下午）
+
+- **蓝牙授权丢失的根因和修法**：Tauri 没配签名身份，包只有链接器 ad-hoc 签名，TCC 记的是
+  `cdhash`，重编译即新 App。**不需要 Developer ID**（之前文档写错了）：本机自签证书就够。
+  已做：`scripts/dev-signing-identity.mjs`（幂等地建/找「Outsie Dev」）、
+  `scripts/package-tauri-dev.mjs`（`tauri build` 之后 `codesign --deep` 签整包，`package:mac` 指向它）、
+  发布脚本改用同一身份。验证：签一个探针二进制，`codesign -d -r-` 给出
+  `identifier … and certificate leaf = H"4643…"`，不含 cdhash。换身份后的第一次装包要
+  `tccutil reset Bluetooth ai.repose.lite` 再允许一次，之后不再丢。
+- 剩余收口（文案、死代码、文档↔代码一致性、跨语言向量）由一个 workflow 并行做，完成后按流提交。
