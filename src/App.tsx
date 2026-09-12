@@ -88,6 +88,26 @@ function shiftLocalDay(timestamp: number, days: number) {
   date.setDate(date.getDate() + days)
   return localNoon(date.getTime())
 }
+/**
+ * The phone's 同步 result, in the reader's words.
+ *
+ * The desktop names the outcome and, on failure, appends the sending tool's
+ * last line after a colon. That line is written for a log: when the phone
+ * simply stopped listening it is English with a second count in it. Only a
+ * reason written for the reader survives here; the rest is replaced by what
+ * to do, because a toast lasts four seconds and has no room to explain.
+ */
+function syncToast(detail: string): string {
+  if (detail.startsWith('手机已经拿到按钮列表')) return '手机已经拿到按钮列表。回到手机上，这就能按了。'
+  if (detail.startsWith('没能把列表送到手机')) {
+    const colon = detail.indexOf('：')
+    const why = colon >= 0 ? detail.slice(colon + 1).trim() : ''
+    const readable = /[\u4e00-\u9fff]/.test(why) && !/[A-Za-z]{3,}/.test(why)
+    const sentence = why.endsWith('。') ? why : `${why}。`
+    return readable ? `没能把列表送到手机。${sentence}在手机上再点一次「同步」。` : '没能把列表送到手机。在手机上再点一次「同步」，几秒钟就送到。'
+  }
+  return detail
+}
 function clockAfter(seconds: number) { return new Date(Date.now() + seconds * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) }
 function BrandMark({ small = false }: { small?: boolean }) {
   return <span className={`brand-mark ${small ? 'small' : ''}`} aria-hidden="true"><img src="./favicon.svg" alt="" /></span>
@@ -228,7 +248,7 @@ export default function App() {
     // Not every event names an action: the phone asking for the button list,
     // a phone this Mac has not allowed to press, and a byte no action matches
     // all arrive with `action: null`, and their `detail` is the whole story.
-    if (!e.action) { showToast(e.detail ?? (e.ok ? '手机说了一句，办好了。' : '手机说了一句，没办成。')); return }
+    if (!e.action) { showToast(e.detail ? syncToast(e.detail) : (e.ok ? '手机说了一句，办好了。' : '手机说了一句，没办成。')); return }
     const said = `手机要按「${e.action}」。`
     if (e.ok) showToast(`${said}${e.app ? `切到「${e.app}」，` : ''}按了。`)
     else showToast(`${said}没按成。${e.detail ?? '再试一次。'}`)

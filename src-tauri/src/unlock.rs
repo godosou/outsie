@@ -1710,12 +1710,22 @@ pub fn calibration_verdict(near: &[(i32, i64)], far: &[(i32, i64)]) -> Calibrati
     CalibrationResult { near: n, far: f, outcome }
 }
 
+/// The only RSSI values that are a distance. CoreBluetooth reports 127 when it
+/// has no reading for a packet, and a stalled scanner can print 0; a real
+/// signal in air is somewhere in this range.
+const RSSI_DBM_RANGE: std::ops::RangeInclusive<i32> = -127..=-1;
+
 /// Pull the rssi out of the verifier's output for one key.
 ///
 /// The file carries two kinds of line: samples, and `macstate,...` rows the
 /// pipeline writes for the advertiser. Reading by position without checking
 /// what a row is would turn a macstate line's second field -- a key id -- into
 /// a -1 dBm reading, which is a phone pressed against the antenna.
+///
+/// A sample outside [RSSI_DBM_RANGE] is dropped, not clamped. The near leg of
+/// 2026-09-12 came back as mean -41 dBm, sd 34, n=52 -- not a phone held in
+/// one place but a column of 127s dragging a real -60 cloud upward, and a
+/// threshold cut from that would have read the whole room as "near".
 pub fn calibration_samples(csv: &str, since_ms: i64, key_id: u8) -> Vec<(i32, i64)> {
     csv.lines()
         .filter_map(|line| {
@@ -1730,7 +1740,11 @@ pub fn calibration_samples(csv: &str, since_ms: i64, key_id: u8) -> Vec<(i32, i6
             if f[4].trim().parse::<u8>().ok()? != key_id {
                 return None;
             }
-            Some((f[1].trim().parse::<i32>().ok()?, at))
+            let rssi: i32 = f[1].trim().parse().ok()?;
+            if !RSSI_DBM_RANGE.contains(&rssi) {
+                return None;
+            }
+            Some((rssi, at))
         })
         .collect()
 }
@@ -4252,6 +4266,28 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
 1001,-53,ABC,2,1,tag,0,2,auth=VALID,cmd=0
 ";
         assert_eq!(calibration_samples(csv, 0, 1), vec![(-53, 1001)]);
+    }
+
+    #[test]
+    fn an_rssi_that_is_not_a_negative_dbm_is_not_a_reading() {
+        // CoreBluetooth hands back 127 when it has no RSSI for a packet, and a
+        // stalled scanner can print 0. Neither is a distance. Today's near leg
+        // came out at mean -41 dBm, sd 34, n=52: not a phone held in one place
+        // but a column of 127s dragging a real -60 cloud upward. Real readings
+        // live in -1..-127; anything outside that is dropped, including -128.
+        let csv = "\
+1000,127,ABC,2,1,tag,0,1,auth=VALID,cmd=0
+1001,0,ABC,2,1,tag,0,2,auth=VALID,cmd=0
+1002,5,ABC,2,1,tag,0,3,auth=VALID,cmd=0
+1003,-1,ABC,2,1,tag,0,4,auth=VALID,cmd=0
+1004,-53,ABC,2,1,tag,0,5,auth=VALID,cmd=0
+1005,-127,ABC,2,1,tag,0,6,auth=VALID,cmd=0
+1006,-128,ABC,2,1,tag,0,7,auth=VALID,cmd=0
+";
+        assert_eq!(
+            calibration_samples(csv, 0, 1),
+            vec![(-1, 1003), (-53, 1004), (-127, 1005)]
+        );
     }
 
     fn slot(id: u8, state: PresenceKeyState) -> KeySlot {

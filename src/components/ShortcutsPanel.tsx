@@ -253,7 +253,11 @@ export function ShortcutsPanel({ bridge, onToast }: {
                             disabled={!status.trusted || running !== null}
                             onClick={() => void run(app.id, action)}
                           >
-                            <Play size={12} />{running === action.id ? '按下去了…' : '试一次'}
+                            {/* Present tense while it runs: the app switch is
+                                the visible half, and the toast is what ends
+                                it, a second or so later. 「按下去了」 claimed
+                                the press before the Mac had made it. */}
+                            <Play size={12} />{running === action.id ? '正在切过去按，一秒左右就有结果。' : '试一次'}
                           </button>
                         )}
                       </div>
@@ -285,7 +289,8 @@ export function ShortcutsPanel({ bridge, onToast }: {
         {/* Said here rather than in a footnote: someone looking at these buttons
             is about to assume they take effect on every phone. */}
         <p className="security-limit" style={{ marginTop: 18 }}>
-          手机上同步一次，才看得到这些按钮。哪部手机可以按，在「手机控制」里定。
+          在手机上点「同步」，几秒钟列表就过去了，送到了这里会弹一句。这里改过什么，手机要再同步一次。
+          哪部手机可以按，在「手机控制」里定。
         </p>
       </section>
 

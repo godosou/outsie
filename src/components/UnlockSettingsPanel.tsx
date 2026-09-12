@@ -347,6 +347,11 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
   // rendered ON permanently, only its turn-OFF branch was ever reachable, and
   // clicking it did nothing visible. Forever.
   const enabled = snapshot.presenceRunning
+  // The two waits that hold the switch grey. Both start with an administrator
+  // prompt that appears over this window, and neither has a snapshot state of
+  // its own on this Mac -- the request is the only thing that knows.
+  const installing = request.pending === 'install' || snapshot.state === 'installing'
+  const removing = request.pending === 'uninstall' || snapshot.state === 'uninstalling'
 
   return (
     <>
@@ -383,10 +388,25 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
                   at a permission dialog takes no samples at all, and saying
                   「正在留意你的手机」 over that describes a Mac that is doing
                   nothing. Observed live 2026-09-12. */}
-              {!enabled
-                ? '已关闭 · 现在只能用密码登录'
-                : radioTrouble(snapshot.radio)
-                  ?? (snapshot.devices.length ? '已开启 · 正在留意你的手机' : '已开启 · 但还没有哪部手机能用来解锁')}
+              {/* Every wait says what is happening, what ends it, and about
+                  how long (design doc §01). 「正在留意」 alone said none of
+                  those: listening is a wait for the phone to be heard. */}
+              {installing
+                ? '正在安装 · 先输一次管理员密码，之后十几秒装好。装好了这一行会自己变。'
+                : removing
+                  ? '正在移除 · 先输一次管理员密码，之后几秒改回原样。改好了把实际读数给你看。'
+                  : request.pending === 'resume' && !enabled
+                    ? '正在打开 · 先输一次管理员密码，几秒后开始留意你的手机。'
+                    : (request.pending === 'repair-rule' || request.pending === 'reinstall-component')
+                      ? '正在修复 · 先输一次管理员密码，之后几秒修好。修好了这一行会自己变。'
+                  : !enabled
+                    ? '已关闭 · 现在只能用密码登录'
+                    : radioTrouble(snapshot.radio)
+                      ?? (!snapshot.devices.length
+                        ? '已开启 · 但还没有哪部手机能用来解锁'
+                        : snapshot.presence === 'near'
+                          ? '已开启 · 听到你的手机了。锁屏上按一下回车就进。'
+                          : '已开启 · 正在留意你的手机。它一到附近，几秒内就听得到；在那之前回来要输密码。')}
             </p>
           )}
           {/* Says what you get, then reassures. It used to describe the
@@ -525,6 +545,21 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
                 {view.status.main}
                 {view.status.sub && <span className="pk-status-sub">{view.status.sub}</span>}
               </p>
+              {/* Said before the click, because the click blanks the screen
+                  and takes this page with it. What ends the drill is you,
+                  back at the desk: nothing here watches the lock screen, so
+                  the copy promises no tick. */}
+              {snapshot.state === 'awaiting-verification' && (
+                <p className="pk-row-note">
+                  按下去，屏幕马上会锁。回来什么都不输，按一下回车：进来了，就是成了。
+                  没进，照常输密码，密码一直都能用。前后半分钟。
+                </p>
+              )}
+              {snapshot.state === 'awaiting-password-drill' && (
+                <p className="pk-row-note">
+                  按下去，屏幕马上会锁。这一次照常输密码进来，确认退路是通的。前后半分钟。
+                </p>
+              )}
               {/* Not 'begin-pairing': that button is the heading of 「你的手机」
                   below, in plain sight. Offering it here as well is two buttons
                   for one decision, and this one is behind a fold. */}
@@ -805,7 +840,7 @@ function CalMeter({ progress, pct }: { progress: CalibrationProgress | null; pct
           // The number is deliberately unlabelled and small: it is here so the
           // bar is visibly tied to something real and moves when you move, not
           // so anyone has to know what dBm means (ui-conventions 3.4).
-          ? <>正在记 · 现在 <b>{progress.latestDbm}</b> dBm</>
+          ? '正在记 · 信号在动，说明它在收。'
           : '还没收到信号'}
       </p>
     </div>
@@ -1188,10 +1223,10 @@ function PairingSheet(
           <div className="pk-pair-waiting" role="status" aria-live="polite">
             <span className="pk-pair-dot" /><span className="pk-pair-dot" /><span className="pk-pair-dot" />
           </div>
-          <p className="pk-pair-hint">找到之后，两边会各显示一串六位数字。</p>
+          <p className="pk-pair-hint">通常几秒就找到。找到了，这里会换成一串六位数字，手机上也有一串。</p>
           {/* The one way this step stalls, named while it is happening
               (design doc §05 按下之后: 停在「正在找」，说去哪儿开). */}
-          <p className="pk-pair-hint">手机上要开着蓝牙，并且打开 Outsie。三分钟找不到会停下来，重新开始就好。</p>
+          <p className="pk-pair-hint">手机要开着蓝牙，Outsie 要在前台。三分钟没找到，这里会自己停下，重新开始就好。</p>
           <div className="pk-modal-actions">
             <button className="button light" onClick={onClose}>取消</button>
           </div>
@@ -1230,8 +1265,13 @@ function PairingSheet(
               so it waits to HEAR the phone sign something with the new key.
               That is why this screen exists instead of a tick. */}
           <p className="pk-pair-hint">
-            在手机上点「一样，完成配对」。这里会在听到手机用上新钥匙时自己变成完成——
-            <b>Mac 不会听信「手机已确认」这种消息</b>，中间人也能那么说。
+            在手机上点「一样，完成配对」。手机点完就开始用新钥匙，这里几秒内听到，自己变成完成。
+            <b>Mac 不会听信「手机已确认」这种消息</b>，中间人也能那么说，所以它只认手机真的用上了新钥匙。
+          </p>
+          {/* No clock on this side: the Mac waits as long as the sheet is
+              open. So the stall has to be named, with what to do about it. */}
+          <p className="pk-pair-hint">
+            一直停在这里？多半是手机上还没点，或者手机的蓝牙关了。点了还是没动，两边都关掉，重新配一次。
           </p>
           <div className="pk-modal-actions">
             <button className="button light" onClick={onClose}>先关掉</button>
@@ -1249,6 +1289,10 @@ function PairingSheet(
               tried. */}
           <p className="pk-pair-hint">
             还剩一件事：锁一次屏，确认 macOS 真的会放行。没试过之前，别把密码忘了。
+          </p>
+          <p className="pk-pair-hint">
+            点「现在锁屏试一次」，屏幕马上会锁。回来什么都不输，按一下回车：进来了，就是成了。
+            没进，照常输密码。前后半分钟。
           </p>
           {/* The fingerprint used to sit here in large type labelled 配对编号,
               directly after a sheet whose entire point was comparing six other

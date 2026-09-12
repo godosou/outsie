@@ -256,9 +256,13 @@ so sleeping the display would leave the session unlocked"
 }
 clear_permit()  { eval "${PERMIT_OFF_CMD}" >/dev/null 2>&1 || log "warn: permit-off command failed"; }
 
-# A well-formed integer dBm (negative). Anything else (header, blank, garbage)
-# is skipped rather than misread as a strong signal.
-is_dbm() { case "$1" in ''|*[!0-9-]*) return 1 ;; -[0-9]*|[0-9]*) return 0 ;; *) return 1 ;; esac; }
+# A well-formed integer dBm: -1..-127, nothing else. Anything else (header,
+# blank, garbage) is skipped rather than misread as a strong signal -- and so
+# are 0 and positive numbers, which are not weak-but-plausible readings but the
+# scanner saying it has none: CoreBluetooth reports 127 for "RSSI unavailable",
+# and 127 >= any NEAR band, so accepting it asserted the permit for a phone the
+# Mac could not actually hear. Enumerated by digit so no arithmetic is needed.
+is_dbm() { case "$1" in -[1-9]|-[1-9][0-9]|-1[01][0-9]|-12[0-7]) return 0 ;; *) return 1 ;; esac; }
 
 present=0
 last_sample=0
