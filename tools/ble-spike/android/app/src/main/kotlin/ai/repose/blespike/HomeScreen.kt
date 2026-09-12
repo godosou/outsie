@@ -203,7 +203,7 @@ fun buildHomeScreen(
             )
         } else {
             for (m in paired) {
-                column.addView(computerCard(context, pal, nav, m), Ui.lp(top = context.dp(10)))
+                column.addView(computerCard(context, pal, nav, store, m), Ui.lp(top = context.dp(10)))
             }
         }
         column.addView(
@@ -211,10 +211,22 @@ fun buildHomeScreen(
             Ui.lp(top = context.dp(12)),
         )
 
+        // 这把钥匙 used to be a third tab. What is behind it -- what this key
+        // is, how to get rid of it, what to do if the phone is lost -- you read
+        // once; a tab is for somewhere you go back to. It sits here, under the
+        // computers it talks about.
         column.addView(
-            Ui.secondary(context, pal, "手机钥匙用不了的时候，Mac 密码照常登录。"),
-            Ui.lp(top = context.dp(18), left = context.dp(4), right = context.dp(4)),
+            TextView(context).apply {
+                text = "这把钥匙 ›"
+                setTextColor(pal.textSecondary)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                setPadding(context.dp(4), context.dp(16), context.dp(4), 0)
+                isClickable = true
+                setOnClickListener { nav.go(Screen.MACS) }
+            },
+            Ui.lp(width = WRAP_CONTENT),
         )
+
     }
 
     fun refresh() {
@@ -273,7 +285,13 @@ fun buildHomeScreen(
  * paired key, that it is locked. Without the signature anyone with a radio
  * could broadcast 「开着」 and keep you in your chair.
  */
-private fun computerCard(context: Context, pal: Palette, nav: Nav, m: PairedMac): LinearLayout {
+private fun computerCard(
+    context: Context,
+    pal: Palette,
+    nav: Nav,
+    store: AppStore,
+    m: PairedMac,
+): LinearLayout {
     val seen = m.macId
         ?.let { hex -> hex.toIntOrNull(16) }
         ?.let { id -> MacState.sightings().firstOrNull { it.macId == id } }
@@ -288,9 +306,12 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, m: PairedMac)
             text = when (seen?.state) {
                 MacLockState.LOCKED -> "🔒"
                 MacLockState.UNLOCKED -> "💻"
-                else -> "🌫"
+                // 🌫 drew as an empty placeholder box on this phone, which
+                // reads as a broken image rather than as "not heard from".
+                else -> "–"
             }
             gravity = Gravity.CENTER
+            setTextColor(pal.textSecondary)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             background = Ui.rounded(pal.surfaceMuted, context.dpF(11f))
             layoutParams = LinearLayout.LayoutParams(context.dp(34), context.dp(34))
@@ -312,9 +333,9 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, m: PairedMac)
                     context,
                     pal,
                     when (seen?.state) {
-                        MacLockState.LOCKED -> "锁着 · 走过去，密码框留空按回车就能进"
-                        MacLockState.UNLOCKED -> "开着 · 没锁，不用解锁"
-                        else -> "不在附近 · 也可能是它睡着了、关机了，或者没开 Outsie"
+                        MacLockState.LOCKED -> "锁着 · 走过去，密码框留空按回车"
+                        MacLockState.UNLOCKED -> "开着 · 不用解锁"
+                        else -> "没听到它 · 可能不在附近、睡着了，或者没开 Outsie"
                     },
                 ),
                 Ui.lp(top = context.dp(2)),
@@ -334,6 +355,37 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, m: PairedMac)
         LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).also { it.leftMargin = context.dp(10) },
     )
     card.addView(actions, Ui.lp(top = context.dp(12)))
+
+    // Quiet, and on the card it acts on. It used to be a row on 这把钥匙, in a
+    // second list of the same computers -- so removing one meant finding it
+    // twice. Small type because it is rare and irreversible without re-pairing,
+    // not because it is unimportant.
+    card.addView(
+        TextView(context).apply {
+            text = "移走"
+            setTextColor(pal.textSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, context.dp(10), 0, 0)
+            isClickable = true
+            setOnClickListener {
+                android.app.AlertDialog.Builder(context, Ui.dialogTheme(context))
+                    .setTitle("移走「${m.name}」？")
+                    .setMessage(
+                        "这台手机丢掉它那把钥匙，那台 Mac 就不会再因为你走近而解锁。\n\n" +
+                            "这不是在那台 Mac 上做的操作——它那边的设置不会变，只是从此认不出" +
+                            "这台手机。想恢复，重新配对一次。",
+                    )
+                    .setNegativeButton("算了", null)
+                    .setPositiveButton("移走") { _, _ ->
+                        store.forgetMac(context, m.keyId)
+                        Toast.makeText(context, "已经移走「${m.name}」", Toast.LENGTH_LONG).show()
+                        nav.go(Screen.HOME)
+                    }
+                    .show()
+            }
+        },
+        Ui.lp(width = WRAP_CONTENT),
+    )
     return card
 }
 

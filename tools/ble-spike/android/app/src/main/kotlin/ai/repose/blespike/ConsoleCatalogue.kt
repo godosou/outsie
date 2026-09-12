@@ -22,7 +22,21 @@ data class ConsoleAction(
 
 data class ConsoleApp(val name: String, val actions: List<ConsoleAction>)
 
-data class ConsoleCatalogue(val revision: Long, val apps: List<ConsoleApp>) {
+data class ConsoleCatalogue(
+    val revision: Long,
+    val apps: List<ConsoleApp>,
+    /**
+     * Which key verified it — which is to say, which Mac sent it.
+     *
+     * Verification used to answer only 「验过了」 and throw away 「哪一把」, so the
+     * 控制 screen could not name the computer its buttons belonged to. With two
+     * Macs paired that is not a cosmetic gap: the buttons on screen are one
+     * machine's, and nothing said which.
+     *
+     * 0 means unknown — a catalogue stored before this was recorded.
+     */
+    val keyId: Int = 0,
+) {
 
     companion object {
         const val VERSION = 1
@@ -32,6 +46,7 @@ data class ConsoleCatalogue(val revision: Long, val apps: List<ConsoleApp>) {
         private const val PREFS = "repose_console"
         private const val KEY_JSON = "catalogue_json"
         private const val KEY_REVISION = "catalogue_revision"
+        private const val KEY_KEYID = "catalogue_key_id"
 
         /**
          * Check a received blob and parse it, or return null.
@@ -52,22 +67,24 @@ data class ConsoleCatalogue(val revision: Long, val apps: List<ConsoleApp>) {
             val tag = whole.copyOfRange(whole.size - TAG_LEN, whole.size)
             val msg = LABEL.toByteArray(Charsets.US_ASCII) + body
 
-            val matched = PresenceKey.activeIds(context).any { id ->
-                if (!PresenceKey.hasConsoleKey(id)) return@any false
-                val full = runCatching { PresenceKey.consoleHmac(id, msg) }.getOrNull() ?: return@any false
+            // Which key matched is kept, not discarded: it is the only thing in
+            // the whole exchange that says which Mac this catalogue came from.
+            val matched = PresenceKey.activeIds(context).firstOrNull { id ->
+                if (!PresenceKey.hasConsoleKey(id)) return@firstOrNull false
+                val full = runCatching { PresenceKey.consoleHmac(id, msg) }.getOrNull()
+                    ?: return@firstOrNull false
                 constantTimeEquals(full.copyOf(TAG_LEN), tag)
-            }
-            if (!matched) return null
+            } ?: return null
 
             var rev = 0L
             for (i in 1..4) rev = (rev shl 8) or (whole[i].toLong() and 0xFF)
             val json = String(body, 5, body.size - 5, Charsets.UTF_8)
-            return parse(rev, json)
+            return parse(rev, json, matched)
         }
 
-        fun parse(revision: Long, json: String): ConsoleCatalogue? = runCatching {
+        fun parse(revision: Long, json: String, keyId: Int = 0): ConsoleCatalogue? = runCatching {
             val root = JSONObject(json)
-            val apps = root.optJSONArray("apps") ?: return@runCatching ConsoleCatalogue(revision, emptyList())
+            val apps = root.optJSONArray("apps") ?: return@runCatching ConsoleCatalogue(revision, emptyList(), keyId)
             val out = ArrayList<ConsoleApp>(apps.length())
             for (i in 0 until apps.length()) {
                 val a = apps.getJSONObject(i)
@@ -90,21 +107,22 @@ data class ConsoleCatalogue(val revision: Long, val apps: List<ConsoleApp>) {
                 }
                 if (list.isNotEmpty()) out += ConsoleApp(a.optString("n", "?"), list)
             }
-            ConsoleCatalogue(revision, out)
+            ConsoleCatalogue(revision, out, keyId)
         }.getOrNull()
 
         /** Kept across restarts, so the buttons are there before the Mac is. */
-        fun save(context: Context, revision: Long, json: String) {
+        fun save(context: Context, revision: Long, json: String, keyId: Int) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString(KEY_JSON, json)
                 .putLong(KEY_REVISION, revision)
+                .putInt(KEY_KEYID, keyId)
                 .apply()
         }
 
         fun load(context: Context): ConsoleCatalogue? {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val json = p.getString(KEY_JSON, null) ?: return null
-            return parse(p.getLong(KEY_REVISION, 0L), json)
+            return parse(p.getLong(KEY_REVISION, 0L), json, p.getInt(KEY_KEYID, 0))
         }
 
         fun forget(context: Context) {

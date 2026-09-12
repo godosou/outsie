@@ -9,8 +9,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
-/** The four product screens. */
-enum class Screen { PAIRING, HOME, KEEPALIVE, MACS, CONTROL }
+/** The product screens. ARRANGE is a sub-screen of CONTROL, not a tab. */
+enum class Screen { PAIRING, HOME, KEEPALIVE, MACS, CONTROL, ARRANGE }
 
 /** How screens ask the host to move between screens. */
 interface Nav {

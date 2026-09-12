@@ -624,10 +624,11 @@
 
 .pk-row-note { margin: 7px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--subtle); max-width: 46em; }
 
-/* Three lines of explanation leave the icon floating at the middle of the
-   block; it belongs beside the heading it labels. */
-.ks-permission { align-items: flex-start; }
-.ks-permission .preference-icon { margin-top: 2px; }
+/* The Accessibility permission row (手机控制; it used to be on 快捷键设置, hence
+   the old ks- name). Three lines of explanation leave the icon floating at the
+   middle of the block; it belongs beside the heading it labels. */
+.pk-permission { align-items: flex-start; }
+.pk-permission .preference-icon { margin-top: 2px; }
 
 /* ---- editing the shortcuts -------------------------------------------- */
 .ks-app-head { position: relative; }

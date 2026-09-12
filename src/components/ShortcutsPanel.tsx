@@ -1,13 +1,20 @@
-// 快捷控制 — 能按什么。
+// 快捷键设置 — 能按什么。
 //
 // This page answers one question: which keys can this Mac be asked to press,
 // and in which app. WHO may ask is the other page's question (手机控制), and
 // keeping them apart is the whole reason the sidebar has two entries.
 //
-// The phone half is not built yet, and this page says so where a reader would
-// otherwise assume it is -- next to the buttons, not in a footnote.
+// One app at a time: laid out flat, this desk's three apps and 87 actions ran
+// past four screens, and a list that long is scrolled rather than read.
+//
+// The Accessibility permission is NOT asked for here, though every button on
+// this page depends on it. One macOS permission covers two features — 自动锁屏
+// and 替手机按键 — and both of those live on 手机控制, so the permission row went
+// with them. Asking for it here sent someone who only wants auto-lock to a page
+// about shortcuts they never use. What stays here is the consequence: when the
+// permission is missing, this page says so and says where to go.
 import { useCallback, useEffect, useState } from 'react'
-import { Command, ArrowUpRight, Play, Accessibility, Plus, Trash2, Keyboard, X } from 'lucide-react'
+import { Command, Play, Plus, Trash2, Keyboard, X } from 'lucide-react'
 import {
   EMPTY_CONSOLE,
   normalizeConsoleStatus,
@@ -47,15 +54,6 @@ export function ShortcutsPanel({ bridge, onToast }: {
   }, [bridge])
 
   useEffect(() => { void refresh() }, [refresh])
-
-  // The permission can be granted in System Settings while this window is open,
-  // and there is no notification for it. Polling is how the row stops saying
-  // 「还没允许」 after the user has just allowed it.
-  useEffect(() => {
-    if (!bridge || status.trusted) return
-    const timer = window.setInterval(() => { void refresh() }, 2000)
-    return () => window.clearInterval(timer)
-  }, [bridge, status.trusted, refresh])
 
   /**
    * Every structural edit writes the whole file and re-reads what came back.
@@ -131,7 +129,7 @@ export function ShortcutsPanel({ bridge, onToast }: {
     return (
       <section className="panel preferences-panel">
         <div className="section-heading">
-          <div><h2>快捷控制</h2><p>能按哪些键在这里定。</p></div>
+          <div><h2>快捷键设置</h2><p>手机上能按哪些键，在这里定。</p></div>
         </div>
         <div className="security-permission" style={{ marginTop: 18 }}>
           <Command size={15} />
@@ -146,47 +144,26 @@ export function ShortcutsPanel({ bridge, onToast }: {
       <section className="panel preferences-panel">
         <div className="section-heading">
           <div>
-            <h2>快捷控制</h2>
-            <p>这台 Mac 能被要求按哪些键。哪几部手机可以要求，在「手机控制」里。</p>
-          </div>
-        </div>
-
-        {/* The permission comes first because nothing below it works without
-            it, and because 「去授予权限」 is the only action on this page that
-            is always available. */}
-        <div className="preference-row ks-permission">
-          <span className="preference-icon"><Accessibility size={21} /></span>
-          <div>
-            <h3>替你按键的权限</h3>
-            <p className={`pk-row-state${status.trusted ? ' is-on' : ''}`}>
-              {status.trusted ? '已允许' : '还没允许 · 现在按什么都不会发生'}
-            </p>
-            <p className="pk-row-note">
-              macOS 把「替别的 App 按键」当成辅助功能权限。没有它，下面的按钮点了不会有任何事。
-              顺带一提，「离开就自动锁屏」要的也是这一个。
-            </p>
-            {!status.trusted && (
-              <button
-                className="text-button"
-                style={{ marginTop: 6 }}
-                onClick={() => { void bridge.requestTrust().then(() => refresh()) }}
-              >
-                去授予权限<ArrowUpRight size={14} />
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="panel preferences-panel">
-        <div className="section-heading">
-          <div>
             <h2>能按的操作</h2>
             {/* Activating the app is visible — whatever was in front goes
                 behind. Saying it before the press, not after. */}
             <p>{status.apps.length ? '「试一次」会把那个 App 切到最前面再按键，和手机按下去时一样。' : '还没有。'}</p>
           </div>
         </div>
+
+        {/* 「试一次」 is greyed out without the Accessibility permission, and a
+            grey button that says nothing is a dead end. The permission itself
+            is not asked for here any more: it is one permission serving two
+            features (自动锁屏 and 替手机按键), and both of the others live on
+            手机控制 — so that is where it is granted. `status.trusted` is
+            re-read whenever this page is opened, so coming back from there
+            shows the new answer. */}
+        {loaded && !status.trusted && (
+          <p className="security-limit" style={{ marginTop: 0, marginBottom: 14 }}>
+            这台 Mac 还没拿到「替你按键」的权限，所以下面的「试一次」按不了，手机按下去也不会有反应。
+            去「手机控制」里开，那一个权限管着自动锁屏和替手机按键两件事。
+          </p>
+        )}
 
         {!loaded ? null : status.apps.length === 0 ? (
           // 6.4: an empty state answers what this is, not just offers a button.

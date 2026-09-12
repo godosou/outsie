@@ -32,6 +32,13 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
     lateinit var status: TextView
     var catalogue = console.received ?: ConsoleCatalogue.load(context)
 
+    // Which computer these buttons belong to. With two Macs paired, a screen
+    // full of buttons that names none of them is asking you to guess which
+    // machine you are about to type into.
+    val macName = catalogue?.keyId?.takeIf { it != 0 }?.let { id ->
+        AppStore(context).pairedMacs(context).firstOrNull { it.keyId == id }?.name
+    }
+
     // NO HERO ON THIS SCREEN
     //
     // A hero is an answer to 「这是什么」, and it earns its height on a screen
@@ -40,12 +47,12 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
     // one screen in the app where the buttons ARE the screen.
     val root = screenScaffold(
         context, pal,
-        title = "能按的键",
-        // Said before the press, not after: activating the app is a visible
-        // thing that happens to the Mac's screen -- whatever was in front goes
-        // behind. Someone who finds that out by doing it has been surprised by
-        // their own tool.
-        lead = "按下去，Mac 会先把这个 App 切到最前面，再按那组键。按钮是 Mac 上配的，改也要去 Mac 上改。",
+        title = macName ?: "能按的键",
+        // Said before the press, not after: bringing the app to the front is a
+        // visible thing that happens to the Mac -- whatever was there goes
+        // behind it. Finding that out by pressing is being surprised by your
+        // own tool.
+        lead = "按下去，那台 Mac 会先切到这个 App，再按键。",
     ) { column ->
 
         // One line and one button, side by side. Syncing is something you do
@@ -61,26 +68,41 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
             // 「向 Mac 要一份」 described the mechanism. What the reader wants
             // is the outcome: these buttons come from the Mac, and this makes
             // them match what is on the Mac now (ui-conventions 3.4).
+            // Sets no text itself. refresh() reads console.syncing -- the
+            // receiving window actually being open -- and notifying is what
+            // gets refresh() called; writing a line here instead meant the
+            // next state event overwrote it and the button looked inert.
             Ui.ghostButton(context, pal, "同步一下") {
-                if (console.request()) {
-                    status.text = "正在同步。Mac 要在附近，而且电脑上开着 Outsie。"
-                } else {
-                    status.text = console.lastError ?: "没能开始"
-                }
+                console.request()
+                SpikeState.notifyListeners()
             },
             Ui.lp(width = WRAP_CONTENT, left = context.dp(12)),
         )
         column.addView(syncRow, Ui.lp(top = context.dp(10)))
 
         val cat = catalogue
+        // What this phone chose to show, out of what the Mac sent. Purely local:
+        // it never goes back, never touches the signed catalogue, never changes
+        // a cmd byte.
+        val apps = cat?.let { ConsoleArrangement.arrange(it, ConsoleArrangement.load(context)) }.orEmpty()
         if (cat == null || cat.apps.isEmpty()) {
             // 6.4: an empty state answers what this is, not just offers a button.
             column.addView(
                 Ui.infoNote(
                     context,
                     pal,
-                    "还没有按钮。它们是那台 Mac 上「快捷控制」里配好的操作——" +
-                        "同步过来之后会出现在这里，点一下 Mac 就按下那组键。",
+                    "还没有按钮。它们在 Mac 的「快捷键设置」里配，同步过来就出现在这里。",
+                ),
+                Ui.lp(top = context.dp(14)),
+            )
+        } else if (apps.isEmpty()) {
+            // Not the same empty as "never synced", and it must not read like
+            // one -- the buttons are there, this phone put them away.
+            column.addView(
+                Ui.infoNote(
+                    context,
+                    pal,
+                    "${cat.apps.sumOf { it.actions.size }} 个操作都被你隐藏了。",
                 ),
                 Ui.lp(top = context.dp(14)),
             )
@@ -94,7 +116,7 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
             // then which shortcut.
             val chips = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             val holder = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-            val chipViews = ArrayList<TextView>(cat.apps.size)
+            val chipViews = ArrayList<TextView>(apps.size)
 
             fun show(index: Int) {
                 holder.removeAllViews()
@@ -102,7 +124,7 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
                 // No heading on the card: the selected chip already says which
                 // app this is, and repeating it costs a row on every switch.
                 val card = Ui.card(context, pal)
-                cat.apps[index].actions.forEachIndexed { i, action ->
+                apps[index].actions.forEachIndexed { i, action ->
                     card.addView(
                         actionRow(context, pal, action),
                         Ui.lp(top = if (i == 0) 0 else context.dp(10)),
@@ -111,7 +133,7 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
                 holder.addView(card)
             }
 
-            cat.apps.forEachIndexed { i, app ->
+            apps.forEachIndexed { i, app ->
                 val chip = TextView(context).apply {
                     text = "${app.name}  ${app.actions.size}"
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -132,12 +154,21 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
             show(0)
         }
 
+        // Follows the thing it acts on rather than living in a settings page:
+        // it changes what is on THIS screen, and nothing else anywhere.
+        if (cat != null && cat.apps.isNotEmpty()) {
+            column.addView(
+                Ui.ghostButton(context, pal, "⚙︎  挑选与排序") { nav.go(Screen.ARRANGE) },
+                Ui.lp(top = context.dp(14)),
+            )
+        }
+
         column.addView(
             Ui.amberNote(
                 context,
                 pal,
-                "点下去只代表发出了。Mac 有没有真的按下，要在那台 Mac 上看——" +
-                    "它离得太远、钥匙关着、或者没给「辅助功能」权限时，都会收不到或者按不了。",
+                "点下去只代表发出了。有没有按成要在 Mac 上看——太远、钥匙关着、" +
+                    "或者没给「辅助功能」权限，都会按不了。",
             ),
             Ui.lp(top = context.dp(16)),
         )
@@ -158,6 +189,7 @@ fun buildControlScreen(context: Context, nav: Nav, console: ConsoleServer): Scre
         }
         status.text = when {
             console.lastError != null -> console.lastError!!
+            console.syncing -> "正在同步。Mac 要在附近，而且电脑上开着 Outsie。"
             n > 0 -> "已经有 $n 个操作。在 Mac 上改了配置，就再同步一次。"
             else -> "还没同步过。"
         }
@@ -208,10 +240,10 @@ private fun actionRow(context: Context, pal: Palette, action: ConsoleAction): Li
                 Toast.makeText(
                     context,
                     when {
-                        !queued -> "还没有配对，Mac 不会接受这条指令。"
-                        !SpikeState.serviceRunning -> "手机钥匙是关着的，先打开主屏上的开关。"
+                        !queued -> "还没有配对，Mac 不会接受。"
+                        !SpikeState.serviceRunning -> "手机钥匙关着，先去主屏打开。"
                         // 已发出, not 已按下 -- see the note at the top.
-                        else -> "已发出。Mac 在附近的话，几秒内就会按下。"
+                        else -> "已发出。"
                     },
                     Toast.LENGTH_LONG,
                 ).show()

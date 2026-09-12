@@ -66,6 +66,20 @@ class ConsoleServer(private val context: Context) {
     var received: ConsoleCatalogue? = null
         private set
 
+    /**
+     * Whether a sync is in flight right now.
+     *
+     * An observable fact -- the receiving window is literally open -- so a
+     * screen can say 「正在同步」 without inventing anything. Without it the
+     * only place that knew was a line of text the next state event overwrote,
+     * which made pressing 「同步一下」 look like pressing nothing at all.
+     */
+    val syncing: Boolean
+        get() = awaiting
+
+    /** True from asking until a catalogue lands or the window closes. */
+    private var awaiting = false
+
     private var gatt: BluetoothGattServer? = null
     private var openUntil = 0L
     private val handler = Handler(Looper.getMainLooper())
@@ -140,6 +154,7 @@ class ConsoleServer(private val context: Context) {
         }
         received = parsed
         lastError = null
+        awaiting = false
         // Kept, so the buttons are on screen before the Mac is in range. The
         // signature was checked when it arrived; storing it does not re-open
         // that question, and re-checking on every read would mean keeping the
@@ -148,6 +163,16 @@ class ConsoleServer(private val context: Context) {
             context,
             parsed.revision,
             String(whole, 5, whole.size - 5 - ConsoleCatalogue.TAG_LEN, Charsets.UTF_8),
+            parsed.keyId,
+        )
+        // The display preferences are a separate store and survive this — a
+        // sync that wiped someone's ordering would look like the ordering never
+        // saved. What it does drop is records for actions the Mac no longer
+        // has: a freed cmd byte gets reused eventually, and a leftover
+        // 「hidden」 would make a brand-new action invisible the day it arrives.
+        ConsoleArrangement.save(
+            context,
+            ConsoleArrangement.prune(parsed, ConsoleArrangement.load(context)),
         )
         SpikeState.event("收到 ${parsed.apps.sumOf { it.actions.size }} 个操作")
         SpikeState.notifyListeners()
@@ -179,6 +204,7 @@ class ConsoleServer(private val context: Context) {
             return false
         }
 
+        awaiting = true
         val server = runCatching { manager.openGattServer(context, serverCallback) }
             .getOrElse { e -> lastError = "打不开通道：${e.message}"; null } ?: return false
 
@@ -225,7 +251,10 @@ class ConsoleServer(private val context: Context) {
 
     private val closer = Runnable {
         if (SystemClock.elapsedRealtime() >= openUntil) {
-            if (received == null && lastError == null) {
+            // 「awaiting」, not 「received == null」: the second sync of a session
+            // would otherwise fail in silence, because the FIRST one's
+            // catalogue is still sitting there looking like success.
+            if (awaiting && lastError == null) {
                 lastError = "没同步成。Mac 要在附近，而且电脑上开着 Outsie。"
                 SpikeState.event(lastError!!)
                 SpikeState.notifyListeners()
@@ -236,6 +265,7 @@ class ConsoleServer(private val context: Context) {
 
     /** Close the window. Safe to call when nothing is open. */
     fun stop() {
+        awaiting = false
         handler.removeCallbacks(closer)
         chunks.clear()
         expected = 0

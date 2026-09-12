@@ -41,7 +41,6 @@ class MainActivity : Activity(), Nav {
     private lateinit var contentFrame: FrameLayout
     private lateinit var bottomNav: LinearLayout
     private lateinit var navHome: LinearLayout
-    private lateinit var navMacs: LinearLayout
     private lateinit var navControl: LinearLayout
 
     private val main = Handler(Looper.getMainLooper())
@@ -160,6 +159,7 @@ class MainActivity : Activity(), Nav {
             Screen.KEEPALIVE -> buildKeepAliveScreen(this, this)
             Screen.MACS -> buildMacsScreen(this, store, this)
             Screen.CONTROL -> buildControlScreen(this, this, console)
+            Screen.ARRANGE -> buildArrangeScreen(this, this, console)
         }
         currentView = view
         contentFrame.removeAllViews()
@@ -167,7 +167,11 @@ class MainActivity : Activity(), Nav {
             view.root,
             FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT),
         )
-        val showNav = screen == Screen.HOME || screen == Screen.MACS || screen == Screen.CONTROL
+        // 这把钥匙 is no longer a tab. It answers questions you ask once --
+        // what is this key, how do I get rid of it, what if I lose the phone --
+        // and a tab is for somewhere you go back to. It is reached from 主屏,
+        // which is also where the computers it talks about live.
+        val showNav = screen == Screen.HOME || screen == Screen.CONTROL
         bottomNav.visibility = if (showNav) View.VISIBLE else View.GONE
         setNavSelected(pal, screen)
     }
@@ -175,6 +179,7 @@ class MainActivity : Activity(), Nav {
     override fun back() {
         when (current) {
             Screen.KEEPALIVE -> go(Screen.HOME)
+            Screen.ARRANGE -> go(Screen.CONTROL)
             Screen.MACS, Screen.CONTROL -> go(Screen.HOME)
             else -> finish()
         }
@@ -183,6 +188,7 @@ class MainActivity : Activity(), Nav {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (current) {
+            Screen.ARRANGE -> go(Screen.CONTROL)
             Screen.KEEPALIVE, Screen.MACS, Screen.CONTROL -> go(Screen.HOME)
             else -> super.onBackPressed()
         }
@@ -204,10 +210,8 @@ class MainActivity : Activity(), Nav {
         }
         navHome = navItem(pal, "🛡", "主屏") { go(Screen.HOME) }
         navControl = navItem(pal, "🎛", "控制") { go(Screen.CONTROL) }
-        navMacs = navItem(pal, "🔑", "这把钥匙") { go(Screen.MACS) }
         row.addView(navHome, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         row.addView(navControl, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        row.addView(navMacs, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
         bar.addView(row)
         return bar
     }
@@ -243,7 +247,6 @@ class MainActivity : Activity(), Nav {
     private fun setNavSelected(pal: Palette, screen: Screen) {
         tint(navHome, if (screen == Screen.HOME) pal.accent else pal.textSecondary)
         tint(navControl, if (screen == Screen.CONTROL) pal.accent else pal.textSecondary)
-        tint(navMacs, if (screen == Screen.MACS) pal.accent else pal.textSecondary)
     }
 
     private fun tint(item: LinearLayout, color: Int) {

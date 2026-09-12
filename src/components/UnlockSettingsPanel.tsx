@@ -11,7 +11,11 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { KeyRound, Smartphone, X, Monitor, LockKeyhole, ArrowUpRight } from 'lucide-react'
+import { KeyRound, Smartphone, X, Monitor, LockKeyhole, ArrowUpRight, Accessibility } from 'lucide-react'
+import {
+  EMPTY_CONSOLE, normalizeConsoleStatus,
+  type ConsoleStatus, type ConsoleDesktopBridge,
+} from '../lib/console'
 import {
   normalizeUnlockSnapshot, deriveUnlockView, UNSUPPORTED_SNAPSHOT,
   beginRequest, finishRequest, failRequest, canIssue, healthClass, normalizePreflight,
@@ -45,6 +49,17 @@ type Props = {
   bridge?: UnlockDesktopBridge
   onToast?: (message: string) => void
   idleLock?: IdleLock
+  /**
+   * The console bridge, for one row only: the macOS Accessibility permission.
+   *
+   * That permission used to live on 快捷键设置, next to the keys it lets the Mac
+   * press. But it is not the keys' permission — it is the permission for
+   * 「让 Outsie 替你按键」, and TWO features on THIS page need it: 自动锁屏 presses
+   * the lock shortcut when you leave, and the phone's commands press whatever
+   * 快捷键设置 has defined. Someone who only wants auto-lock and never touches
+   * shortcuts was being sent to a page about shortcuts to grant it.
+   */
+  console?: ConsoleDesktopBridge
 }
 
 type SnapshotState = { snapshot: UnlockSnapshot; loaded: boolean }
@@ -52,7 +67,7 @@ function snapshotReducer(_state: SnapshotState, next: UnlockSnapshot): SnapshotS
   return { snapshot: next, loaded: true }
 }
 
-export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
+export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consoleBridge }: Props) {
   const degraded = !bridge
   const [{ snapshot, loaded }, setSnapshot] = useReducer(
     snapshotReducer,
@@ -83,6 +98,25 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
   // that reads it.
   const requestSnapshotRef = useRef(snapshot)
   requestSnapshotRef.current = snapshot
+
+  // ---- the Accessibility permission ---------------------------------------
+  // Its own little status, read from the console bridge rather than the unlock
+  // one: macOS answers "may this app press keys" in one place, and both
+  // 自动锁屏 and 替手机按键 are asking that same question.
+  const [consoleStatus, setConsoleStatus] = useState<ConsoleStatus>(EMPTY_CONSOLE)
+  const refreshConsole = useCallback(async () => {
+    if (!consoleBridge) return
+    setConsoleStatus(normalizeConsoleStatus(await consoleBridge.status().catch(() => null)))
+  }, [consoleBridge])
+  useEffect(() => { void refreshConsole() }, [refreshConsole])
+  // The permission can be granted in System Settings while this window is open,
+  // and there is no notification for it. Polling is how the row stops saying
+  // 「还没允许」 after the user has just allowed it.
+  useEffect(() => {
+    if (!consoleBridge || consoleStatus.trusted) return
+    const timer = window.setInterval(() => { void refreshConsole() }, 2000)
+    return () => window.clearInterval(timer)
+  }, [consoleBridge, consoleStatus.trusted, refreshConsole])
 
   // Mount: pull the first snapshot, subscribe to updates.
   useEffect(() => {
@@ -406,7 +440,10 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
                 ? ''
                 : '关掉解锁之前，先想想会不会顺手也把这个关了——那才是真正变不安全的那一步。'}
             </p>
-            {idleLock.error && (
+            {/* Only when the permission row below is not on screen. That row
+                carries the same 去授予权限 for the same permission, and two
+                buttons for one decision is exactly 2.5. */}
+            {idleLock.error && !consoleBridge && (
               <button className="text-button" onClick={idleLock.onOpenSettings} style={{ marginTop: 6 }}>
                 去授予权限<ArrowUpRight size={14} />
               </button>
@@ -417,6 +454,35 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock }: Props) {
             type="button" role="switch" aria-checked={idleLock.enabled} aria-label="离开 30 秒就自动锁屏"
             onClick={idleLock.onToggle}
           ><span /></button>
+        </div>
+      )}
+
+      {/* Standing between the two things it powers: auto-lock above, and the
+          phone's shortcut commands in the phone list below. It used to be on
+          快捷键设置, which meant someone who only wanted auto-lock had to grant
+          it on a page about a feature they never use. */}
+      {consoleBridge && (
+        <div className="preference-row pk-permission">
+          <span className="preference-icon"><Accessibility size={21} /></span>
+          <div>
+            <h3>替你按键的权限</h3>
+            <p className={`pk-row-state${consoleStatus.trusted ? ' is-on' : ''}`}>
+              {consoleStatus.trusted ? '已允许' : '还没允许 · 自动锁屏和手机按键现在都做不了'}
+            </p>
+            <p className="pk-row-note">
+              macOS 把「替别的 App 按键」当成辅助功能权限。这里有两件事要用它：离开时替你按下锁屏，
+              还有手机发来指令时替你按快捷键（按哪些键在「快捷键设置」里定）。没有它，这两件事都不会发生。
+            </p>
+            {!consoleStatus.trusted && (
+              <button
+                className="text-button"
+                style={{ marginTop: 6 }}
+                onClick={() => { void consoleBridge.requestTrust().then(() => refreshConsole()) }}
+              >
+                去授予权限<ArrowUpRight size={14} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
