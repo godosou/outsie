@@ -237,12 +237,14 @@ pub fn parse_pair_output(line: &str) -> Option<(u8, String, String, String)> {
 }
 
 /// The shell that deletes one device's key. Pure so the quoting and the fact
-/// that it takes the provenance file with it are testable: a key deleted while
-/// its provenance stays behind leaves the next key looking SAS-paired when it
-/// was pushed over USB.
+/// that it takes the sidecars with it are testable: a key deleted while its
+/// provenance stays behind leaves the next key looking SAS-paired when it was
+/// pushed over USB, and a `.phone` left behind (seen on 2026-09-12: slot 166's
+/// phone id outlived its key by hours) keeps naming a phone this Mac no longer
+/// has a key for.
 pub fn revoke_script(key_path: &str) -> String {
     format!(
-        "do shell script \"rm -f {key} {key}.provenance\" with administrator privileges",
+        "do shell script \"rm -f {key} {key}.provenance {key}.phone\" with administrator privileges",
         key = applescript_quote(key_path),
     )
 }
@@ -1466,10 +1468,17 @@ impl UnlockBackend for HostMacBackend {
         if let Ok(dir) = self.app.path().app_data_dir() {
             let pairing = dir.join("pairing");
             let _ = std::fs::remove_file(pairing.join(format!("peer-name.{id}.saved")));
+            // The catalogue-signing key too: it only ever labelled buttons
+            // for the phone that just lost its presence key, and keeping it
+            // would let a stale slot keep signing lists for nobody.
+            let _ = std::fs::remove_file(pairing.join(format!("console-key.{id}")));
             if id == 1 {
                 let _ = std::fs::remove_file(pairing.join("peer-name.saved"));
             }
         }
+        // The verifier drops a key whose file is gone within a second on its
+        // own (presence-verify re-checks the file on every cache hit), so the
+        // running pipeline needs no restart -- and no second password prompt.
         self.get_snapshot()
     }
 }
@@ -3656,6 +3665,7 @@ mod tests {
         let script = revoke_script("/var/db/repose-unlock/presence-key.1");
         assert!(script.contains("presence-key.1'"), "the key itself: {script}");
         assert!(script.contains("presence-key.1'.provenance"), "and its provenance: {script}");
+        assert!(script.contains("presence-key.1'.phone"), "and which phone it was: {script}");
         assert!(script.contains("with administrator privileges"));
     }
 

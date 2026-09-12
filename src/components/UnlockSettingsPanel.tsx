@@ -525,7 +525,10 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
                 {view.status.main}
                 {view.status.sub && <span className="pk-status-sub">{view.status.sub}</span>}
               </p>
-              {view.primaryAction && view.primaryAction.command !== 'install' && (
+              {/* Not 'begin-pairing': that button is the heading of 「你的手机」
+                  below, in plain sight. Offering it here as well is two buttons
+                  for one decision, and this one is behind a fold. */}
+              {view.primaryAction && view.primaryAction.command !== 'install' && view.primaryAction.command !== 'begin-pairing' && (
                 <button className="button light" disabled={busy} onClick={() => dispatchCommand(view.primaryAction!.command)}>
                   {view.primaryAction.verb}
                 </button>
@@ -655,12 +658,10 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
     {!degraded && loaded && snapshot.state !== 'not-installed' && (
       <PhoneList
         devices={snapshot.devices}
-        // Null only when the panel above is ALREADY offering 配对手机 as its
-        // primary action, which happens when there is no key at all. Two
-        // buttons for one decision is 2.5; with a phone already paired the
-        // panel offers the drill instead, and this one is the only way to add a
-        // second.
-        onPair={view.primaryAction?.command === 'begin-pairing' ? null : () => dispatchCommand('begin-pairing')}
+        // Always. The one button for this decision is the heading of this
+        // list; the drill row under 「更多」 shows the state sentence for
+        // awaiting-pairing but not a second button for it.
+        onPair={() => dispatchCommand('begin-pairing')}
         busy={busy}
         armed={armedRevoke}
         onArm={setArmedRevoke}
@@ -886,7 +887,7 @@ function CalibrationVerdict({ result, onRedo, onClose }: {
 // hardcoded `keys_removed: true`.
 function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate, onCapability }: {
   devices: PairedDevice[]
-  onPair: (() => void) | null
+  onPair: () => void
   busy: boolean
   armed: string | null
   onArm: (id: string | null) => void
@@ -896,18 +897,23 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
 }) {
   return (
     <section className="panel preferences-panel">
+      {/* The button lives in the heading whether the list is empty or full
+          (design doc §04, the 「你的手机」 panel). It used to appear only in
+          the empty box, and only when the panel above was not already
+          offering pairing -- which, after the last phone was deleted, left it
+          inside the collapsed 「更多」 and nowhere else on the page. */}
       <div className="section-heading">
         <div>
           <h2>你的手机</h2>
           <p>每一部能做什么，在这里定。</p>
         </div>
+        <button className="button light" disabled={busy} onClick={onPair}>配一部新手机 ›</button>
       </div>
 
       {devices.length === 0 ? (
         // 6.4: an empty list must answer what this is, not just offer a button.
         <div className="pk-device-empty">
           <p>配一部手机之后，它会出现在这里。配对要两边同时在场，在手机上点一下「一样」才算成功。</p>
-          {onPair && <button className="button primary" disabled={busy} onClick={onPair}>配一部新手机</button>}
         </div>
       ) : devices.map(device => (
         <div className={`pk-device${device.canUnlock ? '' : ' is-off'}`} key={device.id}>

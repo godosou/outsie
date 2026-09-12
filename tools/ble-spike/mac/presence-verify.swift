@@ -146,6 +146,12 @@ final class KeyStore {
     /// When each missing key was last looked for. See key(for:).
     private var lastMiss: [UInt8: TimeInterval] = [:]
     private let missRetrySeconds: TimeInterval = 1.0
+    /// When each CACHED key's file was last confirmed to still exist. A found
+    /// key used to be cached for the life of the process, so 「删掉这把钥匙」
+    /// deleted the file and this verifier went on accepting the phone until
+    /// the pipeline happened to restart. One stat a second per key is the
+    /// price of a revocation that takes effect when it is made.
+    private var lastSeen: [UInt8: TimeInterval] = [:]
 
     init(dir: String) { self.dir = dir }
 
@@ -172,9 +178,25 @@ final class KeyStore {
     /// That is well inside the time it takes a person to walk back to their
     /// Mac after pairing.
     func key(for keyId: UInt8) -> SymmetricKey? {
-        if case .key(let k)? = cache[keyId] { return k }
-
         let now = Date().timeIntervalSince1970
+        if case .key(let k)? = cache[keyId] {
+            // Still on disk? The self-test store (dir == "") has no files to
+            // check. Otherwise, at most once a second, and only existence:
+            // ownership and mode were checked when it was loaded, and a file
+            // that changes under root is a different failure from a revocation.
+            if dir.isEmpty { return k }
+            if let seen = lastSeen[keyId], now - seen < missRetrySeconds { return k }
+            if FileManager.default.fileExists(atPath: "\(dir)/presence-key.\(keyId)") {
+                lastSeen[keyId] = now
+                return k
+            }
+            cache[keyId] = nil
+            lastSeen[keyId] = nil
+            lastMiss[keyId] = now
+            log("keyId \(keyId): key file gone, no longer accepted")
+            return nil
+        }
+
         if let last = lastMiss[keyId], now - last < missRetrySeconds {
             return nil
         }
@@ -185,6 +207,7 @@ final class KeyStore {
         case .key(let k):
             cache[keyId] = loaded
             lastMiss[keyId] = nil
+            lastSeen[keyId] = now
             // Worth a line: it is the moment a Mac that was refusing everything
             // starts accepting the phone, and someone reading the log during a
             // pairing needs to see it happen.
