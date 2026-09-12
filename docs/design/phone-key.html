@@ -705,12 +705,13 @@ function phoneCal() {
      <div class="pnote info">${p.near == null ? '这台电脑还没量过。' : `上次是 ${p.calAt}量的。重新量的时候，旧的先照常用着；量不出结果，旧的也不会变。`}</div>
      <div class="pbtn primary" style="margin-top:14px" data-act="calNext">先坐到平常的位置</div>`,
     `<div class="phero"><div class="disc">🪑</div><h3>坐着别动</h3><p>正在量你在座位上时的信号。看这块屏就好，Mac 那边什么都不用做。</p></div>
-     <div class="pbar"><i style="width:${c.pct || 0}%"></i></div><p class="ptiny" style="margin-top:4px">${c.secs || 0} 秒了。</p>`,
+     ${c.secs == null ? '<p class="ptiny" style="margin-top:14px">正在叫 Mac 开始…</p>'
+       : `<div class="pbar"><i style="width:${100 - (c.pct || 0)}%"></i></div><p class="ptiny" style="margin-top:4px">还有 ${c.secs} 秒。</p>`}`,
     `<div class="phero"><div class="disc">🚶</div><h3>现在拿着手机走开</h3><p>走到你平常会离开的距离。门口、茶水间、另一个房间都行。<b>到了再按下面这个。</b></p></div>
      <div class="pnote info">路上不量。量的是你站定之后的信号，走动中的那一段混进去，两边就会像。</div>
      <div class="pbtn primary" style="margin-top:14px" data-act="calFar">到了，开始量</div>`,
     `<div class="phero"><div class="disc">🧍</div><h3>站着别动</h3><p>正在量你走开之后的信号。</p></div>
-     <div class="pbar"><i style="width:${c.pct || 0}%"></i></div><p class="ptiny" style="margin-top:4px">${c.secs || 0} 秒了。别看屏，站着就行。</p>`,
+     <div class="pbar"><i style="width:${100 - (c.pct || 0)}%"></i></div><p class="ptiny" style="margin-top:4px">还有 ${c.secs || 0} 秒。别看屏，站着就行。</p>`,
     `<div class="phero"><div class="disc">✅</div><h3>分得很清楚</h3><p>在座位上和走开了，Mac 现在分得出来。从这次起就用新的。</p></div>
      <div class="pbtn primary" style="margin-top:14px" data-act="calDone">好</div>`,
     `<div class="phero"><div class="disc">🤔</div><h3>两边太像了</h3><p>在座位上和走开了，信号差不多。这次的量不出结果，不能用。</p></div>
@@ -718,6 +719,8 @@ function phoneCal() {
        ${p.near == null ? '' : '<br>上次量的那组还在用，一个数都没变。'}</div>
      <div class="pbtn primary" style="margin-top:14px" data-act="calNext">再量一次</div>
      <div class="pbtn" style="margin-top:10px" data-act="calDone">${p.near == null ? '先用默认值' : '先用上次的'}</div>`,
+    `<div class="phero"><div class="disc">🚶</div><h3>走回去就完成</h3><p>走开之后 Mac 听不到手机了。这最清楚。走回 Mac 旁边，它就把这次记下来。</p></div>
+     <p class="ptiny" style="margin-top:14px">正在等 Mac 回话…</p>`,
   ][c.step];
   return `${brand()}<span class="pback" data-act="pScreen" data-v="home">‹ 返回</span>
     <p class="ptitle">${esc(m.name)}</p>${body}`;
@@ -938,9 +941,10 @@ const CH = [
     { n:'③', cap:'Mac 等的是手机用上新钥匙，不是一句话', html: at({ macSheet:{ kind:'pair', step:2 } }, () => macWindow('narrow')) },
     { n:'④', cap:'配好了。接下来去量距离', html: at({ pScreen:'pair', pair:{ step:2 } }, () => phone('sm')) },
     { n:'⑤', cap:'先坐到平常的位置', html: at({ pScreen:'cal', cal:{ step:0 } }, () => phone('sm')) },
-    { n:'⑤', cap:'坐着别动', html: at({ pScreen:'cal', cal:{ step:1, pct:60, secs:13 } }, () => phone('sm')) },
+    { n:'⑤', cap:'坐着别动，倒数 20 秒', html: at({ pScreen:'cal', cal:{ step:1, pct:35, secs:13 } }, () => phone('sm')) },
     { n:'⑤', cap:'拿着手机走开。到了才按', html: at({ pScreen:'cal', cal:{ step:2 } }, () => phone('sm')) },
-    { n:'⑤', cap:'按了「到了」才开始量远处', html: at({ pScreen:'cal', cal:{ step:3, pct:40, secs:9 } }, () => phone('sm')) },
+    { n:'⑤', cap:'按了「到了」才开始量远处，也倒数 20 秒', html: at({ pScreen:'cal', cal:{ step:3, pct:55, secs:9 } }, () => phone('sm')) },
+    { n:'⑤', cap:'远处听不见：走回去就完成', html: at({ pScreen:'cal', cal:{ step:6 } }, () => phone('sm')) },
     { n:'⑥', cap:'分得清楚', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
     { n:'⑥', cap:'两边太像，给两个出口', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
   ];
@@ -950,14 +954,18 @@ const CH = [
   <div class="plate stack">${spec(`<h4>为什么只有一个编号</h4><p>这六位是整个配对里唯一需要人核对的东西。曾经紧接着弹出一串八位十六进制「配对编号」，没有任何东西说明该核对哪一个。在一个防中间人的流程里，那正是攻击者需要的困惑。</p>
     <h4>「不一样，停下」是一个真答案</h4><p>不是取消。按了之后不要就着这次重试。允许重试等于让对方一直猜，六位数字就不再是六位数字。</p>
     <h4>远处不自动开始</h4><p>近处量完，手机停在「走开」那一屏，等你按「到了」。路上的信号是从近到远的一条斜线，混进远处那一组，两组就会挨在一起。这是「两边太像」最常见的成因，靠一个按钮就能挡掉。</p>
+    <h4>远处听不见也是答案</h4><p>「到了」本身是一条蓝牙指令，从远处发出。远处出了范围，Mac 就永远收不到它，两边一起干等——真机上第一次走就卡在这里。所以远处倒数完没有结果，不算失败：手机说「走回去就完成」，走近之后把「远处结束」补送给 Mac，Mac 把远处记成「听不见」。走开之后互相听不见，是分得最清楚的一种。只有近处听不到手机才是失败。</p>
+    <h4>倒数，不计时</h4><p>两段各 20 秒，Mac 和手机用同一个数。屏上是倒数的圈，告诉你还要站多久；「N 秒了」是在让你猜。</p>
     <h4>量距离必须能失败</h4><p>两边太像时给原因和两个出口。一个不能失败的校准，只会写进一个它自己都不信的数字。</p>
     <h4>Mac 是尺子，手机是遥控器</h4><p>信号是 Mac 听到的，手机自己量不了。所以手机发指令、Mac 采样、Mac 把进度用状态信标报回来。这需要状态字节多几个取值，见第 14 章。</p>`)}</div>
   ${after([
     ['配一部新手机','Mac 开始找；手机上打开 Outsie 就出现。','手机没开蓝牙时停在「正在找」，说去哪儿开。'],
     ['和手机上一样','Mac 记下这次交换，等手机用上新钥匙。','两边不一样：按「不一样，停下」，这次作废，不重试。'],
     ['一样，完成配对（手机）','手机写入钥匙，开始用它签名。','钥匙位被占的情形还没处理（未实现，见第 15 章）。'],
-    ['先坐到平常的位置','Mac 采近处，手机显示进度。量完停在「走开」那一屏。','90 秒内一直在量，就是「再坐一会儿」；90 秒还不够，Mac 说「没听到手机」。'],
-    ['到了，开始量','这时才采远处。路上不量。','走动中的信号混进去，两边就会像，所以远处不自动开始。'],
+    ['先坐到平常的位置','Mac 采 20 秒近处，手机倒数。量完停在「走开」那一屏。','这 20 秒里 Mac 没听到手机：说「没听到手机」，两个出口。'],
+    ['到了，开始量','手机倒数 20 秒，Mac 同时采远处。路上不量。','走动中的信号混进去，两边就会像，所以远处不自动开始。'],
+    ['（远处倒数完）','有结果就出结果。没有，就是 Mac 没听到「到了」：手机说「走回去就完成」。','远处听不见不是失败，是最清楚的一种结果。'],
+    ['（走回去）','手机把「远处结束」补送给 Mac，Mac 记下这次，回「量好了」。','两分钟还没回话：「Mac 没回音」。'],
     ['（远处量完）','出结果。','两边太像：走失败屏，给原因和两个出口。'],
     ['再量一次','回到「先坐到平常的位置」。旧的还在用。','—'],
     ['先用上次的 / 先用默认值','关掉，什么都没变。','—'],
@@ -968,9 +976,9 @@ const CH = [
   const fr = [
     { n:'①', cap:'卡片上的「重新量距离」', html: at({ pScreen:'home' }, () => phone('sm')) },
     { n:'②', cap:'说清楚现在用的是哪一组', html: at({ pScreen:'cal', cal:{ step:0 } }, () => phone('sm')) },
-    { n:'③', cap:'坐好', html: at({ pScreen:'cal', cal:{ step:1, pct:70, secs:15 } }, () => phone('sm')) },
+    { n:'③', cap:'坐好，倒数', html: at({ pScreen:'cal', cal:{ step:1, pct:70, secs:6 } }, () => phone('sm')) },
     { n:'④', cap:'走开，到了再按', html: at({ pScreen:'cal', cal:{ step:2 } }, () => phone('sm')) },
-    { n:'④', cap:'站定了才量', html: at({ pScreen:'cal', cal:{ step:3, pct:30, secs:7 } }, () => phone('sm')) },
+    { n:'④', cap:'站定了才量', html: at({ pScreen:'cal', cal:{ step:3, pct:30, secs:14 } }, () => phone('sm')) },
     { n:'⑤', cap:'成功', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
     { n:'⑤', cap:'失败：上次的一个数都没变', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
     { n:'Mac', cap:'Mac 上只写什么时候量的', html: at({ macTab:'phone' }, () => macWindow('narrow')) },
@@ -985,7 +993,7 @@ const CH = [
   ${after([
     ['重新量距离','先说清现在用的是哪一组，再开始。','从没量过时说「还没量过」，不编一个日期。'],
     ['先坐到平常的位置','采近处。<b>旧的一直在用。</b>','中途退出 = 什么都没变。'],
-    ['到了，开始量','这时才采远处。','没按之前 Mac 不采，你可以慢慢走。'],
+    ['到了，开始量','这时才采远处，倒数 20 秒。','没按之前 Mac 不采，你可以慢慢走。远处听不见：走回去就完成，同第 05 章。'],
     ['好（成功）','从这次起用新的。','—'],
     ['先用上次的','关掉，一个数都没变。','—'],
   ])}`;
@@ -1122,6 +1130,7 @@ const CH = [
     ['移走','这部手机删掉那一把钥匙，卡片消失。','确认框直说：那台 Mac 那边不会变。'],
     ['和所有 Mac 解除配对','所有钥匙一次删光。','确认框再说一次「所有」。'],
     ['不用了，把 Mac 改回原样','还原、删组件、删钥匙，逐条读回来显示。','任何一步没成，显示那一步的真实状态，不给笼统的对勾。'],
+    ['删掉这把钥匙（Mac）','钥匙、它的来源和手机记录、按钮列表的钥匙一起删。正在跑的监测下一秒起不再认它。','列表马上少一行。没手机了，「配一部新手机」还在标题旁，不用去翻「更多」。'],
     ['（手机丢了）','在每一台 Mac 上关掉它的开关。','远程停用还没做。直说。'],
   ])}`;
 }},
@@ -1158,7 +1167,8 @@ const CH = [
 预映像     "repose-presence-v2 beacon" ‖ keyId ‖ counter(8 BE) ‖ cmd ‖ seq
 tag        HMAC-SHA256(K, msg)[0..8)
 counter    floor(unix / 30)，从不传输，两端各自推算，±1 容差
-cmd        0 无 · 1 锁屏 · 3 请求列表 · 4 开始量近处 · 5 开始量远处 · 16.. 快捷键
+cmd        0 无 · 1 锁屏 · 3 请求列表 · 4 开始量近处 · 5 开始量远处 · 6 远处结束，定下来 · 16.. 快捷键
+           ← 6 是手机远处倒数完还没结果时发的；走回去 Mac 才听得到，所以每 20 秒重发到有结果
 seq        手机持久化递增；Mac 只接受严格更大的</code></pre>
   <h3 style="margin-top:24px">状态信标 <code>repose-macstate-v2</code>（Mac → 手机）</h3>
   <pre class="proto"><code>服务 UUID  0xFFF7
@@ -1166,6 +1176,7 @@ seq        手机持久化递增；Mac 只接受严格更大的</code></pre>
 承载       BLE 本地名，base64url 18 字符
 state      0 开着 · 1 锁着 · <b>2 量近处 · 3 近处好了，等你走开 · 4 量远处 · 5 量好了 · 6 两边太像 · 7 没听到手机</b>
            ← 量距离在手机上，靠这几个值报进度。3 是必须有的：远处不自动开始，Mac 要说「等你」
+           ← 7 只出自近处那 20 秒。远处听不到手机是「量好了」（远处记成听不见），不是 7
 macId      硬件 UUID 的 SHA-256 前两字节，纳入预映像</code></pre>
   <h3 style="margin-top:24px">按钮列表 <code>repose-console-v1</code>（Mac → 手机，短时可连接）</h3>
   <pre class="proto"><code>服务 UUID  0xFFF9   特征 0xFFFA
@@ -1194,19 +1205,23 @@ keyId       手机首次配对时自己取 1..255；Mac 槽位被占则回「换
     ['安装 / 改回原样','ok','三行逐条读回'],
     ['一部手机配多台 Mac','ok','手机持 3 把钥匙'],
     ['一台 Mac 配多部手机','part','协议和 UI 都在，只有一部手机没实测'],
-    ['量距离（Mac 上驱动）','part','采样、判据、失败屏都在；真实走动那一次没做'],
-    ['<b>量距离搬到手机上</b>','no','本文档第 05/06 章。状态字节多几个取值'],
+    ['量距离（Mac 上驱动）','part','Mac 侧的「量一下距离」入口还在，等手机流程真机验过就删'],
+    ['<b>量距离搬到手机上</b>','part','两端都在。9 月 12 日真机走了一半：近处量完，远处出了范围，「到了」发不到 Mac。改成远处听不见也算数、两段各 20 秒倒数（第 05 章），待再走一次'],
     ['快捷键设置（Mac 编辑器）','ok','加 App / 加操作 / 录键 / 试一次'],
     ['列表传到手机并验签','ok','87 个操作送达，验签通过'],
-    ['手机按一下 → Mac 按键','part','链路通；最后一下要用户自己给权限'],
-    ['整理（收起来 + 排序）','part','收起来和排序都在，但是 ▲▼ 和独立页面；<b>拖动、并入控制页</b>见第 10 章'],
+    ['手机按一下 → Mac 按键','part','9 月 12 日真机：按了没有任何指令发出（序号没走），原因待查；Mac 上的辅助功能权限也还没给'],
+    ['整理（收起来 + 排序）','ok','拖动换位、× 收起来，都在控制页里；按 Mac 分别存'],
     ['每部手机的「按快捷键」开关','ok','关掉后 Mac 拒收，四个方向验过'],
-    ['权限行在「手机控制」','part','已实现，没在真机上逐屏看过'],
-    ['手机上没有 tab 栏 / 控制绑定到某台电脑','no','第 03/04 章'],
-    ['「这把钥匙」删掉，收进主屏「更多」','no','第 03 章'],
-    ['技术细节收进「更多」','no','第 01 章第 4 条'],
+    ['权限行在「手机控制」','ok','9 月 12 日真机看过；权限本身还没给'],
+    ['手机上没有 tab 栏 / 控制绑定到某台电脑','ok','第 03/04 章'],
+    ['「这把钥匙」删掉，收进主屏「更多」','ok','第 03 章'],
+    ['技术细节收进「更多」','ok','第 01 章第 4 条'],
+    ['手机卡片按钥匙位点亮','ok','9 月 12 日真机：旧版按记录里的 macId 匹配，老版本配的钥匙位没记录，永远灰'],
+    ['删掉这把钥匙之后 Mac 立刻不再认它','part','9 月 12 日真机：旧版删了文件还继续认了 8 分钟。验证器改成每秒确认钥匙文件还在；待真机'],
+    ['移走之后手机不再用那把钥匙广播','part','9 月 12 日真机：旧版继续广播。已改成通知服务重建信标；待真机'],
+    ['没手机时「配一部新手机」在标题旁','part','9 月 12 日真机：旧版藏在「更多」里。已改；待真机'],
     ['远程停用','no','界面上直说做不到'],
-    ['<b>更新 App 之后蓝牙权限会丢</b>','no','实测：重新装一版 Outsie，macOS 把它当成另一个 App，蓝牙授权作废，监测悄悄停掉。面板会说「没让 Outsie 用蓝牙」，但根治是用本机自签的证书签包：TCC 记的是签名要求，ad-hoc 只有 cdhash，有证书就稳定。不需要 Developer ID。已排进计划'],
+    ['更新 App 之后蓝牙权限会丢','ok','根治了：本机自签证书签包（Outsie Dev），签名要求变成「标识 + 证书」，重装不变。9 月 12 日重装后授权仍在。不需要 Developer ID'],
     ['真·中间人测试','no','需要第二台 Android'],
     ['需要手机确认才解锁','skip','不做'],
     ['<b>面板跟随 Mac 前台 App</b>（官网承诺）','no','官网「电脑切到哪，面板跟到哪」。今天的信标单向，Mac 报不出前台 App；要状态信标多带一个字段。先在官网上改口，或者排进下一版协议'],
@@ -1259,9 +1274,10 @@ function pairTick() {
 }
 function calTick() {
   const c = S.cal; if (!c || (c.step !== 1 && c.step !== 3)) return;
-  c.pct = Math.min(100, c.pct + 14); c.secs = Math.round(c.pct * 0.22);
+  c.pct = Math.min(100, c.pct + 14); c.secs = Math.max(0, 20 - Math.round(c.pct * 0.2));
   // 近处量完停在「走开」那一屏，等人按「到了」。远处不自动开始。
-  if (c.pct >= 100) { if (c.step === 1) { c.step = 2; c.pct = 0; c.secs = 0; } else { c.step = c.forceFail ? 5 : 4; } }
+  // 远处倒数完还没有结果，就是 Mac 没听到「到了」：走回去就完成。
+  if (c.pct >= 100) { if (c.step === 1) { c.step = 2; c.pct = 0; c.secs = 0; } else { c.step = c.forceFail ? 5 : 6; } }
   render(); if (c.step === 1 || c.step === 3) step(calTick, 380);
 }
 
@@ -1308,8 +1324,8 @@ document.addEventListener('click', e => {
     pairOk: () => { if (S.macSheet && S.macSheet.step === 2) { S.macSheet.step = 3; S.pair = { step:2 }; } },
     pairNo: () => { S.macSheet = null; S.pScreen = 'home'; S.pair = null; toast('停下了。重新开始一次配对。', true); },
     goCal: () => { S.controlMac = v || S.controlMac; S.macSheet = null; S.pScreen = 'cal'; S.cal = { step:0, pct:0, secs:0, forceFail: S.controlMac === 'm3' }; },
-    calNext: () => { S.cal.step = 1; S.cal.pct = 0; S.cal.secs = 0; step(calTick, 380); },
-    calFar: () => { S.cal.step = 3; S.cal.pct = 0; S.cal.secs = 0; step(calTick, 380); },
+    calNext: () => { S.cal.step = 1; S.cal.pct = 0; S.cal.secs = 20; step(calTick, 380); },
+    calFar: () => { S.cal.step = 3; S.cal.pct = 0; S.cal.secs = 20; step(calTick, 380); },
     calDone: () => { if (S.cal.step === 4) { const p = S.phones[0]; p.near = -57; p.far = -80; p.calAt = '9 月 12 日'; } S.cal = null; S.pScreen = 'home'; },
     msClose: () => { S.macSheet = null; if (S.pScreen === 'pair') S.pScreen = 'home'; S.pair = null; },
     addApp: () => { const id = 'app' + (S.apps.length + 1); S.apps.push({ id, name:'新加的 App', bundle:'com.example.new', actions:[] }); S.macApp = id; toast('加上了。给它加一个操作。'); },
