@@ -524,9 +524,10 @@ function macPhonePage() {
         <p>这两个是一对。锁得越勤越放心，而它负责让你不用多输一次密码。</p></div>
       <span class="toggle ${S.idleLock ? 'on' : ''}" data-act="idleLock"><span></span></span></div>
     <div class="prow"><span class="ico">${svg(ICON.a11y)}</span>
-      <div class="g"><h3>让 Outsie 替你按键 · ${S.a11y ? '已允许' : '还没允许'}</h3>
-        <p>自动锁屏要按下锁屏键，手机发来的快捷键也要它来按。macOS 把这个叫辅助功能。
-          ${S.a11y ? '' : '<b>没有它，这两件事都不会发生。</b>'}</p>
+      <div class="g"><h3>手机选操作，Mac 替你按键 · ${S.a11y ? '已允许' : '还没允许'}</h3>
+        <p>离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键；
+          你离开时，也是它替你按下锁屏键。这要在系统设置里允许一次，macOS 把它叫辅助功能。
+          ${S.a11y ? '' : '<b>没允许之前，手机上的按钮和自动锁屏都不会动。</b>'}</p>
         ${S.a11y ? '' : '<button class="tbtn" style="margin-top:7px" data-act="grant">去系统设置里允许 ↗</button>'}</div></div>
   </div>
 
@@ -815,7 +816,9 @@ const CH = [
 
 { id:'voice', n:'01', g:'开头', t:'文案', render: () => `
   <span class="chnum">01</span><h2>文案怎么写</h2>
-  <p class="section-lede">和官网一个口气。官网是这样说话的：「你带走手机。我们照看屏幕。」「该歇就歇，放心离开。」「AI 没有肩颈。你有，别僵着。」</p>
+  <p class="section-lede">和官网一个口气。官网是这样说话的：「你带走手机。我们照看屏幕。」「该歇就歇，放心离开。」「AI 没有肩颈。你有，别僵着。」
+    介绍手机工作台时它说：「离开键鼠，让手歇一会儿。」「手机选操作，耳机说想法。」「怎么顺手，就怎么摆。」
+    <b>介绍一个功能，先说它给你什么，再说它要什么。</b>权限、配对、同步都是「要什么」，不当标题。</p>
   <h3 style="margin-top:22px">六条</h3>
   <p class="section-lede"><b>1 · 像朋友说话。</b>用「你」。短句，句号多。一句话说一件事。</p>
   <p class="section-lede"><b>2 · 标题是一句话。</b>「手机就是钥匙。」「一点，就到。」不是名词短语，不是功能名。</p>
@@ -828,7 +831,7 @@ const CH = [
     <tr><td class="no">按下去，那台 Mac 会先切到这个 App，再按键。</td><td class="yes">按一下，那台 Mac 会先切到这个 App，再替你按键。</td></tr>
     <tr><td class="no">点下去只代表发出了。有没有按成要在 Mac 上看——太远、钥匙关着、或者没给「辅助功能」权限，都会按不了。</td><td class="yes">按钮只负责发出去。按没按成，要看那台 Mac。</td></tr>
     <tr><td class="no">近 −60 dBm · 远 −78 dBm</td><td class="yes">9 月 11 日在「书房」量的距离</td></tr>
-    <tr><td class="no">替你按键的权限 · 还没允许。macOS 把「替别的 App 按键」当成辅助功能权限。</td><td class="yes">让 Outsie 替你按键 · 还没允许。自动锁屏要按下锁屏键，手机发来的快捷键也要它来按。</td></tr>
+    <tr><td class="no">替你按键的权限 · 还没允许。macOS 把「替别的 App 按键」当成辅助功能权限。</td><td class="yes">手机选操作，Mac 替你按键 · 还没允许。离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键。</td></tr>
     <tr><td class="no">隐藏只是不显示，那个键照样能发。要禁止这部手机按键，去 Mac 上关掉它的「让它按快捷键」。</td><td class="yes">收起来只是这里不显示。要真的不让这部手机按键，去 Mac 上关掉它。</td></tr>
     <tr><td class="no">不在附近 · 也可能是它睡着了、关机了，或者没开 Outsie</td><td class="yes">没听到它。可能不在附近、睡着了，或者没开 Outsie。</td></tr>
     <tr><td class="no">取消配对（立即生效）</td><td class="yes">和所有 Mac 解除配对</td></tr>
@@ -1198,6 +1201,8 @@ keyId       手机首次配对时自己取 1..255；Mac 槽位被占则回「换
     ['远程停用','no','界面上直说做不到'],
     ['真·中间人测试','no','需要第二台 Android'],
     ['需要手机确认才解锁','skip','不做'],
+    ['<b>面板跟随 Mac 前台 App</b>（官网承诺）','no','官网「电脑切到哪，面板跟到哪」。今天的信标单向，Mac 报不出前台 App；要状态信标多带一个字段。先在官网上改口，或者排进下一版协议'],
+    ['<b>耳机语音输入</b>（官网承诺）','skip','官网「手机选操作，耳机说想法」。和手机钥匙无关，不在这份文档里；官网那句话要么指向别的功能，要么删掉'],
   ].map(r => `<tr><td>${r[0]}</td><td><span class="pill ${r[1]==='ok'?'ok':(r[1]==='no'||r[1]==='skip')?'no':''}">${{ok:'实测通过',part:'部分',no:'未实现',skip:'不做'}[r[1]]}</span></td><td>${r[2]}</td></tr>`).join('')}
   </table></div>` },
 
