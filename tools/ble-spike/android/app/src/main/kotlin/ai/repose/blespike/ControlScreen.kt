@@ -328,14 +328,13 @@ private fun link(context: Context, pal: Palette, label: String, onClick: () -> U
 
 /** Queue the byte and say what this phone can honestly know, which is not much. */
 private fun send(context: Context, act: ConsoleAction) {
-    val queued = BleSpikeService.postCommand(context, act.cmdByte)
-    Toast.makeText(
-        context,
-        when {
-            !queued -> "还没有配对，Mac 不会接受。"
-            !SpikeState.serviceRunning -> "手机钥匙关着。先去主屏打开。"
-            else -> "已发出。"
-        },
-        Toast.LENGTH_SHORT,
-    ).show()
+    // Ask first, so the toast names the real reason and nothing is queued for
+    // a key that is off (design doc §09).
+    val refused = BleSpikeService.canSend(context)
+    val message = when {
+        refused != null -> refused
+        BleSpikeService.postCommand(context, act.cmdByte) -> "已发出。"
+        else -> "没发出去。"
+    }
+    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }

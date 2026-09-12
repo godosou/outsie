@@ -10,6 +10,7 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
+import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
@@ -84,15 +85,47 @@ class BleSpikeService : Service() {
         @Volatile private var pendingUntil = 0L
 
         /**
-         * Queue a command for the Mac. Returns false if the phone has no key,
-         * because an unauthenticated command is one the Mac will refuse — and
-         * a button that silently does nothing is worse than one that says why.
+         * Why a command cannot go out right now, as sentences a screen can
+         * show as they are. Compare by identity to tell them apart: a screen
+         * that knows a better next step for its own layout (the home screen,
+         * where the switch is right there) can swap in its own wording.
          */
-        fun postCommand(context: android.content.Context, cmd: Int): Boolean {
+        const val REFUSED_NOT_PAIRED = "还没有配对。先在主屏添加电脑。"
+        const val REFUSED_KEY_OFF = "手机钥匙关着。先去主屏打开。"
+
+        /**
+         * Whether a command posted now would actually reach the air, and if
+         * not, why. Null means it would.
+         *
+         * Two things stop it, checked in this order. No key: an
+         * unauthenticated command is one the Mac will refuse, and switching
+         * the key on would not change that, so it is the first thing to say.
+         * Service not running: the beacon is what carries commands, and with
+         * it stopped a queued byte is not「on its way」-- it is a surprise
+         * waiting for the next time the key is switched on. The design doc's
+         * 「按下之后」 row for 锁定 is explicit: 钥匙关着 / 没配对，当场说，不入队.
+         */
+        fun canSend(context: Context): String? = when {
             // Any slot, not slot 1: from pair-v3 this phone's key lives wherever
             // it chose. Checking slot 1 made every command from a v3-paired
             // phone refuse itself before it was even sent.
-            if (!PresenceKey.hasAny(context)) return false
+            !PresenceKey.hasAny(context) -> REFUSED_NOT_PAIRED
+            !SpikeState.serviceRunning -> REFUSED_KEY_OFF
+            else -> null
+        }
+
+        /**
+         * Queue a command for the Mac. Returns false, and queues nothing, when
+         * [canSend] says no -- a button that silently does nothing is worse
+         * than one that says why, and a byte parked in a stopped service is
+         * worse still: it would go out unasked the next time the key came on.
+         * Screens should ask [canSend] first so the toast names the real reason.
+         */
+        fun postCommand(context: Context, cmd: Int): Boolean {
+            canSend(context)?.let { reason ->
+                Log.i(TAG, "command $cmd refused, not queued: $reason")
+                return false
+            }
             pendingSeq = AppStore(context).nextCommandSeq()
             pendingCmd = cmd
             pendingUntil = SystemClock.elapsedRealtime() + SpikeContract.COMMAND_BROADCAST_MS

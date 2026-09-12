@@ -53,6 +53,11 @@ fun buildHomeScreen(
     // here so onState can tell when it has gone stale.
     val healthy = PresenceKey.hasAny(context)
     val builtCount = store.pairedMacs(context).size
+    // Which Macs were heard when the cards were drawn. The buttons on a card
+    // are enabled by this, so a Mac going silent -- or the key being switched
+    // off, which forgets every Mac -- has to redraw the cards, not just the
+    // headline. Otherwise 锁定/控制 stay live for a machine nobody hears.
+    val builtHeard = MacState.sightings().map { it.macId }.toSet()
 
     val root = screenScaffold(context, pal, title = "", showTitle = false) { column ->
 
@@ -202,8 +207,6 @@ fun buildHomeScreen(
                                 ConsoleArrangement.forget(context, id)
                             }
                             AppStore(context).keyIds = emptyList()
-                            store.paired = false
-                            store.pairedMac = null
                             Toast.makeText(context, "解除了。", Toast.LENGTH_LONG).show()
                             nav.go(Screen.HOME)
                         }
@@ -250,7 +253,8 @@ fun buildHomeScreen(
     return ScreenView(root, onState = {
         // The hero's colour and the cards are decided at build time. Either
         // changing means the screen is describing something no longer there.
-        if (PresenceKey.hasAny(context) != healthy || store.pairedMacs(context).size != builtCount) {
+        val heardNow = MacState.sightings().map { it.macId }.toSet()
+        if (PresenceKey.hasAny(context) != healthy || store.pairedMacs(context).size != builtCount || heardNow != builtHeard) {
             nav.go(Screen.HOME)
         } else {
             refresh()
@@ -407,11 +411,14 @@ private fun computerCard(context: Context, pal: Palette, nav: Nav, store: AppSto
  * the command went out, never that the Mac did it.
  */
 private fun sendLock(context: Context) {
-    val queued = BleSpikeService.postCommand(context, SpikeContract.CMD_LOCK)
+    // Ask first, so the toast names the real reason and nothing is queued
+    // for a key that is off (design doc §11: 钥匙关着 / 没配对 → 当场说，不入队).
+    val refused = BleSpikeService.canSend(context)
     val message = when {
-        !queued -> "还没有配对，Mac 不会接受。"
-        !SpikeState.serviceRunning -> "手机钥匙关着。先打开上面的开关。"
-        else -> "已发出。Mac 在附近的话，几秒内会锁。"
+        refused == BleSpikeService.REFUSED_KEY_OFF -> "手机钥匙关着。先打开上面的开关。"
+        refused != null -> refused
+        BleSpikeService.postCommand(context, SpikeContract.CMD_LOCK) -> "已发出。Mac 在附近的话，几秒内会锁。"
+        else -> "没发出去。"
     }
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }

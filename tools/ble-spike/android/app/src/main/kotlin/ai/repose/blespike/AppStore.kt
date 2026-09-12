@@ -3,7 +3,6 @@ package ai.repose.blespike
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.random.Random
 
 /**
  * One Mac this phone has paired with.
@@ -29,9 +28,9 @@ data class PairedMac(
 )
 
 /**
- * Local, persisted placeholder state for the product shell: whether the phone is
- * "paired", the pairing code the Mac is supposed to echo, the list of Macs this phone
- * can unlock, and a stand-in unlock counter. No crypto, no network — all deferred.
+ * Local, persisted state for the product shell: whether the user wants this phone
+ * acting as a key, the phone's id and key slots, the command sequence, the list of
+ * Macs this phone can unlock, and which of them it has watched calibrate.
  */
 class AppStore(context: Context) {
 
@@ -99,29 +98,6 @@ class AppStore(context: Context) {
         return free[java.security.SecureRandom().nextInt(free.size)]
     }
 
-    var paired: Boolean
-        get() = prefs.getBoolean(KEY_PAIRED, false)
-        set(value) { prefs.edit().putBoolean(KEY_PAIRED, value).apply() }
-
-    /**
-     * What the paired Mac calls itself, if it told us. Written only after the
-     * six digits matched.
-     *
-     * Cosmetic and attacker-controllable in principle -- see
-     * [SpikeContract.PAIR_CHAR_NAME]. It replaced the 8-character key
-     * fingerprint as the headline on this screen, not as the thing anyone
-     * verifies: a flow with two opaque codes in it made people ask which one
-     * mattered, and being unsure about that is exactly the confusion a
-     * man-in-the-middle needs.
-     */
-    var pairedMac: String?
-        get() = prefs.getString(KEY_MAC_NAME, null)
-        set(value) {
-            prefs.edit().apply {
-                if (value.isNullOrBlank()) remove(KEY_MAC_NAME) else putString(KEY_MAC_NAME, value)
-            }.apply()
-        }
-
     /**
      * The next command sequence number, persisted.
      *
@@ -139,28 +115,6 @@ class AppStore(context: Context) {
         prefs.edit().putLong(KEY_CMD_SEQ, next).apply()
         return next
     }
-
-    /** Stable across launches so it can be compared against what the Mac shows. */
-    val pairingCode: String
-        get() {
-            val existing = prefs.getString(KEY_CODE, null)
-            if (existing != null) return existing
-            val generated = buildString {
-                val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-                repeat(6) { append(alphabet[Random.nextInt(alphabet.length)]) }
-            }
-            prefs.edit().putString(KEY_CODE, generated).apply()
-            return generated
-        }
-
-    /**
-     * Defaulted to 4 -- a number the home screen printed as "今天解锁 4 次" on a phone
-     * that had never unlocked anything. Nothing counts unlocks yet (the Mac does the
-     * unlocking and never reports back), so the honest default is 0 and the screen
-     * that used it no longer does.
-     */
-    val unlocksToday: Int
-        get() = prefs.getInt(KEY_UNLOCKS, 0)
 
     /**
      * Every Mac this phone holds a key for.
@@ -238,6 +192,33 @@ class AppStore(context: Context) {
         PresenceKey.delete(context, keyId)
         keyIds = keyIds.filter { it != keyId }
         saveMacs(storedRecords().filter { it.keyId != keyId })
+        // The slot number is drawn again at the next pairing, possibly for a
+        // different Mac; a calibration mark left behind would let that Mac
+        // inherit a「上次量的」 that was never measured for it.
+        prefs.edit().remove(KEY_CALIBRATED_PREFIX + keyId).apply()
+    }
+
+    /**
+     * Whether this phone has ever seen the given Mac finish a calibration.
+     *
+     * Per Mac, because the thresholds live on the Mac and every room is
+     * measured on its own. It picks the failure exit on the calibration
+     * screen: a Mac that has never been measured has only its defaults to
+     * fall back on, and offering 「先用上次的」 there would be promising a set
+     * of numbers that does not exist. The design doc keeps the two apart on
+     * purpose (§06 「重做的失败出口和第一次不一样」).
+     *
+     * The phone's own record, like [pairedMacs]: it says 「I watched this Mac
+     * report a result once」, not what the Mac holds now. A Mac that was
+     * recalibrated from another phone, or reset, is not something this phone
+     * can know about.
+     */
+    fun calibratedOnce(keyId: Int): Boolean =
+        prefs.getBoolean(KEY_CALIBRATED_PREFIX + keyId, false)
+
+    /** Note that the Mac in this slot reported a usable calibration. */
+    fun markCalibrated(keyId: Int) {
+        prefs.edit().putBoolean(KEY_CALIBRATED_PREFIX + keyId, true).apply()
     }
 
     private fun saveMacs(list: List<PairedMac>) {
@@ -255,14 +236,12 @@ class AppStore(context: Context) {
     }
 
     private companion object {
-        const val KEY_PAIRED = "paired"
         const val KEY_PHONE_ID = "phone_id"
         const val KEY_KEY_IDS = "key_ids"
         const val KEY_ADVERTISE = "advertise_wanted"
-        const val KEY_MAC_NAME = "paired_mac_name"
         const val KEY_CMD_SEQ = "command_seq"
-        const val KEY_CODE = "pairing_code"
-        const val KEY_UNLOCKS = "unlocks_today"
         const val KEY_MACS = "macs_json"
+        /** Followed by the key id: one flag per Mac. */
+        const val KEY_CALIBRATED_PREFIX = "calibrated_once_"
     }
 }

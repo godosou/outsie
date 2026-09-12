@@ -68,6 +68,10 @@ class MacStateScanner(private val context: Context) {
 
             if (verify(keyId, macId, beacon.byte, tag)) {
                 MacState.heard(macId, beacon)
+                // 「量成功过」 is learned here, from the Mac's signed verdict --
+                // not on the calibration screen, which may have been rebuilt or
+                // closed while you stood there not looking at it.
+                if (beacon == MacBeaconState.CAL_OK) AppStore(context).markCalibrated(keyId)
                 // Only from a beacon that verified. An id taken from an
                 // unverified one would let anyone with a radio put a label on
                 // this phone's list of Macs.
