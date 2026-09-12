@@ -35,7 +35,4 @@ bundle ID 白名单（本机确认）：`us.zoom.xos`、`com.microsoft.teams2`�
 
 ## 落地
 
-- `src-tauri/native/macos.m` 增加 `repose_meeting_active()`，build.rs 追加 CoreAudio、IOKit framework。
-- Rust 侧每秒轮询，形状同闲置锁屏的手机在场门控。
-- 计时器复用 `deferredBreak`：会议中到点不进休息，计时继续，会议结束后补上完整休息。
-- 防抖：连续命中 ≥5 s 才算在会议中；退会后等 ≥30 s 再弹休息。
+已实现，见 [开会时不打扰：设计](2026-09-12-meeting-hold-design.md)。
