@@ -312,6 +312,7 @@ pre.proto { font-family:var(--mono); font-size:11.5px; line-height:1.9; backgrou
         font-size:13px; font-weight:600; cursor:pointer; background:var(--panel);
         border:1px solid var(--line); color:var(--green); font-family:var(--sans); }
 .pbtn.primary { background:var(--green); border-color:var(--green); color:#fff; }
+.pbtn.dim { opacity:.45; cursor:default; }
 .pacts { display:flex; gap:8px; margin-top:12px; }
 .plinks { display:flex; gap:18px; margin-top:11px; }
 .plink { font-size:12px; color:var(--muted); cursor:pointer; }
@@ -649,8 +650,10 @@ function phoneHome() {
     <p class="plabel">我的电脑</p>
     ${S.macs.map(m => `<div class="pcard"><div class="top"><span class="ic">${MS[m.state].ic}</span>
         <span style="flex:1;min-width:0"><b>${esc(m.name)}</b><span class="sub ${m.state === 'silent' ? 'dim' : ''}">${MS[m.state].line}</span></span></div>
-      <div class="pacts"><span class="pbtn" style="flex:1" data-act="lock" data-v="${m.id}">锁定</span>
-        <span class="pbtn primary" style="flex:1" data-act="goControl" data-v="${m.id}">控制</span></div>
+      ${m.state === 'silent'
+        ? `<div class="pacts"><span class="pbtn dim" style="flex:1">锁定</span><span class="pbtn primary dim" style="flex:1">控制</span></div>`
+        : `<div class="pacts"><span class="pbtn" style="flex:1" data-act="lock" data-v="${m.id}">锁定</span>
+        <span class="pbtn primary" style="flex:1" data-act="goControl" data-v="${m.id}">控制</span></div>`}
       <div class="plinks"><span class="plink" data-act="goCal" data-v="${m.id}">重新量距离</span>
         <span class="plink" data-act="forget" data-v="${m.id}">移走</span></div></div>`).join('')}
     <div class="pbtn" style="margin-top:14px" data-act="pairPhone">＋ 添加电脑</div>
@@ -901,7 +904,8 @@ const CH = [
     macShort:`<h4>这一页</h4><p><b>先点 App，再出按钮。</b>三个 App 加起来 87 个操作，平铺超过四屏。那么长的列表是划过去的，不是读的。</p>
       <p><b>没权限时，提示指回「手机控制」。</b>不留一个点不动的「试一次」。</p>`,
     pHome:`<h4>这一屏</h4><p><b>一台电脑一张卡</b>：状态、锁定、控制，下面两行小字：重新量距离、移走。</p>
-      <p><b>状态三种</b>：锁着、开着、没听到它。「没听到它」是主句，不用「未知」，它读起来像故障，而这是常态。</p>
+      <p><b>状态三种</b>：锁着、开着、没听到它。「没听到它」是主句，不用「未知」，它读起来像故障，而这是常态。
+        <b>没听到它的时候，锁定和控制都按不了</b>：没人在听的锁定、给一台不在的机器开的控制页，都是必定失败的按钮。</p>
       <p><b>「走过去按回车」只在 Mac 用配对钥匙签名说自己锁着时才出现。</b>不验签，任何带无线电的人都能广播「开着」把你钉在座位上。</p>
       <p><b>解除配对在「更多」里</b>，它不是你会回来找的东西。</p>`,
     pControl:`<h4>这一屏</h4><p><b>标题就是那台电脑。</b>目录按 Mac 存；没有那台的目录时说「还没同步过」，不借别的电脑的按钮来填。</p>
@@ -920,6 +924,7 @@ const CH = [
     ['去系统设置里允许','打开系统设置；回来时这一行自己变成「已允许」。','系统里撤销了，这一行自己变回去。'],
     ['解锁 / 按快捷键','马上生效。','关掉「按快捷键」之后，这部手机发来的快捷键 Mac 会拒收。'],
     ['当你的钥匙','开关信标。','厂商后台杀掉时会悄悄停，所以有那条提示和「去设置」。'],
+    ['锁定 / 控制（没听到它时）','按不了，两个都变淡。','副标题已经说了原因：可能不在附近、睡着了，或者没开 Outsie。不再解释第二遍。'],
     ['控制（卡片）','进入那台电脑的控制页。','那台还没同步过时，进去是空状态，不是别人的按钮。'],
     ['整理','按钮进入可拖动、可收起的状态。','—'],
   ])}`;
@@ -1199,6 +1204,7 @@ keyId       手机首次配对时自己取 1..255；Mac 槽位被占则回「换
     ['「这把钥匙」删掉，收进主屏「更多」','no','第 03 章'],
     ['技术细节收进「更多」','no','第 01 章第 4 条'],
     ['远程停用','no','界面上直说做不到'],
+    ['<b>更新 App 之后蓝牙权限会丢</b>','no','实测：重新装一版 Outsie，macOS 把它当成另一个 App，蓝牙授权作废，监测悄悄停掉。面板会说「没让 Outsie 用蓝牙」，但根治要一个固定的签名身份（Developer ID），那不在这一轮'],
     ['真·中间人测试','no','需要第二台 Android'],
     ['需要手机确认才解锁','skip','不做'],
     ['<b>面板跟随 Mac 前台 App</b>（官网承诺）','no','官网「电脑切到哪，面板跟到哪」。今天的信标单向，Mac 报不出前台 App；要状态信标多带一个字段。先在官网上改口，或者排进下一版协议'],

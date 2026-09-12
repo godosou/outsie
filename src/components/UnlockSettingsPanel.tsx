@@ -358,7 +358,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
               没有在等手机 — which is not how Chinese apps read and is not how
               anyone says it out loud. A heading names the thing; whether it is
               on belongs underneath. */}
-          <h3>回来就不用再输密码</h3>
+          <h3>回来，按一下回车就进来了</h3>
           {!degraded && loaded && (
             <p className={`pk-row-state${enabled ? ' is-on' : ''}`}>
               {/* "Watching for your phone" is only true if there is a phone to
@@ -422,7 +422,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
         <div className="preference-row">
           <span className="preference-icon"><LockKeyhole size={21} /></span>
           <div>
-            <h3>离开 30 秒就自动锁屏</h3>
+            <h3>你离开，电脑自动锁屏</h3>
             {/* The state line and the switch must not disagree. This said
                 「开着，但没有生效」 whenever securityError was set -- and the
                 error path in App.tsx also switches it OFF, so the sentence
@@ -451,7 +451,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
           </div>
           <button
             className={`toggle${idleLock.enabled ? ' on' : ''}`}
-            type="button" role="switch" aria-checked={idleLock.enabled} aria-label="离开 30 秒就自动锁屏"
+            type="button" role="switch" aria-checked={idleLock.enabled} aria-label="你离开，电脑自动锁屏"
             onClick={idleLock.onToggle}
           ><span /></button>
         </div>
@@ -465,13 +465,16 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
         <div className="preference-row pk-permission">
           <span className="preference-icon"><Accessibility size={21} /></span>
           <div>
-            <h3>替你按键的权限</h3>
+            {/* Introduces the feature the way the website does — what you
+                get first, what it needs second (design doc §01). The permission
+                is the one-time step, not the headline. */}
+            <h3>手机选操作，Mac 替你按键</h3>
             <p className={`pk-row-state${consoleStatus.trusted ? ' is-on' : ''}`}>
-              {consoleStatus.trusted ? '已允许' : '还没允许 · 自动锁屏和手机按键现在都做不了'}
+              {consoleStatus.trusted ? '已允许' : '还没允许 · 手机上的按钮和自动锁屏都不会动'}
             </p>
             <p className="pk-row-note">
-              macOS 把「替别的 App 按键」当成辅助功能权限。这里有两件事要用它：离开时替你按下锁屏，
-              还有手机发来指令时替你按快捷键（按哪些键在「快捷键设置」里定）。没有它，这两件事都不会发生。
+              离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键；
+              你离开时，也是它替你按下锁屏键。这要在系统设置里允许一次，macOS 把它叫辅助功能。
             </p>
             {!consoleStatus.trusted && (
               <button
@@ -479,7 +482,7 @@ export function UnlockSettingsPanel({ bridge, onToast, idleLock, console: consol
                 style={{ marginTop: 6 }}
                 onClick={() => { void consoleBridge.requestTrust().then(() => refreshConsole()) }}
               >
-                去授予权限<ArrowUpRight size={14} />
+                去系统设置里允许<ArrowUpRight size={14} />
               </button>
             )}
           </div>
@@ -890,7 +893,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
         // 6.4: an empty list must answer what this is, not just offer a button.
         <div className="pk-device-empty">
           <p>配一部手机之后，它会出现在这里。配对要两边同时在场，在手机上点一下「一样」才算成功。</p>
-          {onPair && <button className="button primary" disabled={busy} onClick={onPair}>配对手机</button>}
+          {onPair && <button className="button primary" disabled={busy} onClick={onPair}>配一部新手机</button>}
         </div>
       ) : devices.map(device => (
         <div className={`pk-device${device.canUnlock ? '' : ' is-off'}`} key={device.id}>
@@ -912,7 +915,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
                   disabled={busy}
                   onChange={e => onCapability(device.id, 'unlock', e.target.checked)}
                 />
-                <span>用它解锁</span>
+                <span>解锁</span>
               </label>
               <label className="pk-cap">
                 <input
@@ -921,7 +924,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
                   disabled={busy}
                   onChange={e => onCapability(device.id, 'control', e.target.checked)}
                 />
-                <span>让它按快捷键</span>
+                <span>按快捷键</span>
               </label>
             </div>
             <p className="pk-device-meta">
@@ -997,7 +1000,7 @@ function PhoneList({ devices, onPair, busy, armed, onArm, onRevoke, onCalibrate,
 function radioTrouble(radio: UnlockSnapshot['radio']): string | null {
   switch (radio) {
     case 'no-answer': return '已开启 · 但还没拿到蓝牙权限，可能有个弹窗在等你点'
-    case 'denied': return '已开启 · 但蓝牙被拒了，现在什么都收不到'
+    case 'denied': return '已开启 · 但 macOS 没让 Outsie 用蓝牙，现在什么都收不到。更新过 App 之后会这样，去系统设置里重新允许一次'
     case 'off': return '已开启 · 但这台 Mac 的蓝牙关着'
     case 'unsupported': return '已开启 · 但这台 Mac 没有能用的蓝牙'
     default: return null

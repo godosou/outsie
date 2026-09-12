@@ -161,7 +161,7 @@ export function ShortcutsPanel({ bridge, onToast }: {
         {loaded && !status.trusted && (
           <p className="security-limit" style={{ marginTop: 0, marginBottom: 14 }}>
             这台 Mac 还没拿到「替你按键」的权限，所以下面的「试一次」按不了，手机按下去也不会有反应。
-            去「手机控制」里开，那一个权限管着自动锁屏和替手机按键两件事。
+            去「手机控制」那一页允许它，自动锁屏用的也是同一个开关。
           </p>
         )}
 
@@ -282,7 +282,7 @@ export function ShortcutsPanel({ bridge, onToast }: {
         {/* Said here rather than in a footnote: someone looking at these buttons
             is about to assume they take effect on every phone. */}
         <p className="security-limit" style={{ marginTop: 18 }}>
-          手机上要先同步一次才看得到这些按钮；哪部手机可以按，在「手机控制」里一部一部开。
+          手机上同步一次，才看得到这些按钮。哪部手机可以按，在「手机控制」里定。
         </p>
       </section>
 
