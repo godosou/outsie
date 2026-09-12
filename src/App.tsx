@@ -188,6 +188,16 @@ export default function App() {
   const shortVoice = getShortBreakVoice(canPostpone ? 'enter' : 'return', voiceKey)
   const eyeCareTip = getEyeCareTip(voiceKey)
   const showToast = (message: string) => setToast(message)
+  // A lock on its way, counted down where the person is looking (design doc
+  // §11). Fed by the bridge through the desktop bridge; null when nothing is
+  // pending. Touching the keyboard cancels the lock on the Mac's side, and
+  // the sentence says so.
+  const [lockPending, setLockPending] = useState<{ seconds: number; why: string } | null>(null)
+  useEffect(() => window.repose?.unlock?.onPresence(p => {
+    const o = (p && typeof p === 'object') ? p as { lockIn?: unknown; why?: unknown } : {}
+    if (typeof o.lockIn === 'number' && o.lockIn >= 0) setLockPending({ seconds: o.lockIn, why: typeof o.why === 'string' ? o.why : 'signal' })
+    else setLockPending(null)
+  }), [])
   const initAudio = () => {
     try { const Audio = window.AudioContext || window.webkitAudioContext; if (Audio && !audio.current) audio.current = new Audio(); void audio.current?.resume() } catch { /* Sound is optional. */ }
   }
@@ -393,6 +403,7 @@ export default function App() {
       {/* The 「安全锁屏尚未开启」 banner is gone. Its 「前往设置」 pointed at the
           page the reader was already on, and the setting now lives on 手机控制
           directly under the switch that makes it painless. */}
+      {lockPending && <div className="security-alert" role="status" style={{ position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 60, maxWidth: 520 }}><LockKeyhole size={19} /><div><strong>{lockPending.why === 'silent' ? '一分钟没听到手机' : '手机走远了'} · {lockPending.seconds} 秒后锁屏</strong><p>碰一下键盘或鼠标就不锁。</p></div></div>}
       {unlockBanner && page !== 'phone' && <div className={`security-alert${unlockBanner.tone === 'danger' ? ' pk-danger' : ''}`} role="alert"><KeyRound size={19} /><div><strong>{unlockBanner.title}</strong><p>{unlockBanner.body}</p></div><button className="text-button" onClick={() => navigate('phone')}>{unlockBanner.action.label}<ArrowRight size={15} /></button></div>}
       {page === 'overview' && <div className="page-enter">
         <div className="hero-grid">

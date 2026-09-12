@@ -26,8 +26,25 @@ use crate::SharedState;
 pub struct AudioProcess {
     pub bundle: String,
     pub name: String,
+    #[serde(deserialize_with = "truthy")]
     pub input: bool,
+    #[serde(deserialize_with = "truthy")]
     pub output: bool,
+}
+
+/// CoreAudio hands these over as UInt32; accept a JSON bool or a number, so a
+/// boxing slip on the native side can never again read as "no meeting".
+fn truthy<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Flag {
+        Bool(bool),
+        Number(f64),
+    }
+    Ok(match Flag::deserialize(deserializer)? {
+        Flag::Bool(value) => value,
+        Flag::Number(value) => value != 0.0,
+    })
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -218,6 +235,19 @@ mod tests {
     }
 
     #[test]
+    fn the_native_report_parses_with_bool_or_numeric_flags() {
+        // The first device run shipped 0/1 here and the app never saw a meeting.
+        let numeric = r#"{"audio":[{"bundle":"com.electron.lark.iron","input":1,"name":"Feishu Meetings","output":1}],"running":[]}"#;
+        let parsed: Activity = serde_json::from_str(numeric).expect("numeric flags parse");
+        assert!(meeting_active(&parsed));
+        let boolean = r#"{"audio":[{"bundle":"com.electron.lark.iron","input":false,"name":"Feishu Meetings","output":true}],"running":[]}"#;
+        let parsed: Activity = serde_json::from_str(boolean).expect("bool flags parse");
+        assert!(meeting_active(&parsed));
+        let empty: Activity = serde_json::from_str("{}").expect("empty object parses");
+        assert!(!meeting_active(&empty));
+    }
+
+    #[test]
     fn every_known_meeting_app_matches_by_prefix() {
         for bundle in ["us.zoom.xos", "com.microsoft.teams2", "com.microsoft.teams2.helper",
             "com.electron.lark.iron", "com.larksuite.larkmac", "com.tencent.meeting", "com.apple.FaceTime"] {
@@ -246,5 +276,23 @@ mod tests {
         }
         assert_eq!(debounce.observe(false), Some(false));
         assert!(!debounce.active());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod live {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn print_live_activity() {
+        let raw = unsafe { repose_activity_json() };
+        let text = unsafe { std::ffi::CStr::from_ptr(raw) }.to_string_lossy().into_owned();
+        unsafe { repose_free_json(raw) };
+        println!("RAW={}", &text[..text.len().min(600)]);
+        let parsed: Result<Activity, _> = serde_json::from_str(&text);
+        match parsed {
+            Ok(activity) => println!("PARSED audio={} running={} active={}", activity.audio.len(), activity.running.len(), meeting_active(&activity)),
+            Err(error) => println!("PARSE ERROR {error}"),
+        }
     }
 }

@@ -798,8 +798,9 @@ pub enum PresenceReport {
     NeverRan,
     /// A line older than [STATUS_MAX_AGE_S], or one saying the bridge stopped.
     NotRunning,
-    /// Running, and this is its verdict.
-    Fresh { state: String, rssi: Option<i32> },
+    /// Running, and this is its verdict. `lock_in` is a lock on its way:
+    /// (why, seconds left), from the bridge's fourth field.
+    Fresh { state: String, rssi: Option<i32>, lock_in: Option<(String, u32)> },
     /// A file we could not parse. Treated as "not running" for the state
     /// machine, kept distinct so the panel can say why.
     Unreadable,
@@ -835,8 +836,58 @@ pub fn read_presence(line: Option<&str>, now_s: i64) -> PresenceReport {
         state => PresenceReport::Fresh {
             state: state.to_string(),
             rssi: f[1].parse::<i32>().ok(),
+            lock_in: f.get(3).and_then(|p| parse_pending_lock(p)),
         },
     }
+}
+
+/// `lock:signal:8` / `lock:silent:35` -> ("signal", 8). Anything else: none.
+pub fn parse_pending_lock(field: &str) -> Option<(String, u32)> {
+    let mut it = field.trim().split(':');
+    if it.next()? != "lock" {
+        return None;
+    }
+    let why = it.next()?.to_string();
+    let left = it.next()?.parse::<u32>().ok()?;
+    Some((why, left))
+}
+
+/// What the window is told each time presence changes: the axis the panel
+/// shows, plus the lock countdown when one is pending.
+pub fn presence_event(report: &PresenceReport) -> serde_json::Value {
+    match report {
+        PresenceReport::Fresh { state, lock_in, .. } => {
+            let presence = match state.as_str() {
+                "near" => "near",
+                "away" => "away",
+                _ => "transport-unavailable",
+            };
+            serde_json::json!({
+                "presence": presence,
+                "lockIn": lock_in.as_ref().map(|(_, s)| *s),
+                "why": lock_in.as_ref().map(|(w, _)| w.clone()),
+            })
+        }
+        _ => serde_json::json!({ "presence": "transport-unavailable", "lockIn": null, "why": null }),
+    }
+}
+
+/// Tell the window when presence or a pending lock changes. Once a second,
+/// only on change: the window's own poll is slow and never sees the seconds
+/// tick, and a countdown that does not tick is not a countdown.
+pub fn watch_presence(app: AppHandle) {
+    std::thread::spawn(move || {
+        use tauri::Emitter;
+        let mut last = serde_json::Value::Null;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let now = HostMacBackend::presence_event(&app);
+            if now != last {
+                let _ = app.emit("repose-unlock-presence", now.clone());
+                last = now;
+            }
+        }
+    });
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1134,6 +1185,10 @@ impl HostMacBackend {
     /// without reading the key -- which is the point, this process has no
     /// business holding it.
     /// Read the bridge's published line, if there is one.
+    pub(crate) fn presence_event(app: &AppHandle) -> serde_json::Value {
+        presence_event(&Self::presence_report(app))
+    }
+
     pub(crate) fn presence_report(app: &AppHandle) -> PresenceReport {
         // Not a security input: this file only decides what the panel says. The
         // permit the plugin actually reads is root-only and written elsewhere.
@@ -3505,7 +3560,7 @@ mod tests {
             bundle_signature_ok: Some(true),
             daemon_loaded: Some(true),
             presence_key: PresenceKeyState::Ok { paired: true },
-            presence: PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) },
+            presence: PresenceReport::Fresh { state: "near".into(), rssi: Some(-55), lock_in: None },
         }
     }
 
@@ -3672,7 +3727,7 @@ mod tests {
         assert!(!assess(&f).presence_running, "a stopped monitor must read as off");
         f.presence = PresenceReport::NeverRan;
         assert!(!assess(&f).presence_running);
-        f.presence = PresenceReport::Fresh { state: "away".into(), rssi: None };
+        f.presence = PresenceReport::Fresh { state: "away".into(), rssi: None, lock_in: None };
         assert!(assess(&f).presence_running, "running and not seeing the phone is still running");
         // Something IS running here -- the scanner. Calling it off would offer
         // a switch to start a thing that is already started.
@@ -3894,8 +3949,8 @@ mod tests {
     #[test]
     fn the_idle_lock_waits_while_the_phone_is_heard_nearby() {
         // Sitting at the desk reading, phone beside you, is not 「你离开」.
-        assert!(!idle_lock_allowed(&PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) }));
-        assert!(idle_lock_allowed(&PresenceReport::Fresh { state: "away".into(), rssi: None }));
+        assert!(!idle_lock_allowed(&PresenceReport::Fresh { state: "near".into(), rssi: Some(-55), lock_in: None }));
+        assert!(idle_lock_allowed(&PresenceReport::Fresh { state: "away".into(), rssi: None, lock_in: None }));
         assert!(idle_lock_allowed(&PresenceReport::NeverRan));
         assert!(idle_lock_allowed(&PresenceReport::NotRunning));
     }
@@ -3908,6 +3963,36 @@ mod tests {
         .expect("permit-bridge.sh should be readable");
         assert!(sh.contains("AUTOLOCK_FILE=\"${REPOSE_AUTOLOCK_FILE:-}\""));
         assert_eq!(AUTOLOCK_FILE, "autolock");
+    }
+
+    #[test]
+    fn a_pending_lock_rides_in_the_fourth_field_and_older_lines_still_read() {
+        let t = 1_700_000_000;
+        match read_presence(Some("near,-60,1700000000,lock:signal:8"), t) {
+            PresenceReport::Fresh { state, rssi, lock_in } => {
+                assert_eq!(state, "near");
+                assert_eq!(rssi, Some(-60));
+                assert_eq!(lock_in, Some(("signal".into(), 8)));
+            }
+            other => panic!("{other:?}"),
+        }
+        match read_presence(Some("away,-,1700000000,lock:silent:35"), t) {
+            PresenceReport::Fresh { lock_in, .. } => assert_eq!(lock_in, Some(("silent".into(), 35))),
+            other => panic!("{other:?}"),
+        }
+        match read_presence(Some("near,-60,1700000000"), t) {
+            PresenceReport::Fresh { lock_in, .. } => assert_eq!(lock_in, None),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(parse_pending_lock("lock:signal:x"), None);
+        assert_eq!(parse_pending_lock("garbage"), None);
+        let ev = presence_event(&read_presence(Some("near,-60,1700000000,lock:signal:8"), t));
+        assert_eq!(ev["presence"], "near");
+        assert_eq!(ev["lockIn"], 8);
+        assert_eq!(ev["why"], "signal");
+        let quiet = presence_event(&PresenceReport::NotRunning);
+        assert_eq!(quiet["presence"], "transport-unavailable");
+        assert!(quiet["lockIn"].is_null());
     }
 
     #[test]
@@ -4728,7 +4813,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
     #[test]
     fn an_away_line_reads_as_away_and_adds_no_warning_row() {
         let a = assess(&HostFacts {
-            presence: PresenceReport::Fresh { state: "away".into(), rssi: None },
+            presence: PresenceReport::Fresh { state: "away".into(), rssi: None, lock_in: None },
             ..facts()
         });
         assert_eq!(a.presence, Presence::Away);
@@ -4758,7 +4843,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
         // means it died -- not that the phone is still where it last was.
         let now = 1_800_000_000;
         assert_eq!(read_presence(Some("near,-55,1799999995"), now),
-                   PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) });
+                   PresenceReport::Fresh { state: "near".into(), rssi: Some(-55), lock_in: None });
         assert_eq!(read_presence(Some("near,-55,1799999000"), now), PresenceReport::NotRunning);
     }
 
@@ -4781,7 +4866,7 @@ macstate,1,59638225,e44241038ca4364f,d006c92720e9d1ce
         for bad in ["", "near", "near,-55", "near,-55,notanumber"] {
             assert_ne!(
                 read_presence(Some(bad), now),
-                PresenceReport::Fresh { state: "near".into(), rssi: Some(-55) },
+                PresenceReport::Fresh { state: "near".into(), rssi: Some(-55), lock_in: None },
                 "{bad:?} must not read as present",
             );
         }

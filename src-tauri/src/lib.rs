@@ -968,6 +968,7 @@ pub fn run() {
             setup_lifecycle(app.handle(), shared.clone());
             run_break_monitor(app.handle().clone(), shared.clone());
             run_idle_monitor(app.handle().clone(), shared.clone());
+            unlock::watch_presence(app.handle().clone());
             meeting::run_meeting_monitor(app.handle().clone(), shared.clone());
             Ok(())
         })

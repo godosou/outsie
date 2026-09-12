@@ -229,3 +229,8 @@ APK；走一遍量距离（远处站到听不见的地方）；控制页看按�
 - 量距离开始前那一屏加了「Mac 上要开着 Outsie，屏幕别锁着」。
 - 打包踩坑两处：`[[bin]] outsie` 和 tauri 写出的 `target/release/Outsie` 在大小写不敏感的卷上是同一个文件，改名 `outsie-cli`；
   打包前先删旧 bundle。命令行软链 `~/.local/bin/outsie` → `Outsie.app/Contents/MacOS/outsie-cli`。
+- 23:10 手机没被 Mac 听到：手机蓝牙是关的（用户测试时关的），我用 adb 打开，Mac 立刻 ENTER。
+- 没信号锁屏 120 秒 → 60 秒（有键盘那道守卫，一分钟没信号就是走了或死了）。
+- **锁屏倒计时**：bridge 在状态行第四个字段写 `lock:signal:8` / `lock:silent:35`，Rust 每秒读、变了就发 `repose-unlock-presence`，
+  App 顶上出横幅「手机走远了 · N 秒后锁屏。碰一下键盘或鼠标就不锁。」cargo 168 · npm 140 绿。
+- 手机图标换成 Mac 同一套（tauri 生成的 mipmap + 自适应）。

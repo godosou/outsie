@@ -235,11 +235,13 @@ autolock_wanted() { [ -n "${AUTOLOCK_FILE}" ] && [ -e "${AUTOLOCK_FILE}" ]; }
 #   2. Silence alone locks late. The permit clears at STALE_S (the Mac stops
 #      auto-unlocking, which is the safe direction), but the screen only
 #      locks after LOCK_STALE_S of silence -- a phone whose radio hiccups
-#      for a minute at the desk must not lock the desk.
+#      for a while at the desk must not lock the desk. Sixty seconds: with
+#      guard 1 in place, a minute of silence at an idle keyboard is a phone
+#      that left or died, and either way the desk should lock.
 #   3. One lock per departure, and none within LOCK_COOLDOWN_S of the last:
 #      a signal that flaps across the line cannot lock the Mac twice a minute.
 IDLE_GUARD_S="${REPOSE_IDLE_GUARD_S:-20}"
-LOCK_STALE_S="${REPOSE_LOCK_STALE_S:-120}"
+LOCK_STALE_S="${REPOSE_LOCK_STALE_S:-60}"
 LOCK_COOLDOWN_S="${REPOSE_LOCK_COOLDOWN_S:-60}"
 last_lock=0
 stale_locked=0
@@ -277,10 +279,28 @@ PERMIT_OFF_CMD="${REPOSE_PERMIT_OFF_CMD:-${REPOSE_SSH:-} 'sudo rm -f /var/run/re
 # confident green dot for a process that exited an hour ago.
 STATUS_FILE="${REPOSE_STATUS_FILE:-}"
 
+# publish STATE [RSSI] [PENDING]. The optional fourth field is a lock that
+# is on its way -- `lock:signal:8` (below the far line, 8 s of the hold
+# left) or `lock:silent:35` (no sample, 35 s to the silence lock) -- so
+# the app can count it down on screen and the person can wave it off by
+# touching the keyboard. Readers that predate the field ignore it.
 publish() {
     [ -n "${STATUS_FILE}" ] || return 0
-    printf '%s,%s,%s\n' "$1" "${2:--}" "$(date +%s)" > "${STATUS_FILE}.tmp" 2>/dev/null \
+    printf '%s,%s,%s%s\n' "$1" "${2:--}" "$(date +%s)" "${3:+,$3}" > "${STATUS_FILE}.tmp" 2>/dev/null \
         && mv -f "${STATUS_FILE}.tmp" "${STATUS_FILE}" 2>/dev/null
+}
+last_pending=""
+# What lock is pending right now, in the fourth-field spelling, or nothing.
+pending_lock() {
+    autolock_wanted || return 0
+    if [ "${present}" = 1 ] && [ "${far_since}" != 0 ]; then
+        _left=$((FAR_HOLD_S - (now - far_since))); [ "${_left}" -lt 0 ] && _left=0
+        printf 'lock:signal:%s' "${_left}"
+    elif [ "${present}" = 0 ] && [ "${stale_locked}" = 0 ] && [ "${last_sample}" != 0 ] \
+        && [ "$((now - last_sample))" -ge "${STALE_S}" ]; then
+        _left=$((LOCK_STALE_S - (now - last_sample))); [ "${_left}" -lt 0 ] && _left=0
+        printf 'lock:silent:%s' "${_left}"
+    fi
 }
 
 now_s() { date +%s; }
@@ -544,13 +564,15 @@ while :; do
     #
     # So it beats either way. The permit is still asserted only while present;
     # that part was never in question.
-    if [ "$((now - last_refresh))" -ge "${REFRESH_S}" ]; then
+    pending="$(pending_lock)"
+    if [ "$((now - last_refresh))" -ge "${REFRESH_S}" ] || [ "${pending}" != "${last_pending}" ]; then
         last_refresh="${now}"
+        last_pending="${pending}"
         if [ "${present}" = 1 ]; then
-            publish near "${rssi:-}"
+            publish near "${rssi:-}" "${pending}"
             assert_permit
         else
-            publish away "${rssi:-}"
+            publish away "${rssi:-}" "${pending}"
         fi
     fi
 done

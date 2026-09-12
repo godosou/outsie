@@ -166,8 +166,9 @@ char *repose_activity_json(void) {
         [audio addObject:@{
           @"bundle": repose_audio_string(ids[i], kAudioProcessPropertyBundleID),
           @"name": app.localizedName ?: @"",
-          @"input": @(input != 0),
-          @"output": @(output != 0),
+          // `@(input != 0)` would box a C int and serialize as 0/1; the Rust side reads a JSON bool.
+          @"input": input ? @YES : @NO,
+          @"output": output ? @YES : @NO,
         }];
       }
     }
