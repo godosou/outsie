@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3, Smartphone, Command } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Video, Volume2, Wind, X, BarChart3, Smartphone, Command } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
 import { ShortcutsPanel } from './components/ShortcutsPanel'
@@ -15,7 +15,7 @@ import './phone-key.css'
 type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phone' | 'shortcuts' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
-type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean }
+type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean; meetingHoldEnabled: boolean }
 
 const APP_VERSION = '0.6.3'
 
@@ -149,7 +149,7 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
 
 export default function App() {
   const timer = useBreakTimer()
-  const { phase, running, remaining, settings, stats, completedCycles, breakId, canPostpone, postponedBreak, postponeSeconds } = timer
+  const { phase, running, remaining, settings, stats, completedCycles, breakId, canPostpone, postponedBreak, postponeSeconds, meeting, meetingHold } = timer
   const [page, setPage] = useState<Page>('overview')
   const [mobileMenu, setMobileMenu] = useState(false)
   const [help, setHelp] = useState(false)
@@ -166,8 +166,8 @@ export default function App() {
   const [desktopPreferences, setDesktopPreferences] = useState<DesktopPreferences>(() => {
     // The keyboard-idle lock is off until asked for: it interrupts reading.
     // The walk-away lock is on: it is what the phone key is for.
-    const defaults: DesktopPreferences = { strictBreaks: true, idleLockEnabled: false, idleLockSeconds: 30, awayLockEnabled: Boolean(window.repose) }
-    try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30, awayLockEnabled: typeof saved.awayLockEnabled === 'boolean' ? saved.awayLockEnabled : defaults.awayLockEnabled } : defaults } catch { return defaults }
+    const defaults: DesktopPreferences = { strictBreaks: true, idleLockEnabled: false, idleLockSeconds: 30, awayLockEnabled: Boolean(window.repose), meetingHoldEnabled: true }
+    try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30, awayLockEnabled: typeof saved.awayLockEnabled === 'boolean' ? saved.awayLockEnabled : defaults.awayLockEnabled, meetingHoldEnabled: typeof saved.meetingHoldEnabled === 'boolean' ? saved.meetingHoldEnabled : true } : defaults } catch { return defaults }
   })
   const [securityError, setSecurityError] = useState(() => { try { return localStorage.getItem('repose-security-error') === 'true' } catch { return false } })
   const [unlockSnapshot, setUnlockSnapshot] = useState<UnlockSnapshot | null>(null)
@@ -234,8 +234,19 @@ export default function App() {
     const off = unlock.onSnapshot(raw => { if (alive) setUnlockSnapshot(normalizeUnlockSnapshot(raw)) })
     return () => { alive = false; off() }
   }, [])
+  // With the switch off a meeting is simply not one: no held break, no meeting minutes.
+  const meetingHoldEnabled = desktopPreferences.meetingHoldEnabled
   useEffect(() => {
-    document.title = `${time(remaining)} · ${inBreak ? '好好休息' : running ? '专注中' : '已暂停'} — Outsie`
+    const bridge = window.repose
+    if (!bridge) return
+    let alive = true
+    const apply = (active: boolean) => { if (alive) timer.setMeeting(active && meetingHoldEnabled) }
+    void bridge.getMeetingState().then(apply).catch(() => { /* the event stream still arrives */ })
+    const off = bridge.onMeeting(apply)
+    return () => { alive = false; off() }
+  }, [meetingHoldEnabled, timer.setMeeting])
+  useEffect(() => {
+    document.title = `${time(remaining)} · ${inBreak ? '好好休息' : meetingHold ? '会议中，结束后休息' : meeting ? '会议中' : running ? '专注中' : '已暂停'} — Outsie`
     window.repose?.setStatus({ running, phase, remaining, breakId, canPostpone, postponeSeconds })
   }, [phase, running, remaining, inBreak, breakId, canPostpone, postponeSeconds])
   // A shortcut pressed on the phone. Shown wherever the user is, because the
@@ -507,6 +518,7 @@ export default function App() {
         <section className="panel preferences-panel security-panel">
           <div className="section-heading"><div><h2>强制休息</h2><p>休息时专心休息。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
           <div className="preference-row"><span className="preference-icon"><ShieldCheck size={21} /></span><div><h3>强制休息</h3><p>覆盖全部显示器，屏蔽应用切换。每次可以延迟一次。再次提醒后，倒计时走完之前不能跳过、暂停或退出。</p></div><Toggle label="强制休息" enabled={desktopPreferences.strictBreaks} onChange={() => { if (!window.repose) { showToast('强制休息只有 Mac 桌面版能做。'); return }; setDesktopPreferences(previous => ({ ...previous, strictBreaks: !previous.strictBreaks })) }} /></div>
+          <div className="preference-row"><span className="preference-icon"><Video size={21} /></span><div><h3>开会时不打扰</h3><p>Zoom、Teams、飞书、腾讯会议正在通话时，到点不进入休息，会议结束后补上。会议时间单独记录，不算专注。</p></div><Toggle label="开会时不打扰" enabled={desktopPreferences.meetingHoldEnabled} onChange={() => { if (!window.repose) { showToast('识别会议只有 Mac 桌面版能做。'); return }; setDesktopPreferences(previous => ({ ...previous, meetingHoldEnabled: !previous.meetingHoldEnabled })) }} /></div>
           {/* 自动锁屏 moved to 手机控制, beside 用手机解锁.
               The whole reason the phone key exists is so that locking
               aggressively stops costing anything. Kept on separate pages, the

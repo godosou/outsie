@@ -15,6 +15,7 @@ import {
   monotonicElapsedSeconds,
   postponeTimerBreak,
   resetTimerState,
+  setTimerMeeting,
   restoreTimerState,
   skipTimerBreak,
   startTimerBreak,
@@ -146,6 +147,11 @@ export function useBreakTimer() {
     sampleActiveTime(now)
     commit(previous => postponeTimerBreak(previous, now))
   }, [commit, sampleActiveTime])
+  const setMeeting = useCallback((active: boolean) => {
+    const now = Date.now()
+    sampleActiveTime(now)
+    commit(previous => setTimerMeeting(previous, active, now))
+  }, [commit, sampleActiveTime])
   const updateSettings = useCallback((partial: Partial<TimerSettings>) => {
     const now = Date.now()
     sampleActiveTime(now)
@@ -175,6 +181,8 @@ export function useBreakTimer() {
     breakId: state.breakId,
     canPostpone: state.phase !== 'focus' && !state.postponeUsed,
     postponedBreak: state.deferredBreak?.type ?? null,
+    meeting: state.meeting,
+    meetingHold: state.meetingHold,
     postponeSeconds: getPostponeSeconds(state.deferredBreak?.type ?? (state.phase === 'long' ? 'long' : 'short')),
     running: state.running,
     remaining: Math.ceil(state.remaining),
@@ -193,6 +201,7 @@ export function useBreakTimer() {
     completeBreak,
     skipBreak,
     postponeBreak,
+    setMeeting,
     updateSettings,
     resetSettings,
     resetTimer,

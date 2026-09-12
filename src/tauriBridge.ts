@@ -27,7 +27,7 @@ type LifecycleSnapshot = {
   pendingIntervals: Extract<DesktopLifecycleEvent, { type: 'inactive-end' }>[]
 }
 type Status = { running: boolean; phase: string; remaining: number; breakId: string | null; canPostpone: boolean; postponeSeconds: number }
-type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean }
+type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean; meetingHoldEnabled: boolean }
 
 declare global {
   interface Window {
@@ -35,6 +35,9 @@ declare global {
       isDesktop: boolean
       onCommand: (callback: (event: DesktopCommand) => void) => () => void
       onLifecycle: (callback: (event: DesktopLifecycleEvent) => void) => () => void
+      /** The desktop says whether a meeting app is running audio; see src-tauri/src/meeting.rs. */
+      onMeeting: (callback: (active: boolean) => void) => () => void
+      getMeetingState: () => Promise<boolean>
       acknowledgeLifecycle: (intervalId: string) => Promise<boolean>
       setStatus: (status: Status) => void
       setPreferences: (preferences: Preferences) => void
@@ -123,6 +126,7 @@ export async function initializeDesktopBridge() {
     }
   }
 
+  const meetingCallbacks = new Set<(active: boolean) => void>()
   const unlockSnapshotCallbacks = new Set<(snapshot: unknown) => void>()
   const unlockPresenceCallbacks = new Set<(presence: unknown) => void>()
 
@@ -133,6 +137,13 @@ export async function initializeDesktopBridge() {
   await listen<unknown>('repose-lifecycle', event => {
     const lifecycle = parseLifecycle(event.payload)
     if (lifecycle) dispatchLifecycle(lifecycle)
+  })
+  await listen<unknown>('repose-meeting', event => {
+    const payload = event.payload
+    if (typeof payload === 'object' && payload !== null && typeof (payload as { active?: unknown }).active === 'boolean') {
+      const active = (payload as { active: boolean }).active
+      meetingCallbacks.forEach(callback => callback(active))
+    }
   })
   await listen<unknown>('repose-unlock-snapshot', event => {
     unlockSnapshotCallbacks.forEach(callback => callback(event.payload))
@@ -211,6 +222,11 @@ export async function initializeDesktopBridge() {
       if (activeLifecycle && !replayedActive) callback(activeLifecycle)
       return () => lifecycleCallbacks.delete(callback)
     },
+    onMeeting(callback) {
+      meetingCallbacks.add(callback)
+      return () => meetingCallbacks.delete(callback)
+    },
+    getMeetingState() { return invoke<boolean>('get_meeting_state') },
     acknowledgeLifecycle(intervalId) { return invoke<boolean>('acknowledge_lifecycle_interval', { intervalId }) },
     setStatus(status: Status) { void invoke('set_status', { value: status }) },
     setPreferences(preferences: Preferences) { void invoke('set_preferences', { value: preferences }) },
