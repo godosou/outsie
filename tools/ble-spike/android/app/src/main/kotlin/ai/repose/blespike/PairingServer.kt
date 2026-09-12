@@ -356,10 +356,6 @@ class PairingServer(
                 name = macName,
                 pairedAt = java.time.Instant.now().toString(),
             )
-            // Only kept once the digits matched. A name captured from a session
-            // the human rejected would be the attacker's name, sitting on the
-            // screen next to the words 已配对.
-            AppStore(context).pairedMac = macName
             session?.complete()
             SpikeState.event("配对完成，指纹 ${PresenceKey.fingerprint(context)}")
             stop()

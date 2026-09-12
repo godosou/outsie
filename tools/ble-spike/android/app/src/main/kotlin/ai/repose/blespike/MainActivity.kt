@@ -20,8 +20,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Host for the Outsie 手机钥匙 product shell. One Activity, a handful of screens, a small
- * manual navigator. No tab bar (design doc §03): 主屏 is the only destination, 控制 opens
+ * Host for the Outsie 手机钥匙 product shell. One Activity, four screens (配对、主屏、控制、
+ * 量距离), a small manual navigator. No tab bar (design doc §03): 主屏 is the only destination, 控制 opens
  * from a computer's card, and everything else has a 「返回」. The advertise toggle on the home screen drives the
  * existing [BleSpikeService] — the product's "advertise on/off" IS start/stop advertising.
  */
@@ -72,7 +72,7 @@ class MainActivity : Activity(), Nav {
 
         SpikeState.addListener(onStateChanged)
 
-        go(if (store.paired) Screen.HOME else Screen.PAIRING)
+        go(if (PresenceKey.hasAny(this)) Screen.HOME else Screen.PAIRING)
 
         restoreAdvertisingIfWanted()
 
@@ -152,7 +152,6 @@ class MainActivity : Activity(), Nav {
         val view = when (screen) {
             Screen.PAIRING -> buildPairingScreen(this, store, this)
             Screen.HOME -> buildHomeScreen(this, store, this) { enable -> onAdvertiseChange(enable) }
-            Screen.KEEPALIVE -> buildKeepAliveScreen(this, this)
             Screen.CONTROL -> buildControlScreen(this, this, console, store)
             Screen.CAL -> buildCalScreen(this, this, store)
         }
@@ -164,18 +163,10 @@ class MainActivity : Activity(), Nav {
         )
     }
 
-    override fun back() {
-        when (current) {
-            Screen.KEEPALIVE -> go(Screen.HOME)
-            Screen.CONTROL, Screen.CAL -> go(Screen.HOME)
-            else -> finish()
-        }
-    }
-
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (current) {
-            Screen.KEEPALIVE, Screen.CONTROL, Screen.CAL -> go(Screen.HOME)
+            Screen.CONTROL, Screen.CAL -> go(Screen.HOME)
             else -> super.onBackPressed()
         }
     }

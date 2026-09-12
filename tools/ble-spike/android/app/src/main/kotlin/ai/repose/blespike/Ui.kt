@@ -135,10 +135,6 @@ object Ui {
         layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, context.dp(1))
     }
 
-    fun spacer(context: Context, heightDp: Int): View = View(context).apply {
-        layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, context.dp(heightDp))
-    }
-
     fun lp(
         width: Int = MATCH_PARENT,
         height: Int = WRAP_CONTENT,

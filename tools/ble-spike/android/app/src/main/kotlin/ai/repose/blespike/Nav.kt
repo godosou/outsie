@@ -10,12 +10,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /** The product screens. CONTROL belongs to one Mac and opens from its card (design doc §04). */
-enum class Screen { PAIRING, HOME, KEEPALIVE, CONTROL, CAL }
+enum class Screen { PAIRING, HOME, CONTROL, CAL }
 
 /** How screens ask the host to move between screens. */
 interface Nav {
     fun go(screen: Screen)
-    fun back()
 }
 
 /**
@@ -87,16 +86,6 @@ fun screenScaffold(
     outer.addView(scroll)
     return outer
 }
-
-/** A single row inside a card: a leading dot/label column and trailing content. */
-fun bulletRow(context: Context, pal: Palette, primary: CharSequence, secondary: CharSequence?): LinearLayout =
-    LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        addView(Ui.heading(context, pal, primary))
-        if (secondary != null) {
-            addView(Ui.secondary(context, pal, secondary), Ui.lp(top = context.dp(3)))
-        }
-    }
 
 /** Centred glyph in a soft, coloured circle — used for list/section icons. */
 fun glyphCircle(context: Context, bg: Int, glyph: CharSequence, sizeDp: Int, textSp: Float, fg: Int): TextView =

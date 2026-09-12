@@ -76,7 +76,7 @@ object MacState {
     /**
      * Recorded only for a tag that verified. An unverified beacon is not news.
      *
-     * The clock is a parameter for the same reason [current] takes one: a
+     * The clock is a parameter for the same reason [sightings] and [beaconOf] take one: a
      * class that reads the clock itself cannot be tested without a device, and
      * the first version of this was written that way -- its test asserted that
      * a fresh sighting is believed, and failed, because the stubbed
@@ -106,30 +106,12 @@ object MacState {
      *
      * Stale entries are dropped rather than returned as UNKNOWN: a Mac this
      * phone has not heard from in a minute is not a Mac with an unknown state,
-     * it is a Mac that is not here. "Unknown" belongs to [current], which
-     * answers about the whole set.
+     * it is a Mac that is not here. "Unknown" belongs to a Mac that is heard
+     * but calibrating -- see [MacBeaconState.lock].
      */
     fun sightings(nowUptime: Long = SystemClock.elapsedRealtime()): List<MacSighting> =
         heard.entries
             .filter { nowUptime - it.value.second <= SpikeContract.MAC_STATE_STALE_MS }
             .sortedByDescending { it.value.second }
             .map { MacSighting(it.key, it.value.first.lock, it.value.first) }
-
-    /**
-     * The one-line answer for the home screen, aged out.
-     *
-     * Uptime, not wall clock: a phone whose clock jumps -- a timezone change, an
-     * NTP correction -- would otherwise either freeze this answer or expire it
-     * instantly, and the frozen case is the dangerous one. It would leave
-     *「Mac 锁着」on screen for a Mac that is no longer there.
-     *
-     * With several Macs in range this reports UNKNOWN unless they agree. Two
-     * Macs in different states have no single true answer, and picking one
-     * would be the phone choosing which of two facts to show -- see the
-     * three-state note above.
-     */
-    fun current(nowUptime: Long = SystemClock.elapsedRealtime()): MacLockState {
-        val states = sightings(nowUptime).map { it.state }.distinct()
-        return if (states.size == 1) states[0] else MacLockState.UNKNOWN
-    }
 }

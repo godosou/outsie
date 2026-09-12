@@ -2,7 +2,7 @@
 
 - **Status:** open · deferred (do not implement yet)
 - **Priority:** low — reliability enhancement, not a blocker for the feature working
-- **Area:** Android app · "保持后台 / Keep-alive" screen (screen 3 of the Phone Key interaction spec)
+- **Area:** Android app · the battery-exemption row on the home screen (`HomeScreen.kt`: `isBatteryExempt` / `requestBatteryExempt`); the former standalone "保持后台 / Keep-alive" screen (screen 3 of the Phone Key interaction spec) was folded into it and removed
 - **Filed:** 2026-09-09
 - **Tracking note:** this repo has no git remote yet; filed as a local issue doc. Migrate to a real
   issue tracker (GitHub Issues) once the repo is pushed.

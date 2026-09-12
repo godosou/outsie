@@ -1,6 +1,7 @@
 package ai.repose.blespike
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -20,27 +21,27 @@ class MacStateTest {
 
     @Test fun `nothing heard means unknown, not unlocked`() {
         MacState.forget()
-        assertEquals(MacLockState.UNKNOWN, MacState.current(t0))
+        assertTrue(MacState.sightings(t0).isEmpty())
     }
 
     @Test fun `a fresh sighting is believed`() {
         MacState.forget()
         MacState.heard(macId = MAC_A, locked = true, nowUptime = t0)
-        assertEquals(MacLockState.LOCKED, MacState.current(t0 + 1_000))
+        assertEquals(MacLockState.LOCKED, MacState.sightings(t0 + 1_000).single().state)
     }
 
     @Test fun `a stale sighting decays to unknown rather than to a guess`() {
         MacState.forget()
         MacState.heard(macId = MAC_A, locked = true, nowUptime = t0)
         val stale = t0 + SpikeContract.MAC_STATE_STALE_MS + 1
-        assertEquals(MacLockState.UNKNOWN, MacState.current(stale))
+        assertTrue(MacState.sightings(stale).isEmpty())
     }
 
     @Test fun `a newer beacon from the same Mac replaces the older one`() {
         MacState.forget()
         MacState.heard(macId = MAC_A, locked = true, nowUptime = t0)
         MacState.heard(macId = MAC_A, locked = false, nowUptime = t0 + 500)
-        assertEquals(MacLockState.UNLOCKED, MacState.current(t0 + 1_000))
+        assertEquals(MacLockState.UNLOCKED, MacState.sightings(t0 + 1_000).single().state)
     }
 
     @Test fun `two Macs are two entries, not one that overwrites the other`() {
@@ -56,21 +57,6 @@ class MacStateTest {
         assertEquals(MacLockState.UNLOCKED, seen.first { it.macId == MAC_B }.state)
     }
 
-    @Test fun `two Macs that disagree have no single answer`() {
-        // Picking one would be the phone choosing which of two facts to show.
-        MacState.forget()
-        MacState.heard(macId = MAC_A, locked = true, nowUptime = t0)
-        MacState.heard(macId = MAC_B, locked = false, nowUptime = t0 + 500)
-        assertEquals(MacLockState.UNKNOWN, MacState.current(t0 + 1_000))
-    }
-
-    @Test fun `two Macs that agree do have one`() {
-        MacState.forget()
-        MacState.heard(macId = MAC_A, locked = true, nowUptime = t0)
-        MacState.heard(macId = MAC_B, locked = true, nowUptime = t0 + 500)
-        assertEquals(MacLockState.LOCKED, MacState.current(t0 + 1_000))
-    }
-
     @Test fun `walking away from one Mac does not forget another still in range`() {
         MacState.forget()
         MacState.heard(macId = MAC_A, locked = true, nowUptime = t0)
@@ -80,7 +66,6 @@ class MacStateTest {
         val seen = MacState.sightings(later + 2_000)
         assertEquals(1, seen.size)
         assertEquals(MAC_B, seen[0].macId)
-        assertEquals(MacLockState.LOCKED, MacState.current(later + 2_000))
     }
 
     @Test fun `a calibrating Mac is heard but its lock state is not claimed`() {
@@ -92,7 +77,6 @@ class MacStateTest {
         val s = MacState.sightings(t0 + 1_000).single()
         assertEquals(MacBeaconState.CAL_NEAR, s.beacon)
         assertEquals(MacLockState.UNKNOWN, s.state)
-        assertEquals(MacLockState.UNKNOWN, MacState.current(t0 + 1_000))
     }
 
     @Test fun `the beacon for one Mac is readable by its id`() {
