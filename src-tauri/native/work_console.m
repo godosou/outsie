@@ -51,20 +51,31 @@ int repose_console_activate(const char *bundle, const char *path, ReposeConsoleG
     NSWorkspace *workspace = [NSWorkspace sharedWorkspace];
     NSURL *url = chosenURL ?: [workspace URLForApplicationWithBundleIdentifier:identifier];
     if (!url) { result = 1; return; }
-    // Not -[NSRunningApplication activateWithOptions:]. From a process that is
-    // not itself the active app -- which this one never is when a phone
-    // command arrives -- macOS 14+ accepts that call (it returns YES) and then
-    // does nothing: measured on 2026-09-12, six tries against 飞书 and Codex,
-    // none frontmost after 5.6 s. The same six through openApplicationAtURL:
-    // with activates=YES were frontmost within 30-90 ms. This is the path
-    // `open -a` takes, and it works from anywhere.
-    NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration configuration];
-    config.activates = YES;
-    config.createsNewApplicationInstance = chosenURL ? YES : NO;
-    [workspace openApplicationAtURL:url configuration:config completionHandler:^(NSRunningApplication *opened, NSError *error) {
-      (void)opened; (void)error;
-    }];
-    result = 0;
+    NSRunningApplication *target = nil;
+    for (NSRunningApplication *candidate in [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier]) {
+      if (consoleMatchesTarget(candidate, identifier, chosenURL)) { target = candidate; break; }
+    }
+    if (target) {
+      // A running App: hand it the activation. From a process that is not the
+      // active app, -activateWithOptions: alone returns YES on macOS 14+ and
+      // does nothing (measured 2026-09-12: six tries, none frontmost after
+      // 5.6 s). Becoming active first and yielding is the cooperative path,
+      // and unlike opening the App's URL it sends no reopen -- which on the
+      // device put a new window in every App the phone switched to.
+      [NSApp activateIgnoringOtherApps:YES];
+      if (@available(macOS 14.0, *)) { [NSApp yieldActivationToApplication:target]; }
+      if (valid(context) && [target activateWithOptions:NSApplicationActivateIgnoringOtherApps]) result = 0;
+    } else {
+      // Not running: launch it to the front. A fresh launch has no windows to
+      // duplicate, and this is the path `open -a` takes.
+      NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration configuration];
+      config.activates = YES;
+      config.createsNewApplicationInstance = NO;
+      [workspace openApplicationAtURL:url configuration:config completionHandler:^(NSRunningApplication *opened, NSError *error) {
+        (void)opened; (void)error;
+      }];
+      result = 0;
+    }
   });
   if (result) return result;
   // Activation is asynchronous. Do not send keys before it settles. Three
