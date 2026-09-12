@@ -13,6 +13,7 @@ use std::{
 
 pub mod console;
 pub mod console_cli;
+mod meeting;
 mod unlock;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -901,6 +902,7 @@ pub fn run() {
             get_lifecycle_snapshot,
             acknowledge_lifecycle_interval,
             postpone_break,
+            meeting::get_meeting_state,
             notify_user,
             open_security_settings,
             unlock::unlock_get_snapshot,
@@ -966,6 +968,7 @@ pub fn run() {
             setup_lifecycle(app.handle(), shared.clone());
             run_break_monitor(app.handle().clone(), shared.clone());
             run_idle_monitor(app.handle().clone(), shared.clone());
+            meeting::run_meeting_monitor(app.handle().clone(), shared.clone());
             Ok(())
         })
         .build(tauri::generate_context!())
