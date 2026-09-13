@@ -87,8 +87,30 @@ export default function Home() {
   const [demo, setDemo] = useState({ seconds: 20, running: false });
   const { seconds, running } = demo;
   const t = (zh: string, en: string) => (lang === 'zh' ? zh : en);
+  // The prerendered head is Chinese, because the site is Chinese-first and a
+  // static export has one route. Crawlers and link previews therefore still
+  // read the Chinese title; this keeps the tab and the in-page metadata honest
+  // for a reader who is actually looking at the English page.
   useEffect(() => {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    const title =
+      lang === 'zh'
+        ? 'Outsie — AI 时代，先照顾好自己。'
+        : 'Outsie — In the age of AI, put yourself first.';
+    const description =
+      lang === 'zh'
+        ? 'AI 时代，先照顾好自己。按时休息、起身拉伸；用手机和耳机，少敲点键盘。'
+        : 'In the age of AI, put yourself first. Scheduled breaks and guided stretches, with a phone and a headset for less typing.';
+    document.title = title;
+    document
+      .querySelector('meta[property="og:title"]')
+      ?.setAttribute('content', title);
+    for (const selector of [
+      'meta[name="description"]',
+      'meta[property="og:description"]',
+    ]) {
+      document.querySelector(selector)?.setAttribute('content', description);
+    }
   }, [lang]);
   useEffect(() => {
     if (!running) return;

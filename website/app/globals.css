@@ -191,14 +191,6 @@ svg {
   font-size: clamp(2.55rem, 4.1vw, 4rem);
   line-height: 1.2;
 }
-.hero-promise {
-  font-size: clamp(1.25rem, 2vw, 1.7rem);
-  font-weight: 600;
-  line-height: 1.6;
-  margin-bottom: 16px;
-  letter-spacing: -0.025em;
-  color: var(--cream);
-}
 .hero-description {
   font-size: 1.075rem;
   line-height: 1.95;
@@ -531,93 +523,53 @@ svg {
   background: #61854a;
   transition: width 1s linear;
 }
-.hero-key-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 7px;
-  color: #b9cdb3;
-  font-size: 0.875rem;
-  line-height: 1.7;
-}
-.hero-key-link > span {
-  flex: 1;
-}
-.hero-key-link > svg {
-  flex-shrink: 0;
-  color: var(--lime);
-}
-.hero-key-link:hover {
-  color: var(--lime);
-}
 @media (max-width: 1050px) {
-  .hero-scenario {
+.hero-scenario {
     padding: 21px;
   }
-  .hero-device-preview {
+.hero-device-preview {
     grid-template-columns: 90px minmax(0, 1fr);
     gap: 12px;
   }
-  .hero-mini-draft {
+.hero-mini-draft {
     padding-inline: 12px;
   }
-  .hero-rest-preview {
+.hero-rest-preview {
     grid-template-columns: 72px minmax(0, 1fr);
     gap: 16px;
   }
-  .hero-rest-flower {
+.hero-rest-flower {
     width: 72px;
     height: 72px;
     border-radius: 20px;
   }
 }
 @media (max-width: 760px) {
-  .hero-experience {
+.hero-experience {
     width: min(520px, 100%);
     justify-self: center;
   }
-  .hero-actions {
+.hero-actions {
     align-items: stretch;
   }
-  .hero-actions > .primary-cta,
-  .hero-rest-cta {
+.hero-actions > .primary-cta,
+.hero-rest-cta {
     flex: 1;
   }
-  .hero-scenario-label {
+.hero-scenario-label {
     gap: 8px;
     letter-spacing: 0;
   }
-  .hero-scenario h2 {
+.hero-scenario h2 {
     font-size: 1.2rem;
   }
-  .hero-mini-draft q {
+.hero-mini-draft q {
     font-size: 0.95rem;
   }
-  .hero-mini-voice {
+.hero-mini-voice {
     gap: 4px;
     font-size: 0.875rem;
   }
-}
-.human-strip {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 35px;
-  flex-wrap: wrap;
-  padding: 23px 24px;
-  background: var(--lime);
-  color: var(--ink);
-  font-size: 0.78rem;
-  letter-spacing: 0.1em;
-  line-height: 1.5;
-}
-.human-strip strong {
-  font-size: 1.05rem;
-  font-weight: 800;
-}
-.human-strip > span:nth-child(even) {
-  font-size: 1.5rem;
-  line-height: 1;
 }
 .manifesto {
   display: grid;
@@ -647,14 +599,6 @@ svg {
   margin-top: 25px;
   font-size: 1rem;
 }
-.loop-symbol {
-  font-size: 7rem;
-  line-height: 1;
-  color: var(--lime);
-  justify-self: end;
-  align-self: center;
-  font-family: Arial, sans-serif;
-}
 .rhythm-section {
   background: var(--cream);
   color: var(--ink);
@@ -682,37 +626,6 @@ svg {
   font-size: 0.95rem;
   color: #58705c;
   padding-top: 7px;
-}
-.rhythm-tabs {
-  margin-top: 45px;
-  gap: 0 !important;
-}
-.rhythm-tabs-list {
-  display: grid !important;
-  grid-template-columns: repeat(3, 1fr);
-  width: 100% !important;
-  height: auto !important;
-  padding: 0 !important;
-  background: transparent !important;
-  gap: 0 !important;
-  border-bottom: 1px solid #bac7b2;
-  border-radius: 0 !important;
-}
-.rhythm-tabs-list button {
-  padding: 18px 12px !important;
-  min-height: 59px !important;
-  white-space: normal !important;
-  border-radius: 0 !important;
-  color: #5d705e !important;
-  font-size: 0.95rem !important;
-  font-weight: 650 !important;
-  border-bottom: 3px solid transparent !important;
-}
-.rhythm-tabs-list button[data-active] {
-  color: var(--ink) !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  border-bottom-color: var(--ink) !important;
 }
 .rhythm-panel {
   display: grid;
@@ -779,44 +692,6 @@ svg {
   font-size: 0.875rem;
   text-align: center;
 }
-.feature-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 50px;
-  border-top: 1px solid #c3cdb8;
-  padding-top: 34px;
-}
-.feature-row article > svg {
-  height: 25px;
-  width: 25px;
-  color: #466b45;
-  margin-bottom: 17px;
-  stroke-width: 1.5;
-}
-.feature-row h3 {
-  font-size: 1.1rem;
-  font-weight: 750;
-  margin-bottom: 10px;
-}
-.feature-row p {
-  font-size: 0.9rem;
-  line-height: 1.8;
-  color: #59705b;
-}
-.preview-progress {
-  display: flex;
-  gap: 20px;
-  padding: 60px 0;
-  align-items: center;
-}
-.preview-progress p {
-  flex: 1;
-}
-.preview-progress a {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 .site-footer {
   display: flex;
   align-items: center;
@@ -861,7 +736,6 @@ svg {
   border-radius: 18px;
   background: #ecf0df;
 }
-.break-demo-copy h3,
 .stretch-demo-copy h3 {
   margin-top: 15px;
   font-size: clamp(1.5rem, 2.4vw, 2rem);
@@ -869,29 +743,11 @@ svg {
   line-height: 1.5;
   letter-spacing: -0.035em;
 }
-.break-demo-copy > p,
 .stretch-demo-copy > p {
   margin-top: 14px;
   color: #50644f;
   font-size: 1rem;
   line-height: 1.9;
-}
-.simple-rhythm {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  margin-block: 30px 20px;
-}
-.simple-rhythm > span {
-  display: grid;
-  gap: 4px;
-  color: #50644f;
-  font-size: 0.875rem;
-}
-.simple-rhythm strong {
-  color: var(--ink);
-  font-size: 2rem;
-  line-height: 1.2;
 }
 .rest-preview {
   min-height: 320px;
@@ -1467,129 +1323,83 @@ svg {
   text-align: center;
 }
 @media (max-width: 1080px) {
-  .workspace-scene {
+.workspace-scene {
     grid-template-columns: 260px minmax(0, 1fr);
     gap: 24px;
   }
-  .workspace-link {
+.workspace-link {
     display: none;
   }
-  .workspace-desktop {
+.workspace-desktop {
     padding: 16px;
   }
-  .workspace-codex {
+.workspace-codex {
     grid-template-columns: 110px minmax(0, 1fr);
   }
-  .workspace-task-content {
+.workspace-task-content {
     padding: 23px 16px;
   }
 }
 @media (max-width: 760px) {
-  .workspace-demo {
+.workspace-demo {
     padding: 24px 18px;
   }
-  .workspace-demo-heading {
+.workspace-demo-heading {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
   }
-  .workspace-scene {
+.workspace-scene {
     grid-template-columns: minmax(0, 1fr);
     gap: 30px;
   }
-  .workspace-phone-column {
+.workspace-phone-column {
     width: min(100%, 280px);
     justify-self: center;
   }
-  .workspace-mac-bar > span:last-child {
+.workspace-mac-bar > span:last-child {
     display: none;
   }
-  .workspace-desktop {
+.workspace-desktop {
     padding: 10px;
   }
-  .workspace-codex {
+.workspace-codex {
     grid-template-columns: minmax(0, 1fr);
   }
-  .workspace-task-list {
+.workspace-task-list {
     display: none;
   }
-  .workspace-window-bar {
+.workspace-window-bar {
     padding-inline: 9px;
     font-size: 0.75rem;
   }
-  .workspace-terminal {
+.workspace-terminal {
     padding: 6px;
     gap: 6px;
   }
-  .workspace-pane {
+.workspace-pane {
     padding: 8px;
   }
-  .workspace-pane-label {
+.workspace-pane-label {
     flex-direction: column;
     gap: 0;
   }
 }
-.voice-concept {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-  margin-top: 24px;
-  padding: 26px 30px;
-  border-block: 1px solid #c7d0b7;
-}
-.voice-concept > svg {
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  color: #507057;
-  stroke-width: 1.5;
-}
-.voice-concept > div {
-  flex: 1;
-}
-.voice-concept h3 {
-  font-weight: 650;
-  font-size: 1.2rem;
-  line-height: 1.7;
-}
-.voice-concept p {
-  margin-top: 6px;
-  color: #50644f;
-  font-size: 1rem;
-  line-height: 1.8;
-}
-.voice-concept > span {
-  max-width: 160px;
-  color: #597052;
-  font-size: 0.8rem;
-  line-height: 1.7;
-}
 @media (max-width: 760px) {
-  .simple-break-demo,
-  .simple-stretch-demo {
+.simple-break-demo,
+.simple-stretch-demo {
     grid-template-columns: 1fr;
   }
-  .simple-break-demo {
+.simple-break-demo {
     padding: 24px;
     gap: 28px;
   }
-  .simple-stretch-demo {
+.simple-stretch-demo {
     gap: 0;
     max-width: 480px;
   }
-  .stretch-demo-copy {
+.stretch-demo-copy {
     padding: 28px;
-  }
-  .voice-concept {
-    align-items: flex-start;
-    flex-wrap: wrap;
-    padding: 24px 0;
-    gap: 16px;
-  }
-  .voice-concept > span {
-    max-width: none;
-    width: 100%;
-    margin-left: 50px;
   }
 }
 .body-section {
@@ -1622,8 +1432,7 @@ svg {
   font-size: 1.35rem;
   font-weight: 650;
 }
-.stretch-facts p,
-.everyday-features p {
+.stretch-facts p {
   margin-top: 12px;
   color: #50644f;
   font-size: 1rem;
@@ -1665,43 +1474,11 @@ svg {
   font-family: ui-monospace, monospace;
   font-size: 0.8rem;
 }
-.everyday-features {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 32px;
-  margin-top: 42px;
-}
-.everyday-features svg {
-  color: #507057;
-  margin-bottom: 20px;
-}
-.everyday-features h3 {
-  font-weight: 650;
-  font-size: 1.1rem;
-  line-height: 1.65;
-}
-.daily-details {
-  margin-top: 36px;
-  padding-top: 25px;
-  border-top: 1px solid #b7c5a8;
-  font-size: 0.875rem;
-  line-height: 1.8;
-  color: #50644f;
-}
 .phone-section {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   gap: 65px;
   padding-block: 95px;
-}
-.dark-status {
-  font-size: 0.75rem;
-  letter-spacing: 0.02em;
-  font-weight: 500;
-  background: #39533b;
-  color: var(--lime);
-  padding: 4px 8px;
-  border-radius: 4px;
 }
 .phone-copy h2 {
   font-size: clamp(2.1rem, 3.4vw, 3.15rem);
@@ -1841,108 +1618,6 @@ svg {
   font-size: 1rem;
   line-height: 1.9;
 }
-.controls-features {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 32px;
-  padding-top: 32px;
-}
-.controls-features svg {
-  color: #507057;
-  margin-bottom: 18px;
-}
-.controls-features h3 {
-  font-size: 1.08rem;
-  font-weight: 650;
-  line-height: 1.7;
-}
-.controls-features p {
-  font-size: 0.95rem;
-  color: #50644f;
-  line-height: 1.85;
-  margin-top: 10px;
-}
-.status-section {
-  background: #e7ebdc;
-  color: var(--ink);
-  padding-block: 72px;
-}
-.status-grid {
-  display: grid;
-  grid-template-columns: 0.9fr 1.3fr;
-  gap: 70px;
-}
-.status-section .eyebrow {
-  color: #48634d;
-}
-.status-section h2 {
-  font-size: 2.25rem;
-  font-weight: 700;
-  letter-spacing: -0.045em;
-  line-height: 1.4;
-  margin-top: 20px;
-}
-.status-intro {
-  font-size: 0.95rem;
-  color: #536956;
-  line-height: 1.9;
-  margin-top: 19px;
-  max-width: 360px;
-}
-.status-list article {
-  display: flex;
-  gap: 15px;
-  align-items: start;
-  padding: 23px 0;
-  border-bottom: 1px solid #bdc9b3;
-}
-.status-list article:first-child {
-  padding-top: 5px;
-}
-.status-list article:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-.status-icon {
-  width: 29px;
-  height: 29px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  color: #806c30;
-  background: #dfdbb8;
-  flex-shrink: 0;
-}
-.status-icon.ready {
-  background: #cfdcbf;
-  color: #3a6436;
-}
-.status-list h3 {
-  font-size: 1rem;
-  font-weight: 750;
-  line-height: 1.7;
-}
-.status-list p {
-  font-size: 0.875rem;
-  line-height: 1.8;
-  color: #566c57;
-  margin-top: 5px;
-}
-.status-tag {
-  margin-left: auto;
-  white-space: nowrap;
-  font-size: 0.75rem;
-  padding: 5px 7px;
-  border-radius: 4px;
-  color: #715d29;
-  background: #dfdbb8;
-  line-height: 1.5;
-}
-.status-tag.ready {
-  color: #3b6039;
-  background: #d6e1c5;
-}
 .download-section {
   display: grid;
   grid-template-columns: 1.1fr 1fr;
@@ -2027,12 +1702,12 @@ svg {
   text-underline-offset: 4px;
 }
 @media (max-width: 760px) {
-  .download-section {
+.download-section {
     grid-template-columns: 1fr;
     gap: 30px;
     padding-block: 48px;
   }
-  .download-guide {
+.download-guide {
     padding: 24px;
   }
 }
@@ -2112,330 +1787,237 @@ svg {
   color: #c3d0c0;
 }
 @media (min-width: 1500px) {
-  .hero {
+.hero {
     gap: 90px;
   }
-  .hero h1 {
+.hero h1 {
     font-size: 5rem;
   }
 }
 @media (max-width: 1050px) {
-  .controls-heading {
+.controls-heading {
     gap: 35px;
   }
-  .controls-features {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .stretch-detail {
+.stretch-detail {
     gap: 35px;
   }
-  .everyday-features {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .shell {
+.shell {
     width: calc(100% - 64px);
   }
-  .hero {
+.hero {
     gap: 35px;
   }
-  .hero h1 {
+.hero h1 {
     font-size: 3.35rem;
   }
-  .hero-actions {
+.hero-actions {
     gap: 18px;
   }
-  .manifesto {
+.manifesto {
     grid-template-columns: 1fr 2.5fr;
   }
-  .loop-symbol {
-    display: none;
-  }
-  .rhythm-panel {
+.rhythm-panel {
     gap: 35px;
   }
-  .section-heading {
+.section-heading {
     gap: 25px;
   }
-  .section-heading > p {
+.section-heading > p {
     max-width: 300px;
   }
 }
 @media (max-width: 760px) {
-  .controls-section {
+.controls-section {
     padding-block: 55px;
   }
-  .controls-heading {
+.controls-heading {
     grid-template-columns: 1fr;
     gap: 25px;
   }
-  .controls-features {
-    grid-template-columns: 1fr;
-    gap: 27px;
-  }
-  .controls-features svg {
-    margin-bottom: 10px;
-  }
-  .body-section {
+.body-section {
     padding-block: 55px;
   }
-  .stretch-detail {
+.stretch-detail {
     grid-template-columns: 1fr;
     gap: 30px;
     margin-top: 28px;
     padding-block: 28px;
   }
-  .movement-list {
+.movement-list {
     gap: 0 20px;
   }
-  .movement-list li {
+.movement-list li {
     font-size: 0.9rem;
     gap: 8px;
     padding-block: 17px;
   }
-  .everyday-features {
-    grid-template-columns: 1fr;
-    gap: 30px;
-    margin-top: 30px;
-  }
-  .everyday-features svg {
-    margin-bottom: 10px;
-  }
-  .shell {
+.shell {
     width: calc(100% - 40px);
   }
-  .site-header {
+.site-header {
     height: 85px;
     gap: 14px;
   }
-  .site-header nav {
+.site-header nav {
     display: none;
   }
-  .wordmark {
+.wordmark {
     font-size: 2rem;
   }
-  .wordmark img {
+.wordmark img {
     width: 34px;
     height: 34px;
   }
-  .hero {
+.hero {
     grid-template-columns: 1fr;
     gap: 44px;
     padding-top: 48px;
     padding-bottom: 44px;
   }
-  .hero h1 {
+.hero h1 {
     font-size: clamp(2.8rem, 8.4vw, 4rem);
     margin-top: 22px;
   }
-  .hero-description {
+.hero-description {
     font-size: 1rem;
     max-width: 100%;
   }
-  .hero-actions {
+.hero-actions {
     margin-top: 27px;
   }
-  .human-strip {
-    gap: 15px;
-    font-size: 0.75rem;
-    padding: 18px;
-  }
-  .human-strip > span:last-child,
-  .human-strip > span:nth-child(4) {
-    display: none;
-  }
-  .manifesto {
+.manifesto {
     grid-template-columns: 1fr;
     gap: 22px;
     padding-block: 57px;
   }
-  .manifesto h2 {
+.manifesto h2 {
     font-size: 2.2rem;
   }
-  .manifesto p:not(.eyebrow) {
+.manifesto p:not(.eyebrow) {
     font-size: 0.95rem;
   }
-  .rhythm-section {
+.rhythm-section {
     padding-block: 56px;
   }
-  .section-heading {
+.section-heading {
     display: block;
   }
-  .section-heading > p {
+.section-heading > p {
     max-width: 100%;
     margin-top: 16px;
   }
-  .section-heading h2 {
+.section-heading h2 {
     font-size: 2rem;
   }
-  .rhythm-tabs {
-    margin-top: 28px;
-  }
-  .rhythm-tabs-list button {
-    font-size: 0.875rem !important;
-    padding: 14px 5px !important;
-    line-height: 1.7;
-  }
-  .rhythm-panel {
+.rhythm-panel {
     grid-template-columns: 1fr;
     gap: 25px;
     padding-block: 28px;
   }
-  .rhythm-copy h3 {
+.rhythm-copy h3 {
     font-size: 1.75rem;
   }
-  .flow-diagram {
+.flow-diagram {
     min-height: 190px;
     padding: 25px;
   }
-  .feature-row {
-    gap: 26px;
-    grid-template-columns: 1fr;
-    padding-top: 30px;
-  }
-  .feature-row article {
-    display: grid;
-    grid-template-columns: 32px 1fr;
-    column-gap: 14px;
-  }
-  .feature-row article > svg {
-    grid-row: span 2;
-  }
-  .feature-row h3 {
-    margin-bottom: 5px;
-  }
-  .preview-progress {
-    flex-wrap: wrap;
-    padding-block: 38px;
-    font-size: 0.875rem;
-  }
-  .site-footer {
+.site-footer {
     flex-wrap: wrap;
     gap: 18px;
   }
-  .site-footer > span {
+.site-footer > span {
     width: 100%;
   }
-  .site-footer p {
+.site-footer p {
     font-size: 0.78rem;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  html {
+html {
     scroll-behavior: auto;
   }
-  *,
-  *::before,
-  *::after {
+*,
+*::before,
+*::after {
     animation: none !important;
     transition: none !important;
   }
 }
 @media (max-width: 1050px) {
-  .phone-section {
+.phone-section {
     gap: 40px;
   }
-  .status-grid,
-  .faq-section {
+.faq-section {
     gap: 40px;
   }
-  .status-tag {
-    white-space: normal;
-    text-align: center;
-    min-width: 72px;
-  }
-  .phone-plan {
+.phone-plan {
     padding: 23px;
   }
-  .trust-row {
+.trust-row {
     gap: 23px;
   }
-  .hero-copy {
+.hero-copy {
     min-width: 0;
   }
 }
 @media (max-width: 760px) {
-  .phone-section {
+.phone-section {
     grid-template-columns: 1fr;
     padding-block: 58px;
     gap: 30px;
   }
-  .phone-copy h2 {
+.phone-copy h2 {
     font-size: 2.3rem;
   }
-  .phone-plan {
+.phone-plan {
     padding: 24px;
   }
-  .phone-plan-header {
+.phone-plan-header {
     flex-wrap: wrap;
   }
-  .phone-plan-header > span:last-child {
+.phone-plan-header > span:last-child {
     font-size: 0.75rem;
   }
-  .trust-row {
+.trust-row {
     grid-template-columns: 1fr;
     gap: 25px;
     margin-top: 0;
     padding-top: 28px;
   }
-  .status-section {
-    padding-block: 55px;
-  }
-  .status-grid {
-    grid-template-columns: 1fr;
-    gap: 34px;
-  }
-  .status-section h2 {
-    font-size: 2rem;
-  }
-  .status-intro {
-    max-width: 100%;
-  }
-  .status-list article {
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .status-list article > div {
-    flex: 1;
-    min-width: 150px;
-  }
-  .status-tag {
-    font-size: 0.75rem;
-    min-width: 0;
-  }
-  .faq-section {
+.faq-section {
     grid-template-columns: 1fr;
     gap: 28px;
     padding-block: 55px;
   }
-  .faq-section h2 {
+.faq-section h2 {
     font-size: 2rem;
     margin-top: 16px;
   }
-  .faq-list [data-slot='accordion-trigger'] {
+.faq-list [data-slot='accordion-trigger'] {
     padding-block: 20px;
   }
-  .closing-section {
+.closing-section {
     padding-top: 50px;
     padding-bottom: 58px;
   }
-  .closing-section h2 {
+.closing-section h2 {
     font-size: 2.25rem;
   }
-  .phone-section .eyebrow {
+.phone-section .eyebrow {
     flex-wrap: wrap;
   }
 }
 
 /* Release 0.8.0: show the shipped eye-care card and side-by-side guide. */
-.rest-eye-tip{display:grid;gap:8px;max-width:320px;margin:6px 0 18px;padding:16px;border:1px solid #b7c9a64d;border-radius:12px;background:#ffffff0a;text-align:left;font-size:.82rem;line-height:1.7;color:#e1ead8}
-.rest-eye-tip b{font-weight:500}
-.rest-eye-tip span{color:#c3d0b8}
-.simple-stretch-demo{grid-template-columns:1.2fr 1fr;gap:28px}
-.stretch-scene-preview{align-self:stretch;display:flex;align-items:center;background:#f2f4ef}
-.stretch-scene-preview img{height:100%;min-height:440px;object-fit:contain}
-.stretch-duration{flex-wrap:wrap;padding-top:20px;border-top:1px solid #d5dfcc}
-.stretch-duration strong{font-variant-numeric:tabular-nums}
-@media(max-width:760px){.simple-stretch-demo{grid-template-columns:1fr;gap:0}.stretch-scene-preview img{min-height:0;height:auto}.rest-eye-tip{max-width:100%}}
+.rest-eye-tip {display:grid;gap:8px;max-width:320px;margin:6px 0 18px;padding:16px;border:1px solid #b7c9a64d;border-radius:12px;background:#ffffff0a;text-align:left;font-size:.82rem;line-height:1.7;color:#e1ead8}
+.rest-eye-tip b {font-weight:500}
+.rest-eye-tip span {color:#c3d0b8}
+.simple-stretch-demo {grid-template-columns:1.2fr 1fr;gap:28px}
+.stretch-scene-preview {align-self:stretch;display:flex;align-items:center;background:#f2f4ef}
+.stretch-scene-preview img {height:100%;min-height:440px;object-fit:contain}
+.stretch-duration {flex-wrap:wrap;padding-top:20px;border-top:1px solid #d5dfcc}
+.stretch-duration strong {font-variant-numeric:tabular-nums}
+@media(max-width:760px){.simple-stretch-demo {grid-template-columns:1fr;gap:0}.stretch-scene-preview img {min-height:0;height:auto}.rest-eye-tip {max-width:100%}}
 
 /* --- 2026-09-13 主页精简：本轮新引入的 class --- */
 .section-note {
@@ -2501,11 +2083,6 @@ svg {
 }
 .simple-break-demo > .demo-footnote {
   text-align: center;
-}
-/* 手机工作台特性由 4 张减到 2 张，列数随之自适应 */
-.controls-features {
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
-  gap: 40px;
 }
 
 /* 宣言节删掉眉标与 ↻ 符号后只剩一个子元素，三栏网格会把标题挤进 340px 窄栏，
@@ -2645,7 +2222,7 @@ svg {
   color: #7d9270;
 }
 @media (max-width: 1050px) {
-  .ai-config {
+.ai-config {
     grid-template-columns: minmax(0, 1fr);
     gap: 34px;
   }
@@ -2658,4 +2235,163 @@ svg {
 }
 .site-footer .footer-notice + .footer-notice {
   margin-top: 0;
+}
+
+/* ============================================================
+   2026-09-13 工艺改造（整块可删除回退）
+   依据 docs/plans/2026-09-13-homepage-redesign.md 第八节。
+   以追加方式生效，不改写上方既有规则。
+   ============================================================ */
+
+:root {
+  --band-s: 64px;
+  --band-m: 104px;
+  --band-l: 160px;
+  --measure: 32rem;
+}
+
+/* 1. 负字距只留给拉丁与数字。汉字是满格字身，没有边距可收，
+      −0.03~−0.055em 会让「先照顾好自己。」挤到碰撞。 */
+.site[lang='zh-CN'] .hero h1,
+.site[lang='zh-CN'] .hero-scenario h2,
+.site[lang='zh-CN'] .manifesto h2,
+.site[lang='zh-CN'] .section-heading h2,
+.site[lang='zh-CN'] .rhythm-copy h3,
+.site[lang='zh-CN'] .stretch-demo-copy h3,
+.site[lang='zh-CN'] .workspace-demo-heading h3,
+.site[lang='zh-CN'] .workspace-task-content h4,
+.site[lang='zh-CN'] .phone-copy h2,
+.site[lang='zh-CN'] .controls-heading h2,
+.site[lang='zh-CN'] .download-copy h2,
+.site[lang='zh-CN'] .faq-section h2,
+.site[lang='zh-CN'] .closing-section h2,
+.site[lang='zh-CN'] .ai-config-copy h3 {
+  letter-spacing: normal;
+}
+
+/* 2. H1 封顶 64px。7 个汉字 80px 已经约 560px 宽，是一堵墙。 */
+.hero h1 {
+  font-size: clamp(2.5rem, 1.2rem + 3.4vw, 4rem);
+  line-height: 1.25;
+}
+
+/* 3. 解释性正文的 16px 下限（模拟界面里的标签不动，抬了会撑坏）。 */
+.trust-row p,
+.phone-plan li p,
+.download-copy > .download-scope,
+.download-guide > p,
+.section-heading > p,
+.site-footer p {
+  font-size: 1rem;
+}
+.site-footer .footer-notice {
+  font-size: 0.875rem;
+}
+
+/* 4. 行高 1.95/1.9 → 1.7。中文要比英文松，但 30px 压 16px 会散成灰域。
+      .workspace-terminal 是终端模拟，保持原值。 */
+.hero-description,
+.manifesto p:not(.eyebrow),
+.rhythm-copy > p,
+.stretch-demo-copy > p,
+.stretch-facts p,
+.trust-row p,
+.controls-intro > p,
+.download-copy > p,
+.download-guide ol,
+.download-guide > p,
+.phone-copy > p,
+.faq-list [data-slot='accordion-content'] p {
+  line-height: 1.7;
+}
+
+/* 5. 行宽上限：512px ≈ 32 个汉字，对应中文 19–31 字/行的区间。 */
+.hero-description,
+.manifesto p:not(.eyebrow),
+.rhythm-copy > p,
+.stretch-facts p,
+.controls-intro > p,
+.ai-config-copy p,
+.section-heading > p,
+.faq-list [data-slot='accordion-content'] p {
+  max-width: var(--measure);
+}
+
+/* 6. 三档真实间距。原来九个节的值是 90/90/72/95/85/74/90/72，
+      五个标称值挤在 23px 带宽内，读起来就是一个值，
+      于是首屏、卡片区和 FAQ 拿到同样的视觉预算。 */
+.manifesto { padding: var(--band-s) 0; }
+.rhythm-section { padding: var(--band-m) 0; }
+.body-section { padding: var(--band-m) 0; }
+.phone-section { padding-block: var(--band-m); }
+.controls-section { padding-block: var(--band-m); }
+.download-section { padding-block: var(--band-l) var(--band-m); }
+.faq-section { padding-block: var(--band-m); }
+.closing-section { padding-block: var(--band-s); }
+
+/* 7. 动效：hover 缓动 + 一次滚动进场，不引入动画库。原有 12 条 :hover 是硬切。 */
+a,
+button,
+summary,
+.workspace-key,
+.hero-timer-button,
+.text-link {
+  transition:
+    color 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease;
+}
+
+/* 滚动进场：只动 transform，绝不碰 opacity。
+   第一版以 opacity:0 起手 + fill-mode:both + view() 时间线，结果六个元素
+   永久停在 opacity:0——拉伸节的标题、「8 个离线 3D 拉伸动作」和动作清单
+   整块消失。那是内容丢失，不是视觉瑕疵。
+   改成只位移之后，即使时间线在某个浏览器上不解析、或填充停在起始帧，
+   最坏情况也只是内容偏移 14px，永远可读。这条规则不要再改回去。 */
+@keyframes outsie-rise {
+  from {
+    transform: translateY(14px);
+  }
+  to {
+    transform: none;
+  }
+}
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .section-heading,
+    .ai-config,
+    .trust-row,
+    .stretch-detail,
+    .download-guide {
+      animation: outsie-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
+@media (max-width: 1050px) {
+  .ai-config { gap: 34px; }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --band-s: 48px;
+    --band-m: 72px;
+    --band-l: 104px;
+  }
+  .hero h1 { font-size: clamp(2.25rem, 1.2rem + 4vw, 3rem); }
+}
+
+/* 8. reduced-motion 兜底：transition:none 会让 transitionend 不触发，
+      等待它的逻辑会挂住。改成极短时长。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
