@@ -151,7 +151,9 @@ export function PhoneWorkspaceDemo({ lang }: { lang: 'zh' | 'en' }) {
     <figure className="workspace-demo" id="workspace-demo">
       <figcaption className="workspace-demo-heading">
         <div>
-          <span className="demo-kicker">PHONE → MAC</span>
+          <span className="demo-kicker">
+            {t('手机 → 电脑', 'PHONE → MAC')}
+          </span>
           <h3>
             {t(
               '手机上的一步，电脑上的变化。',

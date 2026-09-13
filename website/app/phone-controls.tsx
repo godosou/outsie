@@ -1,6 +1,6 @@
 'use client';
 
-import { Grip, Headphones, Keyboard, ListOrdered, Monitor } from 'lucide-react';
+import { ArrowRight, Check, Copy, Smartphone } from 'lucide-react';
 import { PhoneWorkspaceDemo } from './phone-workspace-demo';
 
 export function PhoneControls({ lang }: { lang: 'zh' | 'en' }) {
@@ -10,7 +10,6 @@ export function PhoneControls({ lang }: { lang: 'zh' | 'en' }) {
       <div className="shell">
         <div className="controls-heading">
           <div>
-            <p className="eyebrow">LESS TYPING. MORE ROOM TO MOVE.</p>
             <h2>
               {t('离开键鼠，', 'Less typing.')}
               <br />
@@ -26,81 +25,87 @@ export function PhoneControls({ lang }: { lang: 'zh' | 'en' }) {
             </span>
             <p>
               {t(
-                '用手机切换任务、执行常用操作，配合耳机语音输入，把想法说给 AI。离开键盘和鼠标，换个舒服的姿势，少些重复敲击，给双手减负。',
-                'Switch tasks and run everyday actions from your phone. Use headset voice input to tell AI what you have in mind. Step away from the keyboard and mouse, change position, and give your hands less repetitive work.',
+                '用手机切换任务、执行常用操作，配合耳机语音输入，把想法说给 AI。',
+                'Switch tasks and run everyday actions from your phone, and use headset voice input to tell AI what you have in mind.',
               )}
             </p>
           </div>
         </div>
         <PhoneWorkspaceDemo lang={lang} />
-        <div className="voice-concept">
-          <Headphones aria-hidden="true" />
-          <div>
+        <div className="ai-config">
+          <div className="ai-config-copy">
+            <span className="feature-status">
+              <span className="live-dot" />
+              {t('快捷键设置', 'Shortcut settings')}
+            </span>
             <h3>
-              {t('手机选操作，耳机说想法。', 'Tap to choose. Speak to create.')}
+              {t('这些按钮，', 'These buttons?')}
+              <br />
+              {t('让 AI 替你配。', 'Let an AI set them up.')}
             </h3>
             <p>
               {t(
-                '配合语音输入，少打长段文字。换个姿势，继续和 AI 协作。',
-                'Add voice input for less typing. Change position and keep collaborating with AI.',
+                '同类软件配快捷键要一项项手填。这里复制一段说明给会跑命令的 AI，说要什么按钮，它就改好。',
+                'Most apps make you fill in a shortcut table row by row. Here you copy one block of instructions into an AI that can run commands, say which buttons you want, and it does the rest.',
               )}
             </p>
           </div>
-          <span>
-            {t('少打字，给双手减负', 'Less typing. Lighter on your hands.')}
-          </span>
+          <ol className="ai-config-flow">
+            <li>
+              <span className="ai-config-step">01</span>
+              <div className="ai-config-card ai-config-mac">
+                <div className="ai-config-bar">
+                  <span className="ai-config-dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>{t('快捷键设置', 'Shortcut settings')}</span>
+                </div>
+                <span className="ai-config-button">
+                  <Copy size={14} aria-hidden="true" />
+                  {t('复制给 AI 的说明', 'Copy instructions for AI')}
+                </span>
+                <span className="ai-config-hint">
+                  {t('说明自带你现在的配置', 'Carries your current setup')}
+                </span>
+              </div>
+            </li>
+            <li>
+              <span className="ai-config-step">02</span>
+              <div className="ai-config-card ai-config-say">
+                <q>{t('给飞书加个搜索。', 'Add search to Feishu.')}</q>
+                <span className="ai-config-hint">
+                  {t(
+                    '贴给 Claude Code、Codex…',
+                    'Paste into Claude Code, Codex…',
+                  )}
+                </span>
+              </div>
+            </li>
+            <li>
+              <span className="ai-config-step">03</span>
+              <div className="ai-config-card ai-config-result">
+                <span className="ai-config-chip">
+                  <Check size={13} aria-hidden="true" />
+                  {t('飞书 · 搜索', 'Feishu · Search')}
+                  <code>⌘K</code>
+                </span>
+                <span className="ai-config-hint">
+                  <Smartphone size={13} aria-hidden="true" />
+                  {t('手机上同步一次就有了', 'Sync once on your phone')}
+                </span>
+              </div>
+            </li>
+          </ol>
         </div>
-        <div className="controls-features">
-          {[
-            {
-              Icon: Keyboard,
-              title: t(
-                '先用预置，再改成顺手的',
-                'Start with presets. Make them yours.',
-              ),
-              body: t(
-                '常用 App 先配好按钮，也可以改名称、图标和快捷键，按自己的习惯增删。',
-                'Start with app presets, then rename, customize, add, or remove buttons to suit your habits.',
-              ),
-            },
-            {
-              Icon: ListOrdered,
-              title: t(
-                '一串按键，少做几次重复动作',
-                'A key sequence. Less repetition.',
-              ),
-              body: t(
-                '在 Mac 上录好常用按键序列，手机点一次就能触发，减少反复按组合键。',
-                'Prepare frequent key sequences on your Mac and trigger them with one tap on your phone, reducing repeated key combinations.',
-              ),
-            },
-            {
-              Icon: Grip,
-              title: t('怎么顺手，就怎么摆', 'Arrange it your way'),
-              body: t(
-                '手机按钮可以拖动排序，每个 App 单独保存布局，组合操作也能移动。',
-                'Reorder buttons by dragging. Each app keeps its own layout, including buttons that run a sequence.',
-              ),
-            },
-            {
-              Icon: Monitor,
-              title: t(
-                '电脑切到哪，面板跟到哪',
-                'Let the panel follow your app',
-              ),
-              body: t(
-                '可以跟随电脑前台 App 切换，也可以固定面板。编辑布局时，面板保持不动。',
-                'Follow the foreground app on your Mac or keep a panel pinned. Layout editing keeps the panel in place.',
-              ),
-            },
-          ].map(({ Icon, title, body }) => (
-            <article key={title}>
-              <Icon aria-hidden="true" />
-              <h3>{title}</h3>
-              <p>{body}</p>
-            </article>
-          ))}
-        </div>
+        <p className="controls-note">
+          <ArrowRight size={15} aria-hidden="true" />
+          {t(
+            '也可以把一串按键录成一个按钮。改完在手机上同步一次；按键需要 macOS 辅助功能权限，手机只报「已发出」，不报「已按下」。',
+            'You can also record a key sequence onto a single button. Sync once on your phone afterwards. Pressing keys needs macOS Accessibility permission, and the phone reports “sent”, not “pressed”.',
+          )}
+        </p>
       </div>
     </section>
   );

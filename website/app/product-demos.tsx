@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { publicAsset } from '@/lib/public-asset';
-import { ArrowRight, Eye } from 'lucide-react';
+import { Eye } from 'lucide-react';
 
 type DemoProps = { lang: 'zh' | 'en' };
 
@@ -10,33 +10,6 @@ export function BreakDemo({ lang }: DemoProps) {
   const t = (zh: string, en: string) => (lang === 'zh' ? zh : en);
   return (
     <figure className="simple-break-demo" id="app-preview">
-      <figcaption className="break-demo-copy">
-        <span className="demo-kicker">A LITTLE PAUSE</span>
-        <h3>{t('到点了，先歇一下。', 'Time for a little pause.')}</h3>
-        <p>
-          {t(
-            '屏幕先停一会儿。抬抬头，让眼睛看看远处。',
-            'Let the screen wait. Look up, and give your eyes a change of scenery.',
-          )}
-        </p>
-        <div className="simple-rhythm">
-          <span>
-            <strong>20</strong>
-            {t('分钟工作', 'min of focus')}
-          </span>
-          <ArrowRight aria-hidden="true" />
-          <span>
-            <strong>20</strong>
-            {t('秒钟休息', 'sec to pause')}
-          </span>
-        </div>
-        <span className="demo-footnote">
-          {t(
-            '浏览器示意 · Mac 应用已包含护眼知识',
-            'Browser illustration · Eye-care tips are included in the Mac app',
-          )}
-        </span>
-      </figcaption>
       <div
         className="rest-preview"
         aria-label={t('休息界面示意', 'Break screen preview')}
@@ -44,12 +17,28 @@ export function BreakDemo({ lang }: DemoProps) {
         <Eye size={30} strokeWidth={1.5} aria-hidden="true" />
         <p>{t('抬头，看看远处。', 'Look up. Look further.')}</p>
         <div className="rest-eye-tip">
-          <b>{t('护眼小知识 · 看远处，让对焦歇一会', 'Eye-care tip · Give near focus a break')}</b>
-          <span>{t('每近距离用眼约 20 分钟，看向约 6 米外至少 20 秒。', 'Every 20 minutes, look about 20 feet away for at least 20 seconds.')}</span>
+          <b>
+            {t(
+              '护眼小知识 · 看远处，让对焦歇一会',
+              'Eye-care tip · Give near focus a break',
+            )}
+          </b>
+          <span>
+            {t(
+              '每近距离用眼约 20 分钟，看向约 6 米外至少 20 秒。',
+              'Every 20 minutes, look about 20 feet away for at least 20 seconds.',
+            )}
+          </span>
         </div>
         <strong className="rest-time">00:20</strong>
         <span>{t('这 20 秒，留给自己。', 'These 20 seconds are yours.')}</span>
       </div>
+      <figcaption className="demo-footnote">
+        {t(
+          '浏览器示意 · 每次短休息一条护眼知识',
+          'Browser illustration · One eye-care tip per short break',
+        )}
+      </figcaption>
     </figure>
   );
 }
@@ -83,7 +72,12 @@ export function StretchDemo({ lang }: DemoProps) {
         </p>
         <div className="stretch-duration">
           <strong>05:00</strong>
-          <span>{t('大休息剩余 · 每 30 秒换动作', 'break remaining · a new movement every 30 sec')}</span>
+          <span>
+            {t(
+              '大休息剩余 · 每 30 秒换动作',
+              'break remaining · a new movement every 30 sec',
+            )}
+          </span>
         </div>
         <span className="demo-footnote">
           {t(

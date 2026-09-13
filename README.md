@@ -10,7 +10,7 @@
 
 完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Outsie.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
 
-公开预览版提供 Apple Silicon / macOS 14+ 的 DMG 与 SHA-256 校验文件，使用 ad hoc 签名，尚未经过 Apple Developer ID 签名或 Apple 公证。手机钥匙与手机工作台不包含在此安装包中。
+公开预览版提供 Apple Silicon / macOS 14+ 的 DMG 与 SHA-256 校验文件，使用本机自签证书，尚未经过 Apple Developer ID 签名或 Apple 公证。手机钥匙与手机工作台包含在这个安装包里；手机那一半需要另外安装 Android 版。
 
 ## 休息和安全锁屏
 

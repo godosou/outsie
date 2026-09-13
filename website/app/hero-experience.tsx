@@ -5,7 +5,6 @@ import { publicAsset } from '@/lib/public-asset';
 import {
   ArrowRight,
   Headphones,
-  KeyRound,
   Pause,
   Play,
   Plus,
@@ -31,7 +30,6 @@ export function HeroExperience({
     <div className="hero-experience">
       <article className="hero-scenario hero-work-scenario">
         <div className="hero-scenario-label">
-          <span>01 / {t('工作时', 'WHILE YOU WORK')}</span>
           <span>{t('少动手', 'LESS TYPING')}</span>
         </div>
         <h2>
@@ -77,7 +75,6 @@ export function HeroExperience({
         id="break-demo"
       >
         <div className="hero-scenario-label">
-          <span>02 / {t('休息时', 'WHEN IT’S BREAK TIME')}</span>
           <span>{t('少久坐', 'LESS SITTING')}</span>
         </div>
         <h2>
@@ -156,16 +153,6 @@ export function HeroExperience({
             : ''}
         </output>
       </article>
-      <a className="hero-key-link" href="#phone-key">
-        <KeyRound size={18} aria-hidden="true" />
-        <span>
-          {t(
-            '手机随身。离开锁屏，回来继续。',
-            'Phone in your pocket. Lock when you leave. Resume when you return.',
-          )}
-        </span>
-        <ArrowRight size={17} aria-hidden="true" />
-      </a>
     </div>
   );
 }
