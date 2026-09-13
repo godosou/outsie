@@ -631,41 +631,51 @@ export default function Home() {
                 <Download size={18} aria-hidden="true" />
                 {t('下载 Mac 安装包', 'Download for Mac')}
               </a>
+              <a className="primary-cta" href={macRelease.androidDownloadUrl}>
+                <Smartphone size={18} aria-hidden="true" />
+                {t('下载 Android 版（手机钥匙）', 'Download for Android (Phone Key)')}
+              </a>
               <a className="text-link" href={macRelease.pageUrl}>
                 {t('查看发布说明', 'Release notes')}
                 <ArrowRight size={16} aria-hidden="true" />
               </a>
             </div>
             <p className="download-meta">
-              v{macRelease.version} · {t('Mac 预览版', 'Mac preview')} · Apple
-              Silicon · macOS 14+
+              v{macRelease.version} · {t('预览版', 'Preview')} · Apple Silicon ·
+              macOS 14+ · Android 12+
             </p>
             <p className="download-scope">{macRelease.highlights[lang]}</p>
             <p className="download-scope">
               {t(
-                '安装后应用名为 Repose。本次安装包提供休息与拉伸功能；手机钥匙和手机工作台不包含在此版本中。',
-                'The installed app is named Repose. This download includes breaks and stretching; Phone Key and Phone Controls are not included in this version.',
+                'Mac 版包含休息、拉伸和手机钥匙；Android 版是钥匙本身，配对后走近解锁、走远锁屏、点一下按快捷键。',
+                'The Mac app includes breaks, stretching and Phone Key; the Android app is the key itself: pair once, then unlock as you walk up, lock as you walk away, and press shortcuts with a tap.',
               )}
             </p>
           </div>
           <div className="download-guide">
             <h3>
               {t(
-                '两步开始，给自己一点空白。',
-                'Two steps to a little breathing room.',
+                '三步开始，给自己一点空白。',
+                'Three steps to a little breathing room.',
               )}
             </h3>
             <ol>
               <li>
                 {t(
-                  '打开 DMG，将 Repose 拖进“应用程序”。',
-                  'Open the DMG and drag Repose into Applications.',
+                  '打开 DMG，将 Outsie 拖进“应用程序”。',
+                  'Open the DMG and drag Outsie into Applications.',
                 )}
               </li>
               <li>
                 {t(
-                  '打开 Repose，按自己的节奏设置休息时间。',
-                  'Open Repose and choose your break schedule.',
+                  '打开 Outsie，按自己的节奏设置休息时间。',
+                  'Open Outsie and choose your break schedule.',
+                )}
+              </li>
+              <li>
+                {t(
+                  '要用手机钥匙：手机装上 Android 版，在 Mac 的「手机控制」里点「配一部新手机」。',
+                  'For Phone Key: install the Android app, then choose “Pair a new phone” under Phone Controls on the Mac.',
                 )}
               </li>
             </ol>

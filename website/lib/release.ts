@@ -1,13 +1,14 @@
 const repository = 'https://github.com/godosou/outsie';
-const tag = 'v0.6.3';
+const tag = 'v0.7.0';
 
 export const macRelease = {
-  version: '0.6.3',
+  version: '0.7.0',
   highlights: {
-    zh: '新版：更大的 3D 人物，右侧集中显示动作、倒计时与操作；短休息新增 6 条护眼知识。',
-    en: 'New: a larger 3D guide with movement cues, countdown and controls on the right, plus six eye-care tips for short breaks.',
+    zh: '新版：手机钥匙。走近按回车就进，走远自动锁屏；手机上点一下，Mac 切到那个 App 替你按键。',
+    en: 'New: Phone Key. Walk up and press Enter to get in, walk away and the Mac locks; tap on the phone and the Mac switches to that app and presses the keys.',
   },
   pageUrl: `${repository}/releases/tag/${tag}`,
-  downloadUrl: `${repository}/releases/download/${tag}/Repose-0.6.3-mac-arm64.dmg`,
+  downloadUrl: `${repository}/releases/download/${tag}/Outsie-0.7.0-mac-arm64.dmg`,
+  androidDownloadUrl: `${repository}/releases/download/${tag}/Outsie-0.7.0-android.apk`,
   checksumUrl: `${repository}/releases/download/${tag}/SHA256SUMS.txt`,
 };
