@@ -10,4 +10,6 @@ Every new public application release must include a corresponding homepage updat
 - Run the homepage's TypeScript, lint and GitHub Pages static build checks. After publication, confirm the Pages deployment succeeds and the public homepage links to the new downloadable assets.
 - Preserve the owner's requirement to remove sensitive information from public source, assets and release artifacts.
 
-The product homepage lives in `website/`. Changes to that directory on `main` deploy through `.github/workflows/pages.yml`.
+## Public publication checkout
+
+The sanitized GitHub publication checkout is `.public/outsie/`; its `main` branch publishes to `godosou/outsie`. The original repository and worktrees retain separate development history. Transfer only intended reviewed changes into the publication checkout; do not push original unsanitized history or private hosting configuration. See `docs/plans/2026-09-08-github-publication.md` for details.

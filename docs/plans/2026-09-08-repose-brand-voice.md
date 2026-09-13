@@ -1,8 +1,11 @@
-# Repose Brand Voice Implementation Plan
+# Outsie Brand Voice Implementation Plan
+
+> 这份计划写于应用还叫 Repose 的时候；下面提到的 Repose.app / Repose-0.6.0 是当时的产物名。从 0.7.0 起应用名是 Outsie。
+
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Ship a consistently named Repose app with one recognizable mascot icon and a rotating library of playful short-break prompts.
+**Goal:** Ship a consistently named Outsie app with one recognizable mascot icon and a rotating library of playful short-break prompts.
 
 **Architecture:** Add a pure deterministic voice selector shared by React and the native break-page entry. Use one vector mascot source for the browser and application UI, then regenerate all Tauri platform icons from it. Keep the existing bundle identifier to preserve settings while changing all user-visible names.
 
@@ -25,7 +28,7 @@
 **Files:** modify `public/favicon.svg`, `src/App.tsx`, `src/styles.css`, `break.html`, `src/break.css`, `scripts/generate-icon.mjs`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json`, package metadata and documentation.
 
 1. Add an asset/name test that rejects user-visible `Repose Lite` strings and verifies the mascot files share the expected geometry markers.
-2. Run it red, then change productName to Repose while preserving `ai.repose.lite` as the data identity.
+2. Run it red, then change productName to Outsie while preserving `ai.repose.lite` as the data identity.
 3. Replace the old crossing petals with the half-lidded flower mark in the UI, favicon, Dock and menu bar.
 4. Generate the Tauri icon set from the single SVG source and visually inspect 16px and 512px variants.
 5. Run tests and commit.

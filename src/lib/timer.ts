@@ -12,6 +12,8 @@ export interface TimerSettings {
 
 export interface DailyStats {
   focusSeconds: number
+  /** Focus-phase seconds spent in a video meeting; not counted as focus. */
+  meetingSeconds: number
   breakSeconds: number
   completedBreaks: number
   skippedBreaks: number
@@ -26,8 +28,11 @@ export interface BreakHistoryEntry {
 
 export interface HourlyStats {
   focusSeconds: number[]
+  meetingSeconds: number[]
   breakSeconds: number[]
 }
+
+export type TimeCategory = 'focus' | 'meeting' | 'break'
 
 export interface TimerState {
   version: 3
@@ -40,6 +45,12 @@ export interface TimerState {
   breakId: string | null
   deferredBreak: { type: 'short' | 'long'; duration: number } | null
   postponeUsed: boolean
+  /** Live signal from the desktop: a meeting app is running audio. Never persisted. */
+  meeting: boolean
+  /** When the meeting signal last went quiet; the held break waits out a grace period. */
+  meetingEndedAt: number | null
+  /** A break that came due during a meeting and waits for it to end. */
+  meetingHold: { type: 'short' | 'long'; duration: number } | null
   completedCycles: number
   days: Record<string, DailyStats>
   hourly: Record<string, HourlyStats>
@@ -67,6 +78,8 @@ export interface WeeklyStats extends DailyStats {
 }
 
 export const STORAGE_KEY = 'repose.timer.v1'
+/** A meeting that goes quiet and resumes within this window is the same meeting. */
+export const MEETING_GRACE_SECONDS = 30
 export const DEFAULT_SETTINGS: Readonly<TimerSettings> = Object.freeze({
   shortInterval: 20,
   shortDuration: 20,
@@ -79,6 +92,7 @@ export const DEFAULT_SETTINGS: Readonly<TimerSettings> = Object.freeze({
 
 const EMPTY_STATS: Readonly<DailyStats> = Object.freeze({
   focusSeconds: 0,
+  meetingSeconds: 0,
   breakSeconds: 0,
   completedBreaks: 0,
   skippedBreaks: 0,
@@ -87,6 +101,7 @@ const EMPTY_STATS: Readonly<DailyStats> = Object.freeze({
 function emptyHourlyStats(): HourlyStats {
   return {
     focusSeconds: Array(24).fill(0),
+    meetingSeconds: Array(24).fill(0),
     breakSeconds: Array(24).fill(0),
   }
 }
@@ -156,6 +171,9 @@ export function createTimerState(now = Date.now(), settings?: Partial<TimerSetti
     breakId: null,
     deferredBreak: null,
     postponeUsed: false,
+    meeting: false,
+    meetingEndedAt: null,
+    meetingHold: null,
     completedCycles: 0,
     days: { [localDateKey(now)]: { ...EMPTY_STATS } },
     hourly: {},
@@ -173,6 +191,7 @@ export function getHourlyStats(state: TimerState, now = Date.now()): HourlyStats
   const stats = state.hourly[localDateKey(now)] ?? emptyHourlyStats()
   return {
     focusSeconds: [...stats.focusSeconds],
+    meetingSeconds: [...stats.meetingSeconds],
     breakSeconds: [...stats.breakSeconds],
   }
 }
@@ -204,6 +223,7 @@ function getHour(hourly: Record<string, HourlyStats>, timestamp: number): Hourly
   const existing = hourly[key] ?? emptyHourlyStats()
   const stats = {
     focusSeconds: [...existing.focusSeconds],
+    meetingSeconds: [...existing.meetingSeconds],
     breakSeconds: [...existing.breakSeconds],
   }
   hourly[key] = stats
@@ -214,7 +234,7 @@ function getHour(hourly: Record<string, HourlyStats>, timestamp: number): Hourly
 function recordTime(
   days: Record<string, DailyStats>,
   hourly: Record<string, HourlyStats>,
-  phase: TimerPhase,
+  category: TimeCategory,
   from: number,
   to: number,
 ) {
@@ -228,15 +248,23 @@ function recordTime(
     const stats = getDay(days, cursor)
     const hourlyStats = getHour(hourly, cursor)
     const seconds = (end - cursor) / 1000
-    if (phase === 'focus') {
+    if (category === 'focus') {
       stats.focusSeconds += seconds
       hourlyStats.focusSeconds[hour] += seconds
+    } else if (category === 'meeting') {
+      stats.meetingSeconds += seconds
+      hourlyStats.meetingSeconds[hour] += seconds
     } else {
       stats.breakSeconds += seconds
       hourlyStats.breakSeconds[hour] += seconds
     }
     cursor = end
   }
+}
+
+function categoryOf(state: TimerState): TimeCategory {
+  if (state.phase !== 'focus') return 'break'
+  return state.meeting ? 'meeting' : 'focus'
 }
 
 function trimRecords(state: TimerState, now: number) {
@@ -276,9 +304,36 @@ function transition(state: TimerState, at: number): void {
     state.phaseDuration = getPhaseDuration('focus', state.settings)
     state.breakId = null
     state.deferredBreak = null
+    state.meetingHold = null
     state.postponeUsed = false
   }
   state.remaining = state.phaseDuration
+}
+
+/** The focus countdown ended inside a meeting: park the break instead of showing it. */
+function holdForMeeting(state: TimerState, at: number): void {
+  if (state.deferredBreak) {
+    state.meetingHold = state.deferredBreak
+    state.deferredBreak = null
+  } else {
+    const type = state.completedCycles >= state.settings.longEvery ? 'long' : 'short'
+    state.meetingHold = { type, duration: getPhaseDuration(type, state.settings) }
+    state.breakId = createBreakId(at)
+    state.postponeUsed = false
+  }
+  state.remaining = 0
+  state.running = true
+}
+
+function releaseMeetingHold(state: TimerState): void {
+  const hold = state.meetingHold
+  if (!hold) return
+  state.phase = hold.type
+  state.phaseDuration = hold.duration
+  state.remaining = hold.duration
+  state.meetingHold = null
+  state.meetingEndedAt = null
+  state.running = true
 }
 
 /** Advance only by a trusted elapsed duration; wall time is for attribution. */
@@ -293,12 +348,31 @@ export function advanceTimerBy(original: TimerState, elapsedSeconds: number, now
     history: [...original.history],
     updatedAt: now,
   }
+  if (state.meetingHold) {
+    // The countdown sits at zero; the meeting (or the wait for it to end) still counts.
+    recordTime(state.days, state.hourly, categoryOf(state), now - elapsedSeconds * 1000, now)
+    if (!state.meeting) {
+      if (state.meetingEndedAt === null) state.meetingEndedAt = now
+      else if (now - state.meetingEndedAt >= MEETING_GRACE_SECONDS * 1000) releaseMeetingHold(state)
+    }
+    trimRecords(state, now)
+    return state
+  }
   const elapsed = Math.min(elapsedSeconds, state.remaining)
-  recordTime(state.days, state.hourly, state.phase, now - elapsed * 1000, now)
+  recordTime(state.days, state.hourly, categoryOf(state), now - elapsed * 1000, now)
   state.remaining = Math.max(0, state.remaining - elapsed)
-  if (state.remaining <= 0.000001) transition(state, now)
+  if (state.remaining <= 0.000001) {
+    if (state.phase === 'focus' && state.meeting) holdForMeeting(state, now)
+    else transition(state, now)
+  }
   trimRecords(state, now)
   return state
+}
+
+/** The desktop reports whether a meeting app is running audio. Idempotent. */
+export function setTimerMeeting(original: TimerState, active: boolean, now = Date.now()): TimerState {
+  if (original.meeting === active) return original
+  return { ...original, meeting: active, meetingEndedAt: active ? null : now, updatedAt: now }
 }
 
 export function captureInactivity(state: TimerState): InactivityContext {
@@ -306,6 +380,7 @@ export function captureInactivity(state: TimerState): InactivityContext {
 }
 
 function getDueBreak(state: TimerState): { type: 'short' | 'long'; duration: number } {
+  if (state.meetingHold) return state.meetingHold
   if (state.deferredBreak) return state.deferredBreak
   const type = state.completedCycles >= state.settings.longEvery ? 'long' : 'short'
   return { type, duration: getPhaseDuration(type, state.settings) }
@@ -339,7 +414,7 @@ export function applyInactivityInterval(
   recordTime(
     state.days,
     state.hourly,
-    'short',
+    'break',
     interval.endedAt - interval.elapsedSeconds * 1000,
     interval.endedAt,
   )
@@ -359,6 +434,8 @@ export function applyInactivityInterval(
     state.remaining = state.phaseDuration
     state.breakId = null
     state.deferredBreak = null
+    state.meetingHold = null
+    state.meetingEndedAt = null
     state.postponeUsed = false
   }
   trimRecords(state, interval.endedAt)
@@ -366,7 +443,7 @@ export function applyInactivityInterval(
 }
 
 export function toggleTimer(original: TimerState, now = Date.now(), wasRunning = original.running): TimerState {
-  if (original.deferredBreak) return original
+  if (original.deferredBreak || original.meetingHold) return original
   // Preserve the user's pause/resume intent if a phase ended between render and click.
   return { ...original, running: !wasRunning, updatedAt: now }
 }
@@ -374,13 +451,16 @@ export function toggleTimer(original: TimerState, now = Date.now(), wasRunning =
 export function startTimerBreak(original: TimerState, type: 'short' | 'long', now = Date.now()): TimerState {
   // Repeated native/menu actions must not replace an already active occurrence.
   if (original.phase !== 'focus') return original
-  if (original.deferredBreak) {
+  const held = original.meetingHold ?? original.deferredBreak
+  if (held) {
     return {
       ...original,
-      phase: original.deferredBreak.type,
-      remaining: original.deferredBreak.duration,
-      phaseDuration: original.deferredBreak.duration,
+      phase: held.type,
+      remaining: held.duration,
+      phaseDuration: held.duration,
       deferredBreak: null,
+      meetingHold: null,
+      meetingEndedAt: null,
       running: true,
       updatedAt: now,
     }
@@ -431,20 +511,20 @@ export function completeTimerBreak(
   }
   // The native deadline proves this break finished. Credit its outstanding duration,
   // not an unbounded wall-clock gap, and retain any seconds already recorded by ticks.
-  recordTime(state.days, state.hourly, state.phase, now - state.remaining * 1000, now)
+  recordTime(state.days, state.hourly, 'break', now - state.remaining * 1000, now)
   transition(state, now)
   trimRecords(state, now)
   return state
 }
 
 export function skipTimerBreak(original: TimerState, now = Date.now()): TimerState {
-  if (original.phase === 'focus' && !original.deferredBreak) return original
+  if (original.phase === 'focus' && !original.deferredBreak && !original.meetingHold) return original
   const days = { ...original.days }
   getDay(days, now).skippedBreaks += 1
   const duration = getPhaseDuration('focus', original.settings)
   return {
     ...original, days, phase: 'focus', remaining: duration, phaseDuration: duration, running: true,
-    breakId: null, deferredBreak: null, postponeUsed: false, updatedAt: now,
+    breakId: null, deferredBreak: null, meetingHold: null, meetingEndedAt: null, postponeUsed: false, updatedAt: now,
   }
 }
 
@@ -456,7 +536,7 @@ export function changeTimerSettings(
   const settings = normalizeSettings(partial, original.settings)
   // Configuration changes apply to future occurrences; they cannot push back a delay
   // or shorten the full break promised when the user postponed this occurrence.
-  if (original.deferredBreak || (original.phase !== 'focus' && original.postponeUsed)) {
+  if (original.deferredBreak || original.meetingHold || (original.phase !== 'focus' && original.postponeUsed)) {
     return { ...original, settings, updatedAt: now }
   }
   const phaseDuration = getPhaseDuration(original.phase, settings)
@@ -467,7 +547,7 @@ export function changeTimerSettings(
 }
 
 export function resetTimerState(original: TimerState, now = Date.now()): TimerState {
-  if (original.deferredBreak || (original.phase !== 'focus' && original.postponeUsed)) return original
+  if (original.deferredBreak || original.meetingHold || (original.phase !== 'focus' && original.postponeUsed)) return original
   const duration = getPhaseDuration('focus', original.settings)
   return {
     ...original,
@@ -503,12 +583,24 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
         deferredBreak = { type: deferred.type, duration: deferred.duration }
       }
     }
-    const postponeUsed = deferredBreak !== null || (phase !== 'focus' && data.postponeUsed === true)
+    let meetingHold: TimerState['meetingHold'] = null
+    if (phase === 'focus' && isRecord(data.meetingHold)) {
+      const held = data.meetingHold
+      if ((held.type === 'short' || held.type === 'long') && finiteNumber(held.duration)
+        && held.duration >= (held.type === 'short' ? 5 : 60)
+        && held.duration <= (held.type === 'short' ? 300 : 3600)) {
+        meetingHold = { type: held.type, duration: held.duration }
+        // A hold already swallowed any delay; the two never coexist.
+        deferredBreak = null
+      }
+    }
+    const postponeUsed = deferredBreak !== null
+      || ((phase !== 'focus' || meetingHold !== null) && data.postponeUsed === true)
     let duration = deferredBreak ? getPostponeSeconds(deferredBreak.type) : getPhaseDuration(phase, settings)
     if (phase !== 'focus' && postponeUsed && finiteNumber(data.phaseDuration)
       && data.phaseDuration >= (phase === 'short' ? 5 : 60)
       && data.phaseDuration <= (phase === 'short' ? 300 : 3600)) duration = data.phaseDuration
-    const hasOccurrence = phase !== 'focus' || deferredBreak !== null
+    const hasOccurrence = phase !== 'focus' || deferredBreak !== null || meetingHold !== null
     const breakId = hasOccurrence
       ? typeof data.breakId === 'string' && data.breakId.length > 0 && data.breakId.length <= 200
         ? data.breakId : createBreakId(now)
@@ -543,6 +635,7 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
         if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !isRecord(value)) continue
         hourly[key] = {
           focusSeconds: restoreSeries(value.focusSeconds),
+          meetingSeconds: restoreSeries(value.meetingSeconds),
           breakSeconds: restoreSeries(value.breakSeconds),
         }
       }
@@ -551,12 +644,18 @@ export function restoreTimerState(serialized: string | null, now = Date.now()): 
       ...fallback,
       version: 3,
       phase,
-      running: deferredBreak ? true : typeof data.running === 'boolean' ? data.running : settings.autoStart,
-      remaining: finiteNumber(data.remaining) ? Math.max(0.001, Math.min(duration, data.remaining)) : duration,
+      running: deferredBreak || meetingHold ? true : typeof data.running === 'boolean' ? data.running : settings.autoStart,
+      remaining: meetingHold ? 0
+        : finiteNumber(data.remaining) ? Math.max(0.001, Math.min(duration, data.remaining)) : duration,
       phaseDuration: duration,
       breakId,
       deferredBreak,
       postponeUsed,
+      // The desktop re-announces the meeting signal on launch. Until it does, a held
+      // break waits out the grace period from now rather than surfacing at once.
+      meeting: false,
+      meetingEndedAt: meetingHold ? now : null,
+      meetingHold,
       completedCycles: boundedNumber(data.completedCycles, 0, 0, 12),
       days,
       hourly,

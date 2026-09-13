@@ -1,4 +1,4 @@
-# Repose（Rust / Tauri 版）
+# Outsie（Rust / Tauri 版）
 
 这个分支把 Electron 桌面层替换为 Tauri 2：应用逻辑运行在 Rust 中，界面使用 macOS 自带的 WKWebView，不再随安装包携带 Chromium。现有 React 界面、休息计划和记录逻辑继续复用。
 
@@ -17,7 +17,7 @@ npm run desktop:dev
 npm run package:mac
 ```
 
-产物位于 `src-tauri/target/release/bundle/macos/Repose.app`。当前构建面向 Apple Silicon，最低支持 macOS 14；本地构建没有 Apple Developer 签名或公证。
+产物位于 `src-tauri/target/release/bundle/macos/Outsie.app`。当前构建面向 Apple Silicon，最低支持 macOS 14；本地构建没有 Apple Developer 签名或公证。
 
 生成带版本号的 App 和 DMG（含本机 ad hoc 签名及 SHA-256 校验文件）：
 
@@ -25,7 +25,7 @@ npm run package:mac
 npm run package:mac:release
 ```
 
-产物位于 `release/Repose-<版本>-mac-<架构>/`。DMG 内包含 App 和 Applications 快捷入口；脚本会校验镜像与 App 签名，并拒绝覆盖已存在的同版本发布目录。
+产物位于 `release/Outsie-<版本>-mac-<架构>/`。DMG 内包含 App 和 Applications 快捷入口；脚本会校验镜像与 App 签名，并拒绝覆盖已存在的同版本发布目录。
 
 ## 原生能力
 
@@ -53,7 +53,7 @@ Rust 桌面实现位于 `src-tauri/src/lib.rs`，macOS AppKit/CoreGraphics 桥�
 运行以下命令可在真实 WKWebView 中预览拉伸动作，不启动休息计时、覆盖屏幕或闲置锁屏，也不修改已保存的偏好：
 
 ```sh
-REPOSE_STRETCH_PREVIEW=1 "src-tauri/target/release/bundle/macos/Repose.app/Contents/MacOS/repose"
+REPOSE_STRETCH_PREVIEW=1 "src-tauri/target/release/bundle/macos/Outsie.app/Contents/MacOS/Outsie"
 ```
 
 正常双击 App 时仍运行完整的休息提醒应用。前端双入口产物可使用 `npm run verify:build` 检查。

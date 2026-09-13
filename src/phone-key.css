@@ -1,0 +1,750 @@
+/* Amber is the only warning colour in this product; there is no red
+   (ui-conventions 6.1). #8a6f42 measured 4.19:1 on the panel ground, which is
+   under the 4.5:1 body-text line -- this is the same hue with the lightness
+   pressed down until it passes (4.58:1). See ui-conventions 7.2.
+   New CSS uses the token; the existing uses of the old value are left for the
+   one visual pass that changes them all together. */
+:root {
+  --amber-ink: #83693f;
+}
+
+/* 手机钥匙 (Phone Key) panel styles.
+ *
+ * Multi-line format (like activity-chart.css), NOT styles.css's single-line
+ * blocks. Reuses Outsie tokens where they exist; dark mode is redefined per-rule
+ * because the token set is not complete (survey §2.1). No destructive red — the
+ * one red (#c74943, the app's stretch-anatomy accent) is reserved for the
+ * fail-open emergency banner only. Everything else uses the warm-amber warning.
+ */
+
+.phone-key-panel .phone-key-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--sage);
+}
+.phone-key-panel .phone-key-status.tone-neutral {
+  background: color-mix(in srgb, var(--line) 55%, transparent);
+}
+.phone-key-panel .phone-key-status.tone-attention {
+  background: #f7efe2;
+  color: #9c7f4e;
+}
+.phone-key-panel .pk-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: inset 0 0 0 2px var(--panel);
+}
+.phone-key-panel .pk-dot.ready {
+  background: #5c7a45;
+  box-shadow: none;
+}
+.phone-key-panel .pk-status-main { font-weight: 600; }
+.phone-key-panel .pk-status-sub { color: var(--subtle); }
+
+.phone-key-panel .phone-key-primary { margin-top: 12px; }
+
+.phone-key-panel .phone-key-device {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.phone-key-panel .pk-device-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--blue);
+  color: var(--green);
+}
+.phone-key-panel .pk-device-meta { flex: 1; }
+.phone-key-panel .pk-device-meta b { font-size: 14px; }
+.phone-key-panel .pk-device-meta span { display: block; color: var(--muted); font-size: 12px; }
+.pk-revoke-confirm { display: inline-flex; gap: 12px; }
+.danger-text { color: #aa6a58; }
+
+.phone-key-panel .phone-key-detail { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.phone-key-panel .phone-key-detail summary {
+  cursor: pointer;
+  color: var(--green);
+  font-weight: 600;
+  font-size: 13px;
+  list-style: none;
+}
+.phone-key-panel .phone-key-detail summary::-webkit-details-marker { display: none; }
+.phone-key-panel .phone-key-detail summary::before { content: "▸"; margin-right: 7px; font-size: 10px; }
+.phone-key-panel .phone-key-detail[open] summary::before { content: "▾"; }
+.phone-key-panel .pk-klist { margin: 12px 0 0; display: grid; gap: 7px; }
+/* 64px fitted two-character labels. The names now say what each component is
+   ("锁屏规则", "自动修复"), and their explanations are full sentences, so the
+   column is sized for four characters and the value wraps under its own label
+   rather than against the panel edge. */
+.phone-key-panel .pk-krow { display: grid; grid-template-columns: 5em 1fr; gap: 14px; font-size: 12.5px; align-items: start; }
+.phone-key-panel .pk-krow dt { color: var(--muted); }
+.phone-key-panel .pk-krow dd { margin: 0; color: var(--text); line-height: 1.55; }
+/* A broken component means this Mac may open with no password at all. It must
+   not be the same colour as "已就位". */
+.phone-key-panel .pk-krow dd.bad { color: #a3372f; }
+.phone-key-panel .pk-krow dd.warn { color: #8a6520; }
+.phone-key-panel .pk-krow dd.good { color: #5c7a45; }
+.phone-key-panel .pk-krow dd.bad { color: #aa6a58; }
+.phone-key-panel .pk-krow dd.warn { color: #9c7f4e; }
+
+.phone-key-panel .pk-safety { margin-top: 14px; }
+.phone-key-panel .phone-key-remove { margin-top: 16px; }
+
+/* Install / remove modal */
+/* Modal padding, in one place.
+ *
+ * `.modal` itself sets none -- every sheet in this app declares its own, and
+ * they had drifted to 39px, 35px and 32px from three different authors. The
+ * phone-key sheets declared nothing at all, so their text sat against the
+ * border. Read on a real screen it looks like a rendering fault rather than a
+ * design, which is a poor first impression for the one dialog in this product
+ * that asks for an administrator password.
+ *
+ * 32px / 30px, and the top is tighter than the sides because the close button
+ * already occupies that corner. Below 760px it comes in, because at phone
+ * width the same value eats a third of the line.
+ */
+.phone-key-modal {
+  max-width: 560px;
+  text-align: left;
+  padding: 30px 32px 32px;
+}
+@media (max-width: 760px) {
+  .phone-key-modal { padding: 24px 22px 26px; }
+}
+.phone-key-modal .eyebrow { color: #8a9b6a; }
+.phone-key-modal h2 { margin: 6px 0 14px; }
+.phone-key-modal .modal-intro { color: var(--subtle); }
+.pk-steps { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 11px; }
+.pk-steps li { font-size: 13.5px; color: var(--subtle); line-height: 1.6; }
+.pk-steps li b { color: var(--text); }
+.pk-steps li.pk-variant-b { color: #9c7f4e; }
+.pk-steps li code, .phone-key-modal p code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--sage);
+  color: var(--green);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+.pk-cant {
+  margin-top: 16px;
+  background: #f7efe2;
+  border: 1px solid #ecdfc8;
+  color: #9c7f4e;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.pk-cant strong { display: flex; gap: 8px; align-items: center; margin-bottom: 7px; font-size: 13.5px; }
+.pk-cant ul { margin: 0; padding-left: 18px; }
+.pk-cant li { margin: 4px 0; font-size: 13px; }
+.pk-modal-actions { display: flex; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+
+/* Global banner — reuse .security-alert; add a danger variant for the one red. */
+.security-alert.pk-danger {
+  background: #fbece9;
+  border-color: #f0cfc9;
+  color: #b23f38;
+}
+
+/* Degraded (browser preview / !window.repose) */
+.phone-key-panel.is-degraded .preference-icon { opacity: 0.6; }
+
+/* ---- dark theme (token set is incomplete; redefine per-rule) ---- */
+[data-theme="dark"] .phone-key-panel .phone-key-status.tone-neutral {
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+}
+[data-theme="dark"] .phone-key-panel .phone-key-status.tone-attention {
+  background: #332b1c;
+  color: #d9bd86;
+}
+[data-theme="dark"] .phone-key-panel .pk-dot.ready { background: #9cbb7f; }
+[data-theme="dark"] .phone-key-panel .pk-krow dd.good { color: #9cbb7f; }
+[data-theme="dark"] .phone-key-panel .pk-krow dd.bad,
+[data-theme="dark"] .danger-text { color: #e79a90; }
+[data-theme="dark"] .phone-key-panel .pk-krow dd.warn { color: #d9bd86; }
+[data-theme="dark"] .pk-cant {
+  background: #332b1c;
+  border-color: #4a3f28;
+  color: #d9bd86;
+}
+[data-theme="dark"] .pk-steps li.pk-variant-b { color: #d9bd86; }
+[data-theme="dark"] .phone-key-modal .eyebrow { color: #a8bc90; }
+[data-theme="dark"] .pk-steps li code,
+[data-theme="dark"] .phone-key-modal p code {
+  background: #2a3324;
+  color: #b7d199;
+}
+[data-theme="dark"] .security-alert.pk-danger {
+  background: #3a241f;
+  border-color: #5a352e;
+  color: #e79a90;
+}
+
+/* Disclosure of a third-party authorization plugin already in the lock-screen
+   rule. Amber, not red: it is a fact about the user's Mac that they should read
+   before agreeing, not a fault and not our doing. Placed above "它挡不住什么"
+   because it changes what that section means on this particular machine. */
+.phone-key-modal .pk-foreign {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(176, 137, 44, 0.09);
+  border: 1px solid rgba(176, 137, 44, 0.3);
+}
+.phone-key-modal .pk-foreign strong { display: block; font-size: 13.5px; margin-bottom: 8px; }
+.phone-key-modal .pk-foreign ul { margin: 0 0 8px; padding-left: 18px; }
+.phone-key-modal .pk-foreign code { font-size: 12px; word-break: break-all; }
+.phone-key-modal .pk-foreign p { margin: 0; font-size: 12.5px; line-height: 1.65; }
+
+/* The three facts that can change the answer. Full weight, short lines, no
+   numbering -- a numbered list reads as a procedure to get through, and these
+   are not steps, they are things to know before saying yes. */
+.phone-key-modal .pk-three { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 14px; }
+.phone-key-modal .pk-three li { font-size: 12.5px; line-height: 1.85; color: var(--subtle); }
+.phone-key-modal .pk-three b { color: var(--text); display: block; margin-bottom: 3px; font-weight: 550; }
+
+/* Everything else. Closed by default: present, not shouted. */
+.phone-key-modal .pk-more { margin: 18px 0 0; border-top: 1px solid var(--line); padding-top: 14px; }
+.phone-key-modal .pk-more > summary {
+  cursor: pointer; font-size: 11.5px; color: var(--muted); list-style: none;
+  display: flex; align-items: center; gap: 6px;
+}
+.phone-key-modal .pk-more > summary::-webkit-details-marker { display: none; }
+.phone-key-modal .pk-more > summary::before { content: '＋'; font-size: 12px; }
+.phone-key-modal .pk-more[open] > summary::before { content: '－'; }
+.phone-key-modal .pk-more .pk-steps { margin-top: 14px; }
+
+/* Warning about the prompt's name. Quiet, but directly above the button that
+   raises it -- a note about a dialog is useless anywhere the reader has already
+   scrolled past. */
+.phone-key-modal .pk-prompt-note {
+  margin: 18px 0 0; font-size: 11.5px; line-height: 1.8; color: var(--muted);
+}
+
+/* ---- Pairing sheet ------------------------------------------------------ */
+
+/* Narrower than the install disclosure on purpose. That sheet has to carry a
+   disclosure people must read; this one has a single job — get six digits
+   compared — and a wide box invites filling it with prose that competes with
+   them. */
+.pk-pair-modal { max-width: 420px; }
+
+/* The six digits. Deliberately the largest thing the app ever renders.
+   Tabular figures so the glyphs line up with the phone's monospace, and wide
+   tracking so a transposed pair is visible rather than merely present. */
+.pk-pair-digits {
+  margin: 22px 0 0;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: clamp(40px, 11vw, 54px);
+  font-weight: 650;
+  letter-spacing: 0.18em;
+  /* Balance the trailing letter-spacing so the block reads centred. */
+  text-indent: 0.18em;
+  text-align: center;
+  color: var(--accent, #526a43);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.pk-pair-hint {
+  margin: 16px 0 0; font-size: 12px; line-height: 1.8; color: var(--muted);
+}
+
+/* Waiting: three dots, slow. Not a spinner — a spinner reads as "working on
+   it", and nothing is being worked on here; we are waiting on a person to pick
+   up their phone. */
+.pk-pair-waiting {
+  display: flex; justify-content: center; gap: 9px; margin: 30px 0 6px;
+}
+.pk-pair-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--accent, #526a43); opacity: 0.25;
+  animation: pk-pair-breathe 1.5s ease-in-out infinite;
+}
+.pk-pair-dot:nth-child(2) { animation-delay: 0.2s; }
+.pk-pair-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pk-pair-breathe {
+  0%, 100% { opacity: 0.22; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pk-pair-dot { animation: none; opacity: 0.45; }
+}
+
+.pk-pair-fingerprint {
+  margin: 20px 0 0; display: flex; align-items: baseline; gap: 12px;
+  padding: 14px 16px; border-radius: 14px;
+  background: var(--surface-muted, rgba(82, 106, 67, 0.07));
+}
+.pk-pair-fingerprint span { font-size: 11.5px; color: var(--muted); }
+.pk-pair-fingerprint b {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 21px; letter-spacing: 0.12em; color: var(--text);
+}
+
+/* ---- Removal report ------------------------------------------------------ */
+
+/* Shown in place, not as a modal. The user has just answered a password prompt
+   and wants to know what happened; another dialog to dismiss is one more step
+   between them and the answer. */
+.pk-removal {
+  margin-top: 18px; padding: 16px 18px; border-radius: 16px;
+  background: var(--surface-muted, rgba(82, 106, 67, 0.07));
+  border: 1px solid var(--line);
+}
+.pk-removal-head { display: flex; align-items: center; justify-content: space-between; }
+.pk-removal-head b { font-size: 13.5px; }
+.pk-removal-close {
+  background: none; border: 0; color: var(--muted); cursor: pointer;
+  display: flex; padding: 2px; border-radius: 6px;
+}
+.pk-removal ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.pk-removal li { font-size: 12.5px; color: var(--subtle); }
+.pk-removal-rule { margin: 12px 0 0; font-size: 11.5px; color: var(--muted); }
+.pk-removal-rule code { word-break: break-all; }
+.pk-removal-left { margin: 8px 0 0; font-size: 12px; color: var(--amber-text, #8a6f42); }
+.pk-removal-note { margin: 10px 0 0; font-size: 11.5px; color: var(--muted); }
+
+/* The switch's state, under the name of the thing it switches. Its own line so
+   it can be scanned without reading the description, and coloured only when on
+   — an off feature is not a warning. */
+.phone-key-panel .pk-row-state {
+  margin: 3px 0 6px; font-size: 12.5px; color: var(--muted);
+}
+.phone-key-panel .pk-row-state.is-on { color: var(--green, #526a43); font-weight: 550; }
+
+/* ---- Sidebar groups -------------------------------------------------------
+   The nav used to be one flat list under 「你的日常空间」. Grouping is what
+   lets 手机控制 hold two tabs without either of them looking like a break
+   feature. */
+.sidebar .nav-group + .nav-group { margin-top: 22px; }
+.sidebar .nav-group .nav-label { margin-bottom: 10px; }
+
+/* A placeholder that says so. Not a promise — 以后 is a fact about today. */
+.nav-item .nav-soon {
+  margin-left: auto; font-size: 9px; letter-spacing: .6px;
+  color: var(--muted); border: 1px solid var(--line);
+  border-radius: 20px; padding: 1px 6px; flex: none;
+}
+.nav-item.active .nav-soon { border-color: transparent; }
+
+/* A note inside a fold is already opted into, so it can be plain prose --
+   no icon, no tinted box. Boxing it would make it shout from inside a
+   drawer the reader deliberately opened. */
+.phone-key-detail .pk-fold-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--subtle);
+}
+
+/* ---- who can open this Mac ------------------------------------------- */
+/* Font sizes here stay >= 12px for body and >= 11px for the meta line, per
+   ui-conventions 7.1 -- the existing panel has declarations down to 9px, and
+   "raise the block you touch" is how that gets paid down. */
+.pk-device {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sage-faint, #f4f7f1);
+}
+.pk-device.is-off { background: transparent; }
+.pk-device.is-off .pk-device-icon { color: var(--muted); }
+
+.pk-device-icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--green);
+}
+.pk-device-body { min-width: 0; }
+.pk-device-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* The one line that changes: it names the state the switch above produces. */
+.pk-device-state {
+  margin: 3px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--green);
+}
+.pk-device.is-off .pk-device-state { color: var(--subtle); font-weight: 500; }
+.pk-device-meta {
+  margin: 7px 0 0;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--subtle);
+}
+
+.pk-device-empty {
+  margin-top: 16px;
+  padding: 20px 18px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  text-align: center;
+}
+.pk-device-empty p {
+  margin: 0 auto 14px;
+  max-width: 40em;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--subtle);
+}
+
+/* The destructive action sits at the end of the row, quiet until armed. */
+.pk-device-action {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  text-align: right;
+}
+.pk-device-warn {
+  margin: 0;
+  max-width: 22em;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--amber-ink);
+}
+
+/* ---- pairing step bar ------------------------------------------------- */
+/* The last step is 锁屏验证, which is still ahead when the sheet says done --
+   so "done" here marks the pairing steps behind you, not the whole flow. */
+.pk-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 22px;
+  padding: 0;
+  list-style: none;
+}
+.pk-steps li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+.pk-steps li + li::before {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  margin-right: 1px;
+}
+.pk-step-dot {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pk-step-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pk-steps li.is-done .pk-step-dot { background: var(--sage); border-color: var(--sage); color: var(--green); }
+.pk-steps li.is-now .pk-step-dot { background: var(--green); border-color: var(--green); color: #fff; }
+.pk-steps li.is-now .pk-step-label { color: var(--text); font-weight: 600; }
+
+/* ---- calibration ------------------------------------------------------ */
+.pk-cal-meter { margin: 20px 0 4px; }
+.pk-cal-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--active);
+  overflow: hidden;
+}
+.pk-cal-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green);
+  transition: width .35s ease;
+}
+.pk-cal-now {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  color: var(--subtle);
+  font-variant-numeric: tabular-nums;
+}
+.pk-cal-now b { color: var(--text); }
+
+.pk-cal-stats {
+  margin: 18px 0 0;
+  display: grid;
+  gap: 8px;
+}
+.pk-cal-stats > div {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+  font-size: 12px;
+}
+.pk-cal-stats dt { flex: none; width: 6em; color: var(--subtle); }
+.pk-cal-stats dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The everyday action is a button; the irreversible one stays a quiet text
+   link below it. They used to be two identical text buttons six pixels apart,
+   which puts 「删掉这把钥匙」 one mis-click from 「量一下距离」. */
+.pk-device-tune {
+  padding: 6px 13px;
+  font-size: 12px;
+  border-radius: 9px;
+}
+.pk-device-action .text-button { font-size: 11.5px; }
+
+/* ---- 快捷控制 --------------------------------------------------------- */
+.ks-apps { margin-top: 16px; display: grid; gap: 14px; }
+.ks-app {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 15px 17px 13px;
+}
+/* One app at a time. Flat, three apps and 87 actions ran past four screens —
+   a list that long is scrolled, not read. The tab carries its own count so
+   choosing does not mean opening each one to look. */
+.ks-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.ks-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--sage);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.ks-tab:hover { border-color: var(--line); }
+.ks-tab.is-open {
+  background: var(--active);
+  border-color: var(--green);
+  font-weight: 600;
+}
+.ks-tab-count {
+  font: 600 10.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted);
+}
+.ks-tab.is-open .ks-tab-count { color: var(--text); }
+.ks-tab-add { color: var(--muted); }
+
+.ks-app-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ks-app-name { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--text); }
+/* A bundle id is a path, so it belongs with the other technical detail — but a
+   person picking between two copies of the same app needs it visible, not
+   folded. Small and quiet is the compromise (ui-conventions 3.2). */
+.ks-app-bundle { margin: 0; font-size: 11px; color: var(--muted); }
+
+.ks-actions { margin-top: 11px; display: grid; gap: 7px; }
+.ks-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.ks-action:first-child { border-top: 0; padding-top: 4px; }
+.ks-action.is-broken { opacity: .72; }
+.ks-action-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.ks-action-icon { font-size: 14px; }
+
+.ks-keys { display: flex; align-items: center; gap: 5px; flex: none; }
+.ks-keys kbd {
+  font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: #fff;
+  color: var(--text);
+}
+.ks-keys em { font-size: 11.5px; font-style: normal; color: var(--amber-ink); }
+
+.ks-try {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  font-size: 11.5px;
+  border-radius: 8px;
+}
+.ks-none { margin: 8px 0 0; font-size: 12px; color: var(--subtle); }
+
+.pk-row-note { margin: 7px 0 0; font-size: 11.5px; line-height: 1.7; color: var(--subtle); max-width: 46em; }
+
+/* The Accessibility permission row (手机控制; it used to be on 快捷键设置, hence
+   the old ks- name). Three lines of explanation leave the icon floating at the
+   middle of the block; it belongs beside the heading it labels. */
+.pk-permission { align-items: flex-start; }
+.pk-permission .preference-icon { margin-top: 2px; }
+
+/* ---- editing the shortcuts -------------------------------------------- */
+.ks-app-head { position: relative; }
+.ks-app-remove {
+  margin-left: auto;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.ks-icon-button {
+  flex: none;
+  padding: 4px;
+  color: var(--muted);
+  display: inline-flex;
+}
+.ks-icon-button:hover { color: var(--text); }
+.ks-add-action {
+  margin-top: 4px;
+  align-self: start;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ks-recorder { text-align: left; }
+.ks-recorded {
+  margin: 18px 0 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 11px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  background: var(--sage-faint, #f4f7f1);
+}
+.ks-recorded kbd,
+.modal-intro kbd {
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: #fff;
+  color: var(--text);
+}
+.ks-recorded-empty { font-size: 12px; color: var(--muted); }
+
+.ks-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 4px;
+  font-size: 12.5px;
+  color: var(--subtle);
+}
+.ks-name input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* Two decisions per phone, not one. Checkboxes rather than the big switch: the
+   master switch above answers "is anything watching at all", and giving a row
+   the same control would say these are the same kind of decision. */
+.pk-caps {
+  margin-top: 10px;
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.pk-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--subtle);
+  cursor: pointer;
+}
+.pk-cap input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+  cursor: pointer;
+}
+.pk-cap input:disabled { cursor: default; }
+
+/* The drill, inside the fold: a line that says whether it has run, and the
+   button that runs it. It used to be an amber banner plus a full-size primary
+   button in the middle of the page — a standing alarm for something you do
+   once. */
+.pk-drill {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.pk-drill-state {
+  margin: 0;
+  flex: 1;
+  min-width: 14em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.pk-drill-state .pk-status-sub { color: var(--subtle); }

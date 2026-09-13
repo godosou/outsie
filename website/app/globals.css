@@ -2426,7 +2426,7 @@ svg {
   }
 }
 
-/* Release 0.6.3: show the shipped eye-care card and side-by-side guide. */
+/* Release 0.8.0: show the shipped eye-care card and side-by-side guide. */
 .rest-eye-tip{display:grid;gap:8px;max-width:320px;margin:6px 0 18px;padding:16px;border:1px solid #b7c9a64d;border-radius:12px;background:#ffffff0a;text-align:left;font-size:.82rem;line-height:1.7;color:#e1ead8}
 .rest-eye-tip b{font-weight:500}
 .rest-eye-tip span{color:#c3d0b8}

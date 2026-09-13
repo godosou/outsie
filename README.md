@@ -1,23 +1,16 @@
-# Outsie · AI 时代，先照顾好自己。
+# Outsie · 歇一会
 
-一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。
+一款面向 Mac 的休息提醒应用。以柔和的森林绿、简洁的排版与舒展的留白，帮助你在工作中定时休息。开会时到点的休息会等会议结束；带着手机走开，Mac 自己锁，走回去密码框留空按回车就进；手机上点一下，Mac 切 App、按快捷键。
 
-**[产品主页](https://outsie.dev/)** · [下载 Mac 预览版](https://github.com/godosou/outsie/releases/tag/v0.6.3) · [主页源码](website/)
+当前主干为 Rust / Tauri 0.8.0 版本，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。`electron/` 保留早期实现。
 
-Outsie 是产品对外使用的暂定名称，Mac 应用目前仍显示为 Repose（歇一会）。当前 `main` 包含 Rust / Tauri 0.6.3 应用，使用 macOS 自带 WKWebView，开发和打包方法见 [Rust 版说明](README-rust.md)。`electron/` 保留早期实现。
-
-手机相关功能保留在独立分支：
-
-- [`codex/phone-work-console`](https://github.com/godosou/outsie/tree/codex/phone-work-console)：手机 App 工作台、快捷键及按键序列。
-- [`codex/phone-proximity-unlock`](https://github.com/godosou/outsie/tree/codex/phone-proximity-unlock)：手机钥匙、靠近与离开、蓝牙配对。
-
-分支中的原生功能和真机验证状态以各分支文档为准。主页 Demo 在浏览器中模拟交互，不执行系统锁屏、手机配对或真实 AI 指令。
+[下载 v0.8.0（Mac DMG · Android APK）](https://github.com/godosou/outsie/releases/tag/v0.8.0) · [产品主页](https://godosou.github.io/outsie/) · [发布说明](docs/releases/v0.8.0.md)
 
 ## 打开 Mac 应用
 
-完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Repose.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
+完成打包后，在 Finder 中双击 `src-tauri/target/release/bundle/macos/Outsie.app`。应用使用系统 WKWebView，日常使用不需要浏览器、Node.js 或 Rust。关闭主窗口后，应用继续在菜单栏运行。
 
-这是本地开发版本，只有本机使用的 ad hoc 签名，尚未通过 Apple Developer 签名或公证。生成的 ZIP 对应打包电脑的芯片架构，跨电脑分发前需要补充签名、公证和对应架构验证。
+公开预览版提供 Apple Silicon / macOS 14+ 的 DMG 与 SHA-256 校验文件，使用 ad hoc 签名，尚未经过 Apple Developer ID 签名或 Apple 公证。手机钥匙与手机工作台不包含在此安装包中。
 
 ## 休息和安全锁屏
 
@@ -49,7 +42,7 @@ npm run desktop:dev
 npm run package:mac
 ```
 
-产物位于 `src-tauri/target/release/bundle/macos/Repose.app`。内部应用标识保持不变，以便升级后继续使用原来的本地设置与系统权限。
+产物位于 `src-tauri/target/release/bundle/macos/Outsie.app`。内部应用标识保持不变，以便升级后继续使用原来的本地设置与系统权限。
 
 ```sh
 npm test
@@ -57,15 +50,3 @@ npm run build
 ```
 
 `npm run dev` 是浏览器中的界面预览；`npm run desktop` 启动 Tauri 开发版。
-
-## 公开安装包
-
-[GitHub Release v0.6.3](https://github.com/godosou/outsie/releases/tag/v0.6.3) 提供 Apple Silicon / macOS 14+ 的 DMG 与 SHA-256 校验文件。应用名仍为 Repose，当前包包含休息与拉伸功能；手机功能不在此包内。此版本为未经过 Apple 公证的预览版，安装说明见 [发布记录](docs/releases/v0.6.3.md)。
-
-为避免在二进制中保留个人编译路径，公开打包时使用路径映射：
-
-```sh
-RUSTFLAGS="--remap-path-prefix=$HOME=/build" CFLAGS="-ffile-prefix-map=$HOME=/build" npm run package:mac:release
-```
-
-发布前应检查安装包内容、签名、版本和校验和。打包脚本保留已存在的同版本产物；不要覆盖先前发布的文件。

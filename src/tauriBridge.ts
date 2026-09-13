@@ -1,5 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import type { UnlockDesktopBridge } from './lib/unlock'
+import type { ConsoleDesktopBridge } from './lib/console'
 
 export type DesktopCommandName =
   | 'toggle-pause'
@@ -8,6 +10,11 @@ export type DesktopCommandName =
   | 'postpone-break'
   | 'strict-break-finished'
   | 'idle-lock-failed'
+  // Phone Key drill results (§6.4). Must also appear in `commandNames` below,
+  // or the allowlist in parseCommand silently drops them.
+  | 'unlock-drill-passed'
+  | 'unlock-drill-failed'
+  | 'unlock-drill-not-observed'
 
 export type DesktopCommand = { command: DesktopCommandName; breakId: string | null }
 export type DesktopLifecycleEvent =
@@ -20,7 +27,7 @@ type LifecycleSnapshot = {
   pendingIntervals: Extract<DesktopLifecycleEvent, { type: 'inactive-end' }>[]
 }
 type Status = { running: boolean; phase: string; remaining: number; breakId: string | null; canPostpone: boolean; postponeSeconds: number }
-type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
+type Preferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean; meetingHoldEnabled: boolean }
 
 declare global {
   interface Window {
@@ -28,6 +35,9 @@ declare global {
       isDesktop: boolean
       onCommand: (callback: (event: DesktopCommand) => void) => () => void
       onLifecycle: (callback: (event: DesktopLifecycleEvent) => void) => () => void
+      /** The desktop says whether a meeting app is running audio; see src-tauri/src/meeting.rs. */
+      onMeeting: (callback: (active: boolean) => void) => () => void
+      getMeetingState: () => Promise<boolean>
       acknowledgeLifecycle: (intervalId: string) => Promise<boolean>
       setStatus: (status: Status) => void
       setPreferences: (preferences: Preferences) => void
@@ -35,10 +45,14 @@ declare global {
       showBreak: () => void
       postponeBreak: () => Promise<boolean>
       openSecuritySettings: () => void
+      unlock?: UnlockDesktopBridge
+      console?: ConsoleDesktopBridge
     }
     webkitAudioContext?: typeof AudioContext
   }
 }
+
+const consoleCommandCallbacks = new Set<(e: { action: string | null; app?: string; ok: boolean; detail?: string }) => void>()
 
 const commandNames = new Set<DesktopCommandName>([
   'toggle-pause',
@@ -47,6 +61,9 @@ const commandNames = new Set<DesktopCommandName>([
   'postpone-break',
   'strict-break-finished',
   'idle-lock-failed',
+  'unlock-drill-passed',
+  'unlock-drill-failed',
+  'unlock-drill-not-observed',
 ])
 
 function parseCommand(value: unknown): DesktopCommand | null {
@@ -109,6 +126,10 @@ export async function initializeDesktopBridge() {
     }
   }
 
+  const meetingCallbacks = new Set<(active: boolean) => void>()
+  const unlockSnapshotCallbacks = new Set<(snapshot: unknown) => void>()
+  const unlockPresenceCallbacks = new Set<(presence: unknown) => void>()
+
   await listen<unknown>('repose-command', event => {
     const command = parseCommand(event.payload)
     if (command) commandCallbacks.forEach(callback => callback(command))
@@ -117,9 +138,73 @@ export async function initializeDesktopBridge() {
     const lifecycle = parseLifecycle(event.payload)
     if (lifecycle) dispatchLifecycle(lifecycle)
   })
+  await listen<unknown>('repose-meeting', event => {
+    const payload = event.payload
+    if (typeof payload === 'object' && payload !== null && typeof (payload as { active?: unknown }).active === 'boolean') {
+      const active = (payload as { active: boolean }).active
+      meetingCallbacks.forEach(callback => callback(active))
+    }
+  })
+  await listen<unknown>('repose-unlock-snapshot', event => {
+    unlockSnapshotCallbacks.forEach(callback => callback(event.payload))
+  })
+  await listen<unknown>('repose-unlock-presence', event => {
+    unlockPresenceCallbacks.forEach(callback => callback(event.payload))
+  })
+
+  // Phone Key bridge. Method names map to unlock.rs commands (§6.2); the panel
+  // re-normalizes every returned snapshot as untrusted input.
+  const unlock: UnlockDesktopBridge = {
+    getSnapshot: () => invoke<unknown>('unlock_get_snapshot'),
+    preflight: () => invoke<unknown>('unlock_preflight'),
+    install: value => invoke<unknown>('unlock_install', { value }),
+    repair: value => invoke<unknown>('unlock_repair', { value }),
+    uninstall: () => invoke<unknown>('unlock_uninstall'),
+    setEnabled: value => invoke<unknown>('unlock_set_enabled', { value }),
+    setPresenceRunning: value => invoke<unknown>('unlock_presence_set', { value }),
+    revokeDevice: value => invoke<unknown>('unlock_revoke_device', { value }),
+    setDeviceCapability: value => invoke<unknown>('unlock_set_device_capability', { value }),
+    beginPairing: () => invoke<unknown>('unlock_pair_begin'),
+    pollPairing: () => invoke<unknown>('unlock_pair_poll'),
+    confirmPairing: () => invoke<unknown>('unlock_pair_confirm'),
+    awaitPhonePairing: () => invoke<unknown>('unlock_pair_await_phone'),
+    async cancelPairing() { await invoke('unlock_pair_cancel') },
+    calibrateStart: value => invoke<unknown>('unlock_calibrate_start', { value }),
+    calibrateSample: () => invoke<unknown>('unlock_calibrate_sample'),
+    calibrateFinish: () => invoke<unknown>('unlock_calibrate_finish'),
+    startDrill: value => invoke<unknown>('unlock_drill_start', { value }),
+    async openBluetoothSettings() { await invoke('unlock_open_bluetooth_settings') },
+    async openLockScreenSettings() { await invoke('unlock_open_lock_screen_settings') },
+    onSnapshot(callback) { unlockSnapshotCallbacks.add(callback); return () => unlockSnapshotCallbacks.delete(callback) },
+    onPresence(callback) { unlockPresenceCallbacks.add(callback); return () => unlockPresenceCallbacks.delete(callback) },
+  }
+
+  // A command from the phone lands wherever the user is looking, so this is
+  // global rather than a listener on the shortcuts page. The phone only ever
+  // knows it SENT something -- whether a key was pressed is the Mac's to say.
+  void listen<{ action: string | null; app?: string; ok: boolean; detail?: string }>(
+    'console-command',
+    ({ payload }) => {
+      consoleCommandCallbacks.forEach(cb => cb(payload))
+    },
+  )
+
+  const consoleBridge: ConsoleDesktopBridge = {
+    status: () => invoke<unknown>('console_status'),
+    requestTrust: () => invoke<boolean>('console_request_trust'),
+    run: value => invoke<void>('console_run', { value }),
+    onCommand(callback) {
+      consoleCommandCallbacks.add(callback)
+      return () => consoleCommandCallbacks.delete(callback)
+    },
+    pickApp: () => invoke<unknown>('console_pick_app'),
+    aiPrompt: () => invoke<string>('console_ai_prompt'),
+    save: value => invoke<unknown>('console_save', { value }),
+  }
 
   window.repose = {
     isDesktop: true,
+    console: consoleBridge,
     onCommand(callback) {
       commandCallbacks.add(callback)
       return () => commandCallbacks.delete(callback)
@@ -138,6 +223,11 @@ export async function initializeDesktopBridge() {
       if (activeLifecycle && !replayedActive) callback(activeLifecycle)
       return () => lifecycleCallbacks.delete(callback)
     },
+    onMeeting(callback) {
+      meetingCallbacks.add(callback)
+      return () => meetingCallbacks.delete(callback)
+    },
+    getMeetingState() { return invoke<boolean>('get_meeting_state') },
     acknowledgeLifecycle(intervalId) { return invoke<boolean>('acknowledge_lifecycle_interval', { intervalId }) },
     setStatus(status: Status) { void invoke('set_status', { value: status }) },
     setPreferences(preferences: Preferences) { void invoke('set_preferences', { value: preferences }) },
@@ -145,6 +235,7 @@ export async function initializeDesktopBridge() {
     showBreak() { /* set_status creates the native cover after the phase changes. */ },
     postponeBreak() { return invoke<boolean>('postpone_break') },
     openSecuritySettings() { void invoke('open_security_settings') },
+    unlock,
   }
 
   try {

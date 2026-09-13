@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Make Repose count focus only while the macOS session and app are active, while treating lock/sleep as an idempotent passive or active break interval.
+**Goal:** Make Outsie count focus only while the macOS session and app are active, while treating lock/sleep as an idempotent passive or active break interval.
 
 **Architecture:** The TypeScript timer remains the business state machine but advances only from explicit monotonic elapsed values. A testable Rust lifecycle gate merges native macOS lock/sleep/session events into uniquely identified intervals measured by a sleep-aware monotonic clock, and the React hook coordinates delivery, persistence, and acknowledgements.
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   DEFAULT_SETTINGS,
+  MEETING_GRACE_SECONDS,
   applyInactivityInterval,
   advanceTimerBy,
   captureInactivity,
@@ -17,6 +18,7 @@ import {
   postponeTimerBreak,
   resetTimerState,
   restoreTimerState,
+  setTimerMeeting,
   skipTimerBreak,
   startTimerBreak,
   toggleTimer,
@@ -304,7 +306,7 @@ test('a delayed background tick starts a full break instead of completing an uns
     focusSeconds: 60,
     breakSeconds: 0,
     completedBreaks: 0,
-    skippedBreaks: 0,
+    skippedBreaks: 0, meetingSeconds: 0,
   })
   assert.equal(state.history.length, 0)
   const completed = advanceTo(state, START + 107_000)
@@ -360,7 +362,7 @@ test('skipping a break counts the skip and does not mark it complete', () => {
     focusSeconds: 0,
     breakSeconds: 5,
     completedBreaks: 0,
-    skippedBreaks: 1,
+    skippedBreaks: 1, meetingSeconds: 0,
   })
   assert.equal(skipTimerBreak(state, START).days[localDateKey(START)].skippedBreaks, 1)
 })
@@ -425,7 +427,7 @@ test('valid version 3 hourly buckets survive local storage restoration', () => {
     hourly: { [localDateKey(START)]: { focusSeconds, breakSeconds } },
   }
   const restored = restoreTimerState(JSON.stringify(raw), START + 1_000)
-  assert.deepEqual(getHourlyStats(restored, START), { focusSeconds, breakSeconds })
+  assert.deepEqual(getHourlyStats(restored, START), { focusSeconds, meetingSeconds: Array(24).fill(0), breakSeconds })
 })
 
 test('restoring hourly data rejects invalid dates and sanitizes malformed buckets', () => {
@@ -481,7 +483,7 @@ test('corrupt or unknown storage safely produces a usable default state', () => 
   }), START)
   assert.ok(state.remaining > 0)
   assert.equal(state.settings.shortInterval, 1)
-  assert.deepEqual(getTodayStats(state, START), { focusSeconds: 0, breakSeconds: 0, completedBreaks: 0, skippedBreaks: 0 })
+  assert.deepEqual(getTodayStats(state, START), { focusSeconds: 0, breakSeconds: 0, completedBreaks: 0, skippedBreaks: 0, meetingSeconds: 0 })
   assert.equal(state.history.length, 0)
 })
 
@@ -551,7 +553,7 @@ test('native completion credits exactly one full break including seconds already
     focusSeconds: 0,
     breakSeconds: 20,
     completedBreaks: 1,
-    skippedBreaks: 0,
+    skippedBreaks: 0, meetingSeconds: 0,
   })
   assert.equal(completed.history.length, 1)
   assert.equal(completed.history[0].completedAt, START + 20_000)
@@ -602,7 +604,7 @@ test('a short break can be postponed for one minute and returns at its full dura
   assert.deepEqual(postponed.deferredBreak, { type: 'short', duration: 30 })
   assert.equal(postponed.completedCycles, 0)
   assert.deepEqual(getTodayStats(postponed, START), {
-    focusSeconds: 0, breakSeconds: 5, completedBreaks: 0, skippedBreaks: 0,
+    focusSeconds: 0, breakSeconds: 5, completedBreaks: 0, skippedBreaks: 0, meetingSeconds: 0,
   })
   const returned = advanceTo(postponed, START + 65_000)
   assert.equal(returned.phase, 'short')
@@ -770,4 +772,159 @@ test('old v1 states gain an occurrence identity and invalid pending data is disc
   assert.equal(invalid.postponeUsed, false)
   assert.equal(invalid.breakId, null)
   assert.equal(invalid.remaining, 1200)
+})
+
+test('focus time spent in a meeting is recorded as meeting time, not focus, by day and by hour', () => {
+  const inMeeting = setTimerMeeting(createTimerState(START), true, START)
+  const state = advanceTo(inMeeting, START + 90_000)
+  assert.equal(state.remaining, 20 * 60 - 90)
+  const today = getTodayStats(state, START)
+  assert.equal(today.meetingSeconds, 90)
+  assert.equal(today.focusSeconds, 0)
+  assert.equal(getHourlyStats(state, START).meetingSeconds[10], 90)
+  assert.equal(getHourlyStats(state, START).focusSeconds[10], 0)
+  const left = setTimerMeeting(state, false, START + 90_000)
+  const after = advanceTo(left, START + 100_000)
+  assert.equal(getTodayStats(after, START).meetingSeconds, 90)
+  assert.equal(getTodayStats(after, START).focusSeconds, 10)
+})
+
+test('the meeting signal is idempotent and marks when the meeting went quiet', () => {
+  const base = createTimerState(START)
+  assert.equal(setTimerMeeting(base, false, START), base)
+  const on = setTimerMeeting(base, true, START)
+  assert.equal(on.meeting, true)
+  assert.equal(on.meetingEndedAt, null)
+  assert.equal(setTimerMeeting(on, true, START + 1_000), on)
+  const off = setTimerMeeting(on, false, START + 5_000)
+  assert.equal(off.meeting, false)
+  assert.equal(off.meetingEndedAt, START + 5_000)
+})
+
+test('a break that comes due during a meeting is held instead of shown', () => {
+  const initial = setTimerMeeting(createTimerState(START, { shortInterval: 1, shortDuration: 30 }), true, START)
+  const due = advanceTo(initial, START + 60_000)
+  assert.equal(due.phase, 'focus')
+  assert.equal(due.remaining, 0)
+  assert.equal(due.running, true)
+  assert.deepEqual(due.meetingHold, { type: 'short', duration: 30 })
+  assert.ok(due.breakId)
+  assert.equal(due.deferredBreak, null)
+  // Held minutes keep counting as meeting time.
+  const later = advanceTo(due, START + 120_000)
+  assert.equal(later.remaining, 0)
+  assert.deepEqual(later.meetingHold, { type: 'short', duration: 30 })
+  assert.equal(getTodayStats(later, START).meetingSeconds, 120)
+  assert.equal(getTodayStats(later, START).focusSeconds, 0)
+  assert.equal(toggleTimer(later, START + 120_000), later)
+  assert.equal(resetTimerState(later, START + 120_000), later)
+})
+
+test('a held break surfaces in full once the meeting has been quiet for the grace period', () => {
+  const initial = setTimerMeeting(createTimerState(START, { shortInterval: 1, shortDuration: 30 }), true, START)
+  const held = advanceTo(initial, START + 60_000)
+  const quiet = setTimerMeeting(held, false, START + 60_000)
+  const beforeGrace = advanceTo(quiet, START + 60_000 + (MEETING_GRACE_SECONDS - 1) * 1000)
+  assert.equal(beforeGrace.phase, 'focus')
+  assert.deepEqual(beforeGrace.meetingHold, { type: 'short', duration: 30 })
+  // Waiting for the meeting to end is focus time again, not meeting time.
+  assert.equal(getTodayStats(beforeGrace, START).focusSeconds, MEETING_GRACE_SECONDS - 1)
+  const released = advanceTo(beforeGrace, START + 60_000 + MEETING_GRACE_SECONDS * 1000)
+  assert.equal(released.phase, 'short')
+  assert.equal(released.remaining, 30)
+  assert.equal(released.phaseDuration, 30)
+  assert.equal(released.meetingHold, null)
+  assert.equal(released.breakId, held.breakId)
+  assert.equal(released.postponeUsed, false)
+  const finished = advanceTo(released, START + 60_000 + MEETING_GRACE_SECONDS * 1000 + 30_000)
+  assert.equal(finished.phase, 'focus')
+  assert.equal(finished.completedCycles, 1)
+  assert.equal(finished.history.length, 1)
+  assert.equal(getTodayStats(finished, START).completedBreaks, 1)
+})
+
+test('a meeting that resumes within the grace period keeps the break held', () => {
+  const initial = setTimerMeeting(createTimerState(START, { shortInterval: 1 }), true, START)
+  const held = advanceTo(initial, START + 60_000)
+  const quiet = setTimerMeeting(held, false, START + 60_000)
+  const paused = advanceTo(quiet, START + 70_000)
+  const resumed = setTimerMeeting(paused, true, START + 70_000)
+  assert.equal(resumed.meetingEndedAt, null)
+  const stillHeld = advanceTo(resumed, START + 200_000)
+  assert.equal(stillHeld.phase, 'focus')
+  assert.ok(stillHeld.meetingHold)
+  const quietAgain = setTimerMeeting(stillHeld, false, START + 200_000)
+  const released = advanceTo(quietAgain, START + 200_000 + MEETING_GRACE_SECONDS * 1000)
+  assert.equal(released.phase, 'short')
+})
+
+test('a postponed break that returns during a meeting is held and cannot be postponed again', () => {
+  const started = startTimerBreak(createTimerState(START, { shortDuration: 30 }), 'short', START)
+  const postponed = postponeTimerBreak(started, START)
+  const inMeeting = setTimerMeeting(advanceTo(postponed, START + 10_000), true, START + 10_000)
+  const held = advanceTo(inMeeting, START + 60_000)
+  assert.equal(held.phase, 'focus')
+  assert.deepEqual(held.meetingHold, { type: 'short', duration: 30 })
+  assert.equal(held.deferredBreak, null)
+  assert.equal(held.breakId, started.breakId)
+  assert.equal(held.postponeUsed, true)
+  const released = advanceTo(setTimerMeeting(held, false, START + 60_000), START + 60_000 + MEETING_GRACE_SECONDS * 1000)
+  assert.equal(released.phase, 'short')
+  assert.equal(released.remaining, 30)
+  assert.equal(released.postponeUsed, true)
+  assert.equal(postponeTimerBreak(released, START + 100_000), released)
+})
+
+test('starting a break by hand during a hold takes the held break at once', () => {
+  const initial = setTimerMeeting(createTimerState(START, { shortInterval: 1, longDuration: 2 }), true, START)
+  const held = advanceTo({ ...initial, completedCycles: 4 }, START + 60_000)
+  assert.deepEqual(held.meetingHold, { type: 'long', duration: 120 })
+  const started = startTimerBreak(held, 'short', START + 61_000)
+  assert.equal(started.phase, 'long')
+  assert.equal(started.remaining, 120)
+  assert.equal(started.meetingHold, null)
+  assert.equal(started.breakId, held.breakId)
+  const skipped = skipTimerBreak(held, START + 61_000)
+  assert.equal(skipped.phase, 'focus')
+  assert.equal(skipped.meetingHold, null)
+  assert.equal(skipped.remaining, 60)
+  assert.equal(getTodayStats(skipped, START).skippedBreaks, 1)
+})
+
+test('a long absence during a hold satisfies the held break passively', () => {
+  const initial = setTimerMeeting(createTimerState(START, { shortInterval: 1, shortDuration: 30 }), true, START)
+  const held = advanceTo(initial, START + 60_000)
+  const context = captureInactivity(held)
+  const back = applyInactivityInterval(held, context, {
+    intervalId: 'away-1', elapsedSeconds: 600, startedAt: START + 60_000, endedAt: START + 660_000,
+  })
+  assert.equal(back.phase, 'focus')
+  assert.equal(back.meetingHold, null)
+  assert.equal(back.completedCycles, 1)
+  assert.equal(back.remaining, 60)
+})
+
+test('a reload keeps a held break, forgets the live meeting signal, and tolerates old stats without meeting time', () => {
+  const initial = setTimerMeeting(createTimerState(START, { shortInterval: 1, shortDuration: 30 }), true, START)
+  const held = advanceTo(initial, START + 60_000)
+  const restored = restoreTimerState(JSON.stringify(held), START + 61_000)
+  assert.equal(restored.meeting, false)
+  assert.equal(restored.meetingEndedAt, START + 61_000)
+  assert.deepEqual(restored.meetingHold, { type: 'short', duration: 30 })
+  assert.equal(restored.breakId, held.breakId)
+  assert.equal(restored.remaining, 0)
+  assert.equal(restored.running, true)
+  const released = advanceTo(restored, START + 61_000 + MEETING_GRACE_SECONDS * 1000)
+  assert.equal(released.phase, 'short')
+
+  const legacy = { ...createTimerState(START), days: { [localDateKey(START)]: { focusSeconds: 10, breakSeconds: 5, completedBreaks: 1, skippedBreaks: 0 } } }
+  const old = restoreTimerState(JSON.stringify(legacy), START)
+  assert.equal(getTodayStats(old, START).meetingSeconds, 0)
+  assert.equal(getTodayStats(old, START).focusSeconds, 10)
+  assert.equal(old.meetingHold, null)
+
+  const bogus = { ...held, meetingHold: { type: 'short', duration: 9_999 } }
+  const rejected = restoreTimerState(JSON.stringify(bogus), START + 61_000)
+  assert.equal(rejected.meetingHold, null)
+  assert.equal(rejected.breakId, null)
 })

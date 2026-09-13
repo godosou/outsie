@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Volume2, Wind, X, BarChart3 } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, Bell, BookOpen, CalendarDays, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Coffee, Droplets, Eye, Flower2, Heart, KeyRound, LayoutDashboard, Leaf, LockKeyhole, Menu, Monitor, Moon, ShieldCheck, Pause, Play, RotateCcw, Settings2, SlidersHorizontal, Sparkles, Sprout, Sun, Video, Volume2, Wind, X, BarChart3, Smartphone, Command } from 'lucide-react'
 import { useBreakTimer } from './hooks/useBreakTimer'
 import { StretchTrainer3D } from './components/StretchTrainer3D'
+import { ShortcutsPanel } from './components/ShortcutsPanel'
+import { UnlockSettingsPanel } from './components/UnlockSettingsPanel'
+import { BRAND_NAME, BRAND_WORDMARK } from './lib/brand'
 import { buildHourlyChart, selectDefaultHour } from './lib/activityChart'
 import { localDateKey } from './lib/timer'
 import { getShortBreakVoice } from './lib/reposeVoice'
 import { getEyeCareTip } from './lib/eyeCareTips'
+import { deriveGlobalBanner, normalizeUnlockSnapshot, type UnlockSnapshot } from './lib/unlock'
+import './phone-key.css'
 
-type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'settings'
+type Page = 'overview' | 'schedule' | 'ideas' | 'activity' | 'phone' | 'shortcuts' | 'settings'
 type Theme = 'light' | 'dark' | 'system'
 type Exercise = { id: string; category: string; title: string; subtitle: string; duration: string; type: 'short' | 'long'; art: string; color: string; icon: typeof Eye; steps: string[] }
-type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30 }
+type DesktopPreferences = { strictBreaks: boolean; idleLockEnabled: boolean; idleLockSeconds: 30; awayLockEnabled: boolean; meetingHoldEnabled: boolean }
 
 const APP_VERSION = '0.6.3'
 
@@ -19,18 +24,47 @@ const exercises: Exercise[] = [
   { id: 'stretch', category: '舒展身体', title: '把紧绷，轻轻放下', subtitle: '起身动一动，给肩颈一点空间。', duration: '长休息', type: 'long', art: 'stretch', color: 'peach', icon: Activity, steps: ['缓缓起身，双脚自然分开站稳。', '肩膀慢慢向后转圈，双臂轻柔向上伸展。', '按自己的节奏走动一下，以舒适为准。'] },
   { id: 'water', category: '补充水分', title: '喝口水，重新出发', subtitle: '一杯温水，也是照顾自己的小事。', duration: '短休息', type: 'short', art: 'water', color: 'blue', icon: Droplets, steps: ['离开一下座位，给自己倒杯水。', '小口慢饮，不必急着回到工作里。', '感受片刻停顿，然后再轻轻出发。'] },
 ]
-const navigation: { id: Page; label: string; icon: typeof Eye }[] = [
-  { id: 'overview', label: '今日概览', icon: LayoutDashboard },
-  { id: 'schedule', label: '休息计划', icon: SlidersHorizontal },
-  { id: 'ideas', label: '休息灵感', icon: Flower2 },
-  { id: 'activity', label: '我的记录', icon: BarChart3 },
+/**
+ * The sidebar, in groups.
+ *
+ * Grouping is by what the section is FOR, not by what it is built on. 手机控制
+ * answers who may do what; 快捷键设置 answers what can be done at all. Keeping
+ * them apart is what stops the same phone from appearing twice with two
+ * switches, which is where the flat version ended up.
+ *
+ * 手机钥匙 used to live inside 偏好设置, several panels down. A feature that
+ * modifies the lock screen is not a preference.
+ */
+const navGroups: { label: string; items: { id: Page; label: string; icon: typeof Eye; soon?: boolean }[] }[] = [
+  {
+    label: '休息',
+    items: [
+      { id: 'overview', label: '今日概览', icon: LayoutDashboard },
+      { id: 'schedule', label: '休息计划', icon: SlidersHorizontal },
+      { id: 'ideas', label: '休息灵感', icon: Flower2 },
+      { id: 'activity', label: '我的记录', icon: BarChart3 },
+    ],
+  },
+  {
+    label: '手机控制',
+    items: [
+      { id: 'phone', label: '手机控制', icon: Smartphone },
+      // 快捷键设置: this page is where you write the shortcuts down, and it is
+      // the phone that does the controlling. The old name read as a place to
+      // press them, which is the other end of the wire.
+      { id: 'shortcuts', label: '快捷键设置', icon: Command },
+    ],
+  },
 ]
+const navigation = navGroups.flatMap(g => g.items)
 const titles: Record<Page, { title: string; subtitle: string; eyebrow: string }> = {
   overview: { title: '让休息，自然发生。', subtitle: '专注于热爱的事，也留一点时间，好好照顾自己。', eyebrow: 'A LITTLE PAUSE, A BETTER DAY' },
   schedule: { title: '找到自己的节奏。', subtitle: '没有唯一正确的频率，舒服的节奏就是好节奏。', eyebrow: 'MAKE ROOM FOR YOURSELF' },
   ideas: { title: '小小休息，大有不同。', subtitle: '离开屏幕的这一刻，可以用来做很多美好的小事。', eyebrow: 'SMALL MOMENTS, BIG DIFFERENCE' },
   activity: { title: '每一次停顿，都算数。', subtitle: '慢慢积累的好习惯，正在成为生活的一部分。', eyebrow: 'A KINDER WAY TO KEEP GOING' },
-  settings: { title: '让 Repose 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
+  phone: { title: '手机就是钥匙。', subtitle: '哪几部手机能碰这台 Mac，各自能做什么。', eyebrow: 'YOUR PHONE, YOUR KEY' },
+  shortcuts: { title: '一点，就到。', subtitle: '手机上能按哪些键，在这里定。哪几部手机可以按，在「手机控制」里。', eyebrow: 'ONE TAP, ONE SHORTCUT' },
+  settings: { title: '让 Outsie 更懂你。', subtitle: '把提醒调成你喜欢的样子，让它安静地融入日常。', eyebrow: 'A SPACE THAT FEELS LIKE YOU' },
 }
 
 function time(value: number) {
@@ -54,10 +88,34 @@ function shiftLocalDay(timestamp: number, days: number) {
   date.setDate(date.getDate() + days)
   return localNoon(date.getTime())
 }
+/**
+ * The phone's 同步 result, in the reader's words.
+ *
+ * The desktop names the outcome and, on failure, appends the sending tool's
+ * last line after a colon. That line is written for a log: when the phone
+ * simply stopped listening it is English with a second count in it. Only a
+ * reason written for the reader survives here; the rest is replaced by what
+ * to do, because a toast lasts four seconds and has no room to explain.
+ */
+function syncToast(detail: string): string {
+  if (detail.startsWith('手机已经拿到按钮列表')) return '手机已经拿到按钮列表。回到手机上，这就能按了。'
+  if (detail.startsWith('没能把列表送到手机')) {
+    const colon = detail.indexOf('：')
+    const why = colon >= 0 ? detail.slice(colon + 1).trim() : ''
+    const readable = /[\u4e00-\u9fff]/.test(why) && !/[A-Za-z]{3,}/.test(why)
+    const sentence = why.endsWith('。') ? why : `${why}。`
+    return readable ? `没能把列表送到手机。${sentence}在手机上再点一次「同步」。` : '没能把列表送到手机。在手机上再点一次「同步」，几秒钟就送到。'
+  }
+  return detail
+}
 function clockAfter(seconds: number) { return new Date(Date.now() + seconds * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) }
 function BrandMark({ small = false }: { small?: boolean }) {
   return <span className={`brand-mark ${small ? 'small' : ''}`} aria-hidden="true"><img src="./favicon.svg" alt="" /></span>
 }
+function holdLabel(hold: { type: 'short' | 'long'; duration: number }): string {
+  return hold.duration < 60 ? `${hold.duration} 秒` : `${Math.round(hold.duration / 60)} 分钟`
+}
+
 function Toggle({ enabled, onChange, label }: { enabled: boolean; onChange: () => void; label: string }) {
   return <button className={`toggle ${enabled ? 'on' : ''}`} type="button" role="switch" aria-checked={enabled} aria-label={label} onClick={onChange}><span /></button>
 }
@@ -95,7 +153,7 @@ function ExerciseCard({ exercise, onClick }: { exercise: Exercise; onClick: () =
 
 export default function App() {
   const timer = useBreakTimer()
-  const { phase, running, remaining, settings, stats, completedCycles, breakId, canPostpone, postponedBreak, postponeSeconds } = timer
+  const { phase, running, remaining, settings, stats, completedCycles, breakId, canPostpone, postponedBreak, postponeSeconds, meeting, meetingHold } = timer
   const [page, setPage] = useState<Page>('overview')
   const [mobileMenu, setMobileMenu] = useState(false)
   const [help, setHelp] = useState(false)
@@ -110,11 +168,15 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => { try { return (localStorage.getItem('repose-theme') as Theme) || 'light' } catch { return 'light' } })
   const [draft, setDraft] = useState(settings)
   const [desktopPreferences, setDesktopPreferences] = useState<DesktopPreferences>(() => {
-    const defaults: DesktopPreferences = { strictBreaks: true, idleLockEnabled: Boolean(window.repose), idleLockSeconds: 30 }
-    try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30 } : defaults } catch { return defaults }
+    // The keyboard-idle lock is off until asked for: it interrupts reading.
+    // The walk-away lock is on: it is what the phone key is for.
+    const defaults: DesktopPreferences = { strictBreaks: true, idleLockEnabled: false, idleLockSeconds: 30, awayLockEnabled: Boolean(window.repose), meetingHoldEnabled: true }
+    try { const saved = JSON.parse(localStorage.getItem('repose-desktop-preferences') || 'null'); return saved && typeof saved === 'object' ? { strictBreaks: typeof saved.strictBreaks === 'boolean' ? saved.strictBreaks : true, idleLockEnabled: typeof saved.idleLockEnabled === 'boolean' ? saved.idleLockEnabled : defaults.idleLockEnabled, idleLockSeconds: 30, awayLockEnabled: typeof saved.awayLockEnabled === 'boolean' ? saved.awayLockEnabled : defaults.awayLockEnabled, meetingHoldEnabled: typeof saved.meetingHoldEnabled === 'boolean' ? saved.meetingHoldEnabled : true } : defaults } catch { return defaults }
   })
   const [securityError, setSecurityError] = useState(() => { try { return localStorage.getItem('repose-security-error') === 'true' } catch { return false } })
+  const [unlockSnapshot, setUnlockSnapshot] = useState<UnlockSnapshot | null>(null)
   const strictBreak = Boolean(window.repose) && desktopPreferences.strictBreaks
+  const unlockBanner = unlockSnapshot ? deriveGlobalBanner(unlockSnapshot) : null
 
   const audio = useRef<AudioContext | null>(null)
   const previousPhase = useRef(phase)
@@ -126,6 +188,27 @@ export default function App() {
   const shortVoice = getShortBreakVoice(canPostpone ? 'enter' : 'return', voiceKey)
   const eyeCareTip = getEyeCareTip(voiceKey)
   const showToast = (message: string) => setToast(message)
+  // A lock on its way, counted down where the person is looking (design doc
+  // §11). Fed by the bridge through the desktop bridge; null when nothing is
+  // pending. Touching the keyboard cancels the lock on the Mac's side, and
+  // the sentence says so.
+  // The bridge reports the seconds left every few seconds, not every second
+  // (on the device: 「40 秒」 sat still for three seconds). So the window keeps
+  // the last report with the moment it arrived and counts down from it
+  // itself; a fresh report re-anchors it.
+  const [lockPending, setLockPending] = useState<{ seconds: number; why: string; at: number } | null>(null)
+  const [, setLockTick] = useState(0)
+  useEffect(() => window.repose?.unlock?.onPresence(p => {
+    const o = (p && typeof p === 'object') ? p as { lockIn?: unknown; why?: unknown } : {}
+    if (typeof o.lockIn === 'number' && o.lockIn >= 0) setLockPending({ seconds: o.lockIn, why: typeof o.why === 'string' ? o.why : 'signal', at: Date.now() })
+    else setLockPending(null)
+  }), [])
+  useEffect(() => {
+    if (!lockPending) return
+    const timer = window.setInterval(() => setLockTick(t => t + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [lockPending])
+  const lockSecondsLeft = lockPending ? Math.max(0, lockPending.seconds - Math.floor((Date.now() - lockPending.at) / 1000)) : 0
   const initAudio = () => {
     try { const Audio = window.AudioContext || window.webkitAudioContext; if (Audio && !audio.current) audio.current = new Audio(); void audio.current?.resume() } catch { /* Sound is optional. */ }
   }
@@ -148,9 +231,9 @@ export default function App() {
     try {
       if (strictBreak && window.repose) {
         const accepted = await window.repose.postponeBreak()
-        if (!accepted) showToast('本次休息暂时无法延迟，请继续休息')
+        if (!accepted) showToast('这次延迟不了。继续休息吧。')
       } else timer.postponeBreak()
-    } catch { showToast('延迟请求未成功，请继续休息') }
+    } catch { showToast('没能延迟。继续休息吧。') }
     finally { setPostponePending(false) }
   }
   const navigate = (next: Page) => { setPage(next); setMobileMenu(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }
@@ -169,9 +252,46 @@ export default function App() {
     window.repose?.setPreferences(desktopPreferences)
   }, [desktopPreferences])
   useEffect(() => {
-    document.title = `${time(remaining)} · ${inBreak ? '好好休息' : running ? '专注中' : '已暂停'} — Repose`
+    const unlock = window.repose?.unlock
+    if (!unlock) return
+    let alive = true
+    void (async () => { try { const raw = await unlock.getSnapshot(); if (alive) setUnlockSnapshot(normalizeUnlockSnapshot(raw)) } catch { /* banner stays hidden until a snapshot arrives */ } })()
+    const off = unlock.onSnapshot(raw => { if (alive) setUnlockSnapshot(normalizeUnlockSnapshot(raw)) })
+    return () => { alive = false; off() }
+  }, [])
+  // With the switch off a meeting is simply not one: no held break, no meeting minutes.
+  const meetingHoldEnabled = desktopPreferences.meetingHoldEnabled
+  useEffect(() => {
+    const bridge = window.repose
+    if (!bridge) return
+    let alive = true
+    const apply = (active: boolean) => { if (alive) timer.setMeeting(active && meetingHoldEnabled) }
+    void bridge.getMeetingState().then(apply).catch(() => { /* the event stream still arrives */ })
+    const off = bridge.onMeeting(apply)
+    return () => { alive = false; off() }
+  }, [meetingHoldEnabled, timer.setMeeting])
+  useEffect(() => {
+    document.title = `${time(remaining)} · ${inBreak ? '好好休息' : meetingHold ? '会议中，结束后休息' : meeting ? '会议中' : running ? '专注中' : '已暂停'} — Outsie`
     window.repose?.setStatus({ running, phase, remaining, breakId, canPostpone, postponeSeconds })
   }, [phase, running, remaining, inBreak, breakId, canPostpone, postponeSeconds])
+  // A shortcut pressed on the phone. Shown wherever the user is, because the
+  // phone only knows it sent something -- whether a key was actually pressed is
+  // this Mac's to report, and a press that quietly did nothing is the failure
+  // this whole feature is most likely to have.
+  //
+  // Shaped as 「手机要按「X」。切到「Y」，按了。」-- what the phone asked for,
+  // then what this Mac did about it. The switch comes before the press
+  // because the switch is the part that visibly happens on screen.
+  useEffect(() => window.repose?.console?.onCommand(e => {
+    // Not every event names an action: the phone asking for the button list,
+    // a phone this Mac has not allowed to press, and a byte no action matches
+    // all arrive with `action: null`, and their `detail` is the whole story.
+    if (!e.action) { showToast(e.detail ? syncToast(e.detail) : (e.ok ? '手机说了一句，办好了。' : '手机说了一句，没办成。')); return }
+    const said = `手机要按「${e.action}」。`
+    if (e.ok) showToast(`${said}${e.app ? `切到「${e.app}」，` : ''}按了。`)
+    else showToast(`${said}没按成。${e.detail ?? '再试一次。'}`)
+  }), [])
+
   useEffect(() => window.repose?.onCommand(({ command, breakId: completedBreakId }) => {
     if (command === 'toggle-pause' && !(strictBreak && inBreak)) timer.toggleRunning()
     if (command === 'start-short-break') timer.startBreak('short')
@@ -179,9 +299,10 @@ export default function App() {
     if (command === 'strict-break-finished' && completedBreakId) timer.completeBreak(completedBreakId)
     if (command === 'postpone-break') timer.postponeBreak()
     if (command === 'idle-lock-failed') {
-      setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: false }))
+      // The switch stays on: walking away still locks (the bridge does that,
+      // no permission needed). Only the keyboard-idle half failed.
       setSecurityError(true)
-      showToast('安全锁屏未生效：请在系统设置中授予 Repose 辅助功能权限，再重新开启')
+      showToast('手机走远会锁屏。键盘半分钟没动那一路没按成：macOS 还没允许 Outsie 按键。去「手机控制」那一页允许它。')
     }
   }), [strictBreak, inBreak, timer.toggleRunning, timer.startBreak, timer.completeBreak, timer.postponeBreak])
   useEffect(() => {
@@ -192,7 +313,7 @@ export default function App() {
       if (settings.notifications) {
         const shortNotification = getShortBreakVoice('notification', voiceKey)
         const notification = phase === 'long'
-          ? { title: 'Repose · 歇一会', body: '辛苦了，起身走走，给自己一个长休息。' }
+          ? { title: 'Outsie · 歇一会', body: '辛苦了，起身走走，给自己一个长休息。' }
           : shortNotification
         if (window.repose) window.repose.notify(notification)
         else if ('Notification' in window && Notification.permission === 'granted') { try { new Notification(notification.title, { body: notification.body, icon: './favicon.svg' }) } catch { /* In-app reminders remain available. */ } }
@@ -234,9 +355,9 @@ export default function App() {
     } catch { showToast('通知暂不可用，应用内仍会提醒你') }
   }
   const exportHistory = () => {
-    const rows = ['日期,专注分钟,休息分钟,完成休息,跳过休息', ...timer.weeklyStats.map(day => `${day.date},${Math.floor(day.focusSeconds / 60)},${Math.floor(day.breakSeconds / 60)},${day.completedBreaks},${day.skippedBreaks}`)]
+    const rows = ['日期,专注分钟,会议分钟,休息分钟,完成休息,跳过休息', ...timer.weeklyStats.map(day => `${day.date},${Math.floor(day.focusSeconds / 60)},${Math.floor(day.meetingSeconds / 60)},${Math.floor(day.breakSeconds / 60)},${day.completedBreaks},${day.skippedBreaks}`)]
     const blob = new Blob(['\uFEFF' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `repose-${today.toLocaleDateString('sv-SE')}.csv`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `outsie-${today.toLocaleDateString('sv-SE')}.csv`; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
     showToast('最近 7 天的记录已导出')
   }
   const totalUpcoming = postponedBreak === 'long' ? remaining : remaining + Math.max(0, settings.longEvery - completedCycles) * (settings.shortInterval * 60 + settings.shortDuration)
@@ -267,34 +388,40 @@ export default function App() {
   const breakStatus = <div className="break-session-status"><div className="break-total-label">{phase === 'long' ? '大休息剩余' : '本次休息剩余'}</div><div className="break-timer" role="timer" aria-label={`休息剩余 ${time(remaining)}`}>{time(remaining)}</div><div className="break-progress"><span style={{ width: `${timer.progress * 100}%` }} /></div><span className="break-encouragement">{running ? phase === 'long' ? '跟着舒服的幅度慢慢活动，不必追求标准。' : '二十秒而已。我相信你和工作都撑得住。' : '休息计时已暂停。你很会给休息再安排一次休息。'}</span><div className="break-actions">
       {canPostpone && <button className="button postpone-button" disabled={postponePending} onClick={() => void postponeCurrentBreak()}><Clock3 size={16} />{postponePending ? '正在延迟…' : `延迟 ${postponeSeconds / 60} 分钟`}<span>仅此一次</span></button>}
       {strictBreak ? <span className="strict-break-note"><ShieldCheck size={15} />{canPostpone ? '准备好后，安心休息' : '已使用延迟机会，倒计时结束后自动恢复'}</span> : <><button className="button primary" onClick={timer.toggleRunning}>{running ? <Pause size={16} /> : <Play size={16} />}{running ? '暂停休息' : '继续休息'}</button><button className="text-button" onClick={() => { timer.skipBreak(); showToast('已跳过这次休息，记得稍后照顾一下自己') }}>跳过这次<ArrowRight size={15} /></button></>}
-    </div>{phase === 'long' && <p className="long-session-safety">动作以舒适为准；如有疼痛或眩晕，请立即停止。</p>}</div>
+    </div>{phase === 'long' && <p className="long-session-safety">动作以舒适为准。疼了或头晕，马上停下。</p>}</div>
 
   return <div className="app-shell" onPointerDown={initAudio}>
     {mobileMenu && <button className="sidebar-scrim" aria-label="关闭导航" onClick={() => setMobileMenu(false)} />}
     <aside className={`sidebar ${mobileMenu ? 'mobile-open' : ''}`}>
-      <button className="brand" onClick={() => navigate('overview')} aria-label="Repose 首页"><BrandMark /><span>repose<span className="brand-period">.</span></span></button>
+      <button className="brand" onClick={() => navigate('overview')} aria-label={`${BRAND_NAME} 首页`}><BrandMark /><span>{BRAND_WORDMARK.replace(/\.$/, '')}<span className="brand-period">.</span></span></button>
       <p className="brand-tagline">给日常，留一点空白</p>
-      <div className="nav-label">你的日常空间</div>
-      <nav aria-label="主导航">{navigation.map(item => <button className={`nav-item ${page === item.id ? 'active' : ''}`} key={item.id} onClick={() => navigate(item.id)} aria-current={page === item.id ? 'page' : undefined}><item.icon size={19} strokeWidth={1.65} /><span>{item.label}</span>{page === item.id && <span className="nav-active-dot" />}</button>)}</nav>
+      <nav aria-label="主导航">{navGroups.map(group => <div className="nav-group" key={group.label}>
+        <div className="nav-label">{group.label}</div>
+        {group.items.map(item => <button className={`nav-item ${page === item.id ? 'active' : ''}`} key={item.id} onClick={() => navigate(item.id)} aria-current={page === item.id ? 'page' : undefined}><item.icon size={19} strokeWidth={1.65} /><span>{item.label}</span>{item.soon && <span className="nav-soon">以后</span>}{page === item.id && <span className="nav-active-dot" />}</button>)}
+      </div>)}</nav>
       <div className="sidebar-bottom">
         <div className="sidebar-note"><Sprout size={29} strokeWidth={1.3} /><p>你不必时刻满格，<br />休息也是前进的一部分。</p><span>TAKE IT SLOW.</span></div>
         <button className={`nav-item ${page === 'settings' ? 'active' : ''}`} onClick={() => navigate('settings')}><Settings2 size={19} strokeWidth={1.65} /><span>偏好设置</span></button>
-        <button className="nav-item help-nav" onClick={() => setHelp(true)}><BookOpen size={18} strokeWidth={1.65} /><span>认识 Repose</span><ArrowUpRight size={14} /></button>
+        <button className="nav-item help-nav" onClick={() => setHelp(true)}><BookOpen size={18} strokeWidth={1.65} /><span>认识 Outsie</span><ArrowUpRight size={14} /></button>
         <div className="sidebar-status"><span className={`status-dot ${!running ? 'paused' : ''}`} /><span>{running ? '正在温柔守护你的节奏' : '暂停一下，随时再出发'}</span></div>
       </div>
     </aside>
 
     <main className="main-content">
       <div className="topbar"><div className="topbar-left"><button className="icon-button mobile-toggle" aria-label="打开导航" onClick={() => setMobileMenu(true)}><Menu size={20} /></button><span className="breadcrumb">我的空间</span><ChevronRight size={13} /><span>{page === 'settings' ? '偏好设置' : navigation.find(item => item.id === page)?.label}</span></div><div className="topbar-right"><span className="date-text"><CalendarDays size={14} />{today.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })}</span><span className="topbar-separator" /><span className="welcome-mark"><Sun size={17} /></span></div></div>
-      <header className="page-heading"><div><div className="eyebrow">{titles[page].eyebrow}</div><h1>{titles[page].title}</h1><p>{titles[page].subtitle}</p></div><button className={`reminder-status ${running ? '' : 'is-paused'}`} disabled={Boolean(postponedBreak)} onClick={() => { initAudio(); timer.toggleRunning() }}><span className={`status-dot ${running ? '' : 'paused'}`} />{postponedBreak ? '已延迟一次 · 即将休息' : running ? '休息提醒已开启' : '休息提醒已暂停'}<ChevronRight size={14} /></button></header>
+      <header className="page-heading"><div><div className="eyebrow">{titles[page].eyebrow}</div><h1>{titles[page].title}</h1><p>{titles[page].subtitle}</p></div><button className={`reminder-status ${running ? '' : 'is-paused'}`} disabled={Boolean(postponedBreak) || Boolean(meetingHold)} onClick={() => { initAudio(); timer.toggleRunning() }}><span className={`status-dot ${running ? '' : 'paused'}`} />{meetingHold ? '会议中 · 结束后休息' : postponedBreak ? '已延迟一次 · 即将休息' : meeting ? '会议中 · 到点不打扰' : running ? '休息提醒已开启' : '休息提醒已暂停'}<ChevronRight size={14} /></button></header>
 
-      {window.repose && !desktopPreferences.idleLockEnabled && <div className="security-alert" role="alert"><ShieldCheck size={19} /><div><strong>{securityError ? '安全锁屏需要系统授权' : '安全锁屏尚未开启'}</strong><p>{securityError ? '当前自动锁屏未生效。请在系统设置 → 隐私与安全性 → 辅助功能中允许 Repose，然后重新开启 30 秒安全锁屏。' : '目前离开电脑后不会自动锁屏。请在偏好设置中开启 30 秒无操作安全锁屏。'}</p></div><button className="text-button" onClick={() => navigate('settings')}>前往设置<ArrowRight size={15} /></button></div>}
+      {/* The 「安全锁屏尚未开启」 banner is gone. Its 「前往设置」 pointed at the
+          page the reader was already on, and the setting now lives on 手机控制
+          directly under the switch that makes it painless. */}
+      {lockPending && <div className="security-alert" role="status" style={{ position: 'fixed', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 60, maxWidth: 520 }}><LockKeyhole size={19} /><div><strong>{lockPending.why === 'silent' ? '一分钟没听到手机' : '手机走远了'} · {lockSecondsLeft} 秒后锁屏</strong><p>碰一下键盘或鼠标就不锁。</p></div></div>}
+      {unlockBanner && page !== 'phone' && <div className={`security-alert${unlockBanner.tone === 'danger' ? ' pk-danger' : ''}`} role="alert"><KeyRound size={19} /><div><strong>{unlockBanner.title}</strong><p>{unlockBanner.body}</p></div><button className="text-button" onClick={() => navigate('phone')}>{unlockBanner.action.label}<ArrowRight size={15} /></button></div>}
       {page === 'overview' && <div className="page-enter">
         <div className="hero-grid">
           <section className="timer-card" aria-label="休息计时器">
             <div className="timer-grain" />
-            <div className="timer-card-top"><span className="focus-label"><span className={`status-dot ${running ? '' : 'paused'}`} />{inBreak ? '享受片刻休息' : running ? '心无旁骛，专注当下' : '慢一点，也没关系'}</span><button className="icon-button timer-reset" aria-label="重置计时" disabled={Boolean(postponedBreak)} title={postponedBreak ? '本次延迟不能重复或重置' : '重新开始这一轮计时'} onClick={() => { timer.resetTimer(); showToast('已重新开始这一轮专注') }}><RotateCcw size={17} /></button></div>
-            <div className="timer-main"><div className="timer-copy"><p className="timer-kicker">{inBreak ? '这一刻，属于你' : postponedBreak ? `距离已延迟的${postponedBreak === 'long' ? '大' : '小'}休息` : '距离下一次小憩'}</p><div className="countdown" role="timer" aria-label={`剩余 ${time(remaining)}`}>{time(remaining).split(':')[0]}<span>:</span>{time(remaining).split(':')[1]}</div><p className="timer-description">{inBreak ? '放下手中的事，让身体轻轻松下来' : <><span>{phase === 'focus' && (postponedBreak === 'long' || (!postponedBreak && completedCycles >= settings.longEvery)) ? `${settings.longDuration} 分钟长休息` : `${settings.shortDuration} 秒短休息`}</span><span className="small-dot">·</span>让身心重新充电</>}</p><div className="timer-actions"><button className="button primary" disabled={Boolean(postponedBreak)} onClick={() => { initAudio(); timer.toggleRunning() }}>{running ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}{postponedBreak ? '已延迟一次' : running ? '暂停计时' : '继续计时'}</button><button className="button light" onClick={() => beginBreak('short')}><Coffee size={17} />{postponedBreak ? '提前开始休息' : '现在休息'}</button></div></div><div className="hero-art"><img src="./illustrations/still-life.svg" alt="绿叶与平衡的石头，安静地享受阳光" /><span className="art-caption">a moment for yourself</span></div></div>
+            <div className="timer-card-top"><span className="focus-label"><span className={`status-dot ${running ? '' : 'paused'}`} />{inBreak ? '享受片刻休息' : meeting ? '会议中 · 到点不打扰' : meetingHold ? '会议结束了，马上休息' : running ? '心无旁骛，专注当下' : '慢一点，也没关系'}</span><button className="icon-button timer-reset" aria-label="重置计时" disabled={Boolean(postponedBreak) || Boolean(meetingHold)} title={meetingHold ? '会议结束后先休息，再开始新一轮' : postponedBreak ? '本次延迟不能重复或重置' : '重新开始这一轮计时'} onClick={() => { timer.resetTimer(); showToast('已重新开始这一轮专注') }}><RotateCcw size={17} /></button></div>
+            <div className="timer-main"><div className="timer-copy"><p className="timer-kicker">{inBreak ? '这一刻，属于你' : meetingHold ? '会议中，结束后休息' : postponedBreak ? `距离已延迟的${postponedBreak === 'long' ? '大' : '小'}休息` : '距离下一次小憩'}</p>{meetingHold ? <div className="countdown countdown-held" role="timer" aria-label={`会议结束后休息 ${holdLabel(meetingHold)}`}>{holdLabel(meetingHold)}</div> : <div className="countdown" role="timer" aria-label={`剩余 ${time(remaining)}`}>{time(remaining).split(':')[0]}<span>:</span>{time(remaining).split(':')[1]}</div>}<p className="timer-description">{inBreak ? '放下手中的事，让身体轻轻松下来' : <><span>{phase === 'focus' && (postponedBreak === 'long' || (!postponedBreak && completedCycles >= settings.longEvery)) ? `${settings.longDuration} 分钟长休息` : `${settings.shortDuration} 秒短休息`}</span><span className="small-dot">·</span>让身心重新充电</>}</p><div className="timer-actions"><button className="button primary" disabled={Boolean(postponedBreak) || Boolean(meetingHold)} onClick={() => { initAudio(); timer.toggleRunning() }}>{running ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}{meetingHold ? '等会议结束' : postponedBreak ? '已延迟一次' : running ? '暂停计时' : '继续计时'}</button><button className="button light" onClick={() => beginBreak('short')}><Coffee size={17} />{postponedBreak || meetingHold ? '提前开始休息' : '现在休息'}</button></div></div><div className="hero-art"><img src="./illustrations/still-life.svg" alt="绿叶与平衡的石头，安静地享受阳光" /><span className="art-caption">a moment for yourself</span></div></div>
             <div className="timer-footer"><div className="cycle-dots" aria-label={`已完成 ${completedCycles} / ${settings.longEvery} 次短休息`}>{Array.from({ length: Math.min(settings.longEvery, 12) }).map((_, i) => <span key={i} className={i < completedCycles ? 'complete' : i === completedCycles ? 'current' : ''}>{i < completedCycles && <Check size={8} strokeWidth={3} />}</span>)}</div><span>每 {settings.longEvery} 次短休息，享受一次长休息</span><span className="cycle-count">{completedCycles}<span> / {settings.longEvery}</span></span></div>
             <div className="timer-progress" style={{ width: `${timer.progress * 100}%` }} />
           </section>
@@ -305,6 +432,7 @@ export default function App() {
           <div className="stat-card"><div className="stat-icon sage"><Coffee size={20} strokeWidth={1.6} /></div><div><span className="stat-label">今日休息</span><div className="stat-number">{stats.completedBreaks}<span>次</span></div></div><div className="stat-aside"><span className="tiny-leaf"><Leaf size={15} /></span><span>{stats.completedBreaks ? '每次停顿，都有意义' : '从第一次小憩开始'}</span></div></div>
           <div className="stat-card"><div className="stat-icon peach"><Clock3 size={20} strokeWidth={1.6} /></div><div><span className="stat-label">专注时光</span><div className="stat-number">{minuteLabel(stats.focusSeconds)}<span>分钟</span></div></div><div className="stat-aside"><div className="mini-bars" aria-hidden="true">{[10, 19, 15, 25, 20, 30, 24].map((h, i) => <i key={i} style={{ height: h }} />)}</div><span>一步一步，正在前进</span></div></div>
           <div className="stat-card"><div className="stat-icon lavender"><Heart size={20} strokeWidth={1.6} /></div><div><span className="stat-label">为自己留白</span><div className="stat-number">{minuteLabel(stats.breakSeconds)}<span>分钟</span></div></div><div className="stat-aside"><span className="little-sun"><Sun size={24} strokeWidth={1.3} /></span><span>照顾自己，也很重要</span></div></div>
+          <div className="stat-card"><div className="stat-icon blue"><Video size={20} strokeWidth={1.6} /></div><div><span className="stat-label">会议</span><div className="stat-number">{minuteLabel(stats.meetingSeconds)}<span>分钟</span></div></div><div className="stat-aside"><span>{meeting ? '正在会议中' : '开会时不会被打断'}</span></div></div>
         </div>
 
         <div className="lower-grid"><section className="inspiration-section"><div className="section-heading"><div><h2>小休息，换个好状态<span className="heading-dot">.</span></h2><p>不用做很多，做一点就很好。</p></div><button className="text-button" onClick={() => navigate('ideas')}>全部灵感<ArrowRight size={15} /></button></div><div className="exercise-grid">{exercises.map(item => <ExerciseCard key={item.id} exercise={item} onClick={() => setExercise(item)} />)}</div></section>
@@ -337,29 +465,30 @@ export default function App() {
 
         <section className="panel chart-panel">
           <div className="section-heading activity-chart-heading">
-            <div><h2>一天的节奏</h2><p>看看专注与休息，在一天里如何自然交替。</p></div>
+            <div><h2>一天的节奏</h2><p>看看专注、会议与休息，在一天里如何自然交替。</p></div>
             <div className="activity-date-switcher" aria-label="选择记录日期">
               <button type="button" aria-label="前一天" disabled={activityDate <= oldestActivityDate} onClick={() => chooseActivityDate(shiftLocalDay(activityDate, -1))}><ChevronLeft size={15} /></button>
               <span><CalendarDays size={14} />{activityDateLabel}</span>
               <button type="button" aria-label="后一天" disabled={activityIsToday} onClick={() => chooseActivityDate(shiftLocalDay(activityDate, 1))}><ChevronRight size={15} /></button>
             </div>
           </div>
-          <div className="activity-chart-legend" aria-label="图例"><span><i className="focus" />专注</span><span><i className="rest" />休息</span><small>本地记录 · 每小时</small></div>
+          <div className="activity-chart-legend" aria-label="图例"><span><i className="focus" />专注</span><span><i className="meeting" />会议</span><span><i className="rest" />休息</span><small>本地记录 · 每小时</small></div>
           {hasHourlyActivity ? <>
-            <div className="daily-chart" aria-label={`${activityDateLabel}每小时专注与休息图表`}>
+            <div className="daily-chart" aria-label={`${activityDateLabel}每小时专注、会议与休息图表`}>
               <div className="daily-chart-y" aria-hidden="true"><span>{activityDurationLabel(activityPeak)}</span><span>0</span></div>
               <div className="daily-chart-plot">
                 {activityPoints.map(point => <button
                   type="button"
                   className={`daily-chart-column ${selectedHour === point.hour ? 'selected' : ''}`}
                   key={point.hour}
-                  aria-label={`${String(point.hour).padStart(2, '0')}:00 至 ${String((point.hour + 1) % 24).padStart(2, '0')}:00，专注 ${activityDurationLabel(point.focusSeconds)}，休息 ${activityDurationLabel(point.breakSeconds)}`}
+                  aria-label={`${String(point.hour).padStart(2, '0')}:00 至 ${String((point.hour + 1) % 24).padStart(2, '0')}:00，专注 ${activityDurationLabel(point.focusSeconds)}，会议 ${activityDurationLabel(point.meetingSeconds)}，休息 ${activityDurationLabel(point.breakSeconds)}`}
                   aria-pressed={selectedHour === point.hour}
                   onClick={() => setSelectedHour(point.hour)}
                 >
                   <span className="daily-chart-track">
                     {point.totalSeconds > 0 && <span className="daily-chart-stack" style={{ height: `${point.heightPercent}%` }}>
                       <i className="focus" style={{ height: `${point.focusPercent}%` }} />
+                      <i className="meeting" style={{ height: `${point.meetingPercent}%` }} />
                       <i className="rest" style={{ height: `${point.breakPercent}%` }} />
                     </span>}
                   </span>
@@ -370,6 +499,7 @@ export default function App() {
             <div className="hour-detail" aria-live="polite">
               <div className="hour-detail-title"><Clock3 size={17} /><span>{String(selectedActivityHour.hour).padStart(2, '0')}:00–{String((selectedActivityHour.hour + 1) % 24).padStart(2, '0')}:00</span></div>
               <div><i className="focus" /><span>专注</span><strong>{activityDurationLabel(selectedActivityHour.focusSeconds)}</strong></div>
+              <div><i className="meeting" /><span>会议</span><strong>{activityDurationLabel(selectedActivityHour.meetingSeconds)}</strong></div>
               <div><i className="rest" /><span>休息</span><strong>{activityDurationLabel(selectedActivityHour.breakSeconds)}</strong></div>
               <span className="hour-detail-total">合计 {activityDurationLabel(selectedActivityHour.totalSeconds)}</span>
             </div>
@@ -382,23 +512,59 @@ export default function App() {
         </section>
       </div>}
 
+      {page === 'phone' && <div className="page-enter preferences-page">
+        <UnlockSettingsPanel
+          bridge={window.repose?.unlock}
+          onToast={showToast}
+          // The Accessibility permission row lives here now, not on 快捷键设置:
+          // one permission, two features on this page (自动锁屏 and 替手机按键).
+          console={window.repose?.console}
+          awayLock={{
+            enabled: desktopPreferences.awayLockEnabled,
+            onToggle: () => {
+              if (!window.repose) { showToast('自动锁屏只有 Mac 桌面版能做。'); return }
+              setDesktopPreferences(previous => ({ ...previous, awayLockEnabled: !previous.awayLockEnabled }))
+            },
+          }}
+          idleLock={{
+            enabled: desktopPreferences.idleLockEnabled,
+            error: securityError,
+            onToggle: () => {
+              if (!window.repose) { showToast('自动锁屏只有 Mac 桌面版能做。'); return }
+              setSecurityError(false)
+              setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: !previous.idleLockEnabled }))
+            },
+            onOpenSettings: () => window.repose?.openSecuritySettings(),
+          }}
+        />
+      </div>}
+
+      {page === 'shortcuts' && <div className="page-enter preferences-page">
+        <ShortcutsPanel bridge={window.repose?.console} onToast={showToast} />
+      </div>}
+
       {page === 'settings' && <div className="page-enter preferences-page">
         <section className="panel preferences-panel security-panel">
-          <div className="section-heading"><div><h2>Mac 屏幕保护</h2><p>休息时专心休息，离开时安心离开。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
-          <div className="preference-row"><span className="preference-icon"><ShieldCheck size={21} /></span><div><h3>强制休息</h3><p>覆盖全部显示器，屏蔽应用切换。每次可延迟一次；重新提醒后，倒计时完成前无法跳过、暂停或退出。</p></div><Toggle label="强制休息" enabled={desktopPreferences.strictBreaks} onChange={() => { if (!window.repose) { showToast('全屏强制休息需要打开 Repose Mac App'); return }; setDesktopPreferences(previous => ({ ...previous, strictBreaks: !previous.strictBreaks })) }} /></div>
-          <div className="preference-row"><span className="preference-icon"><LockKeyhole size={21} /></span><div><h3>30 秒无操作，安全锁屏<span className="security-tag">系统级锁屏</span></h3><p>检测全局键盘和鼠标活动。连续 30 秒无操作后锁定 macOS，会话需正常认证解锁。暂停休息提醒不会关闭此保护。</p></div><Toggle label="30 秒无操作安全锁屏" enabled={desktopPreferences.idleLockEnabled} onChange={() => { if (!window.repose) { showToast('全局键鼠检测与系统锁屏需要使用 Repose Mac App'); return }; setSecurityError(false); setDesktopPreferences(previous => ({ ...previous, idleLockEnabled: !previous.idleLockEnabled })) }} /></div>
-          <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '首次使用安全锁屏，请在系统设置中允许 Repose 使用辅助功能；如果系统询问自动化权限，也请允许。锁屏只检测空闲时长，不读取或记录按键内容。' : '网页仅预览界面。全局活动检测、跨屏遮罩和 macOS 安全锁屏均在 Mac App 中运行。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
-          <p className="security-limit">强制休息限制日常操作；系统级结束进程或关机仍由 macOS 管理。</p>
+          <div className="section-heading"><div><h2>强制休息</h2><p>休息时专心休息。</p></div><span className="subtle-badge"><Monitor size={13} />{window.repose ? 'Mac 桌面版' : '桌面版专属'}</span></div>
+          <div className="preference-row"><span className="preference-icon"><ShieldCheck size={21} /></span><div><h3>强制休息</h3><p>覆盖全部显示器，屏蔽应用切换。每次可以延迟一次。再次提醒后，倒计时走完之前不能跳过、暂停或退出。</p></div><Toggle label="强制休息" enabled={desktopPreferences.strictBreaks} onChange={() => { if (!window.repose) { showToast('强制休息只有 Mac 桌面版能做。'); return }; setDesktopPreferences(previous => ({ ...previous, strictBreaks: !previous.strictBreaks })) }} /></div>
+          <div className="preference-row"><span className="preference-icon"><Video size={21} /></span><div><h3>开会时不打扰</h3><p>Zoom、Teams、飞书、腾讯会议正在通话时，到点不进入休息，会议结束后补上。会议时间单独记录，不算专注。</p></div><Toggle label="开会时不打扰" enabled={desktopPreferences.meetingHoldEnabled} onChange={() => { if (!window.repose) { showToast('识别会议只有 Mac 桌面版能做。'); return }; setDesktopPreferences(previous => ({ ...previous, meetingHoldEnabled: !previous.meetingHoldEnabled })) }} /></div>
+          {/* 自动锁屏 moved to 手机控制, beside 用手机解锁.
+              The whole reason the phone key exists is so that locking
+              aggressively stops costing anything. Kept on separate pages, the
+              product invites the very thing it was built to prevent: somebody
+              lengthening or disabling their lock delay to avoid the password. */}
+          <div className="security-permission"><LockKeyhole size={15} /><p>{window.repose ? '你离开时，是 Outsie 替你按下锁屏键。这要在系统设置里允许一次，macOS 把它叫辅助功能。要是系统再问「自动化」，也允许。它只看你多久没动，不读也不记你按了什么。' : '网页只能看看界面。看你有没有在动、盖住所有屏幕、锁屏，都只有 Mac 桌面版能做。'}</p>{window.repose && <button className="text-button" onClick={() => window.repose?.openSecuritySettings()}>打开系统设置<ArrowUpRight size={14} /></button>}</div>
+          <p className="security-limit">强制休息拦的是日常操作。强制退出和关机，还是 macOS 说了算。</p>
         </section>
-<section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Repose · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
+<section className="panel preferences-panel"><div className="section-heading"><h2>提醒与声音</h2></div><div className="preference-row"><span className="preference-icon"><Volume2 size={20} /></span><div><h3>温柔的提示音</h3><p>休息开始时，播放一声轻柔的和弦。</p></div><button className="text-button sound-preview" onClick={() => { initAudio(); setTimeout(chime, 50); showToast('这是休息开始时的提示音') }}>试听</button><Toggle label="温柔的提示音" enabled={settings.sound} onChange={() => { initAudio(); timer.updateSettings({ sound: !settings.sound }) }} /></div><div className="preference-row"><span className="preference-icon"><Bell size={20} /></span><div><h3>桌面通知</h3><p>{window.repose ? '休息开始时，在系统通知中提醒你。' : '休息开始时发送浏览器通知，需要允许通知权限。'}</p></div><Toggle label="桌面通知" enabled={settings.notifications} onChange={() => void toggleNotifications()} /></div><div className="preference-row"><span className="preference-icon"><Play size={20} /></span><div><h3>自动开启下一轮</h3><p>休息结束后，自动开始新的专注计时。</p></div><Toggle label="自动开启下一轮" enabled={settings.autoStart} onChange={() => timer.updateSettings({ autoStart: !settings.autoStart })} /></div></section><section className="panel preferences-panel"><div className="section-heading"><div><h2>你的空间，你的颜色</h2><p>选一个让眼睛舒服、让心情放松的外观。</p></div></div><div className="theme-grid">{([{ id: 'light', title: '日光暖白', subtitle: '明亮而温柔', icon: Sun }, { id: 'dark', title: '静谧森林', subtitle: '安静的深色空间', icon: Moon }, { id: 'system', title: '跟随系统', subtitle: '随你的设备自动切换', icon: Settings2 }] as const).map(item => <button className={`theme-option ${theme === item.id ? 'selected' : ''}`} key={item.id} onClick={() => setTheme(item.id)}><div className={`theme-preview ${item.id}`}><span /><div><i /><i /><i /></div></div><div><item.icon size={15} /><span>{item.title}</span>{theme === item.id && <CheckCircle2 size={15} />}</div><p>{item.subtitle}</p></button>)}</div></section><section className="panel about-panel"><BrandMark /><div><h3>Outsie · 歇一会<span>v{APP_VERSION}</span></h3><p>给日常，留一点空白。{window.repose ? '桌面版 · 托盘持续运行' : '浏览器版 · 保持页面打开以接收提醒'}</p></div><button className="text-button" onClick={() => setHelp(true)}>使用指南<ArrowUpRight size={15} /></button></section><div className="preferences-footer"><span><CheckCircle2 size={14} />偏好设置会自动保存到这台设备</span><button className="text-button" onClick={() => { timer.resetSettings(); setTheme('light'); showToast('已恢复默认偏好与休息计划，休息记录保留') }}><RotateCcw size={13} />恢复默认设置</button></div></div>}
 
       <footer className="page-footer"><span><Leaf size={13} strokeWidth={1.5} />更好的状态，来自恰到好处的停顿。</span><span>MADE FOR A SLOWER, BETTER DAY<span className="footer-flower">✳</span></span></footer>
     </main>
 
     {toast && <div className="toast" role="status"><CheckCircle2 size={17} />{toast}</div>}
-    {help && <Modal label="认识 Repose" onClose={() => setHelp(false)} className="help-modal"><button className="modal-close icon-button" aria-label="关闭使用指南" onClick={() => setHelp(false)}><X size={21} /></button><BrandMark /><div className="eyebrow">WELCOME TO YOUR LITTLE PAUSE</div><h2>嗨，这里是 Repose<span>.</span></h2><p className="modal-intro">一位安静的休息伙伴，陪你在忙碌日常里，找回舒服的节奏。</p><div className="help-step"><span>01</span><div><h3>专注的时候，放心投入</h3><p>计时会自动进行。你可以随时暂停，或按空格键切换。</p></div></div><div className="help-step"><span>02</span><div><h3>到点了，温柔地歇一会</h3><p>{window.repose ? '默认每 20 分钟短休息 20 秒，完成 4 次后安排长休息。小休息可延迟 1 分钟，大休息可延迟 5 分钟，每次仅一次。再次提醒后须完成完整休息。' : '默认每 20 分钟短休息 20 秒，完成 4 次后安排长休息。'}</p></div></div><div className="help-step"><span>03</span><div><h3>让休息，变成你的习惯</h3><p>在「休息计划」调整节奏，在「我的记录」查看真实的休息足迹。所有记录只保存在本机。</p></div></div><div className="help-platform"><Leaf size={17} /><p>{window.repose ? '关闭窗口后，Repose 会留在托盘继续提醒。通过托盘菜单可完整退出。' : '浏览器版需要保持页面打开；关闭页面后无法提醒。桌面版支持托盘持续运行。'}</p></div><button className="button primary full-width" onClick={() => setHelp(false)}>好的，慢慢来<ArrowRight size={16} /></button></Modal>}
+    {help && <Modal label="认识 Outsie" onClose={() => setHelp(false)} className="help-modal"><button className="modal-close icon-button" aria-label="关闭使用指南" onClick={() => setHelp(false)}><X size={21} /></button><BrandMark /><div className="eyebrow">WELCOME TO YOUR LITTLE PAUSE</div><h2>嗨，这里是 Outsie<span>.</span></h2><p className="modal-intro">一位安静的休息伙伴，陪你在忙碌日常里，找回舒服的节奏。</p><div className="help-step"><span>01</span><div><h3>专注的时候，放心投入</h3><p>计时会自动进行。你可以随时暂停，或按空格键切换。</p></div></div><div className="help-step"><span>02</span><div><h3>到点了，温柔地歇一会</h3><p>{window.repose ? '默认每 20 分钟短休息 20 秒，完成 4 次后安排长休息。小休息可延迟 1 分钟，大休息可延迟 5 分钟，每次仅一次。再次提醒后须完成完整休息。' : '默认每 20 分钟短休息 20 秒，完成 4 次后安排长休息。'}</p></div></div><div className="help-step"><span>03</span><div><h3>让休息，变成你的习惯</h3><p>在「休息计划」调整节奏，在「我的记录」查看真实的休息足迹。所有记录只保存在本机。</p></div></div><div className="help-platform"><Leaf size={17} /><p>{window.repose ? '关闭窗口后，Outsie 会留在托盘继续提醒。通过托盘菜单可完整退出。' : '浏览器版需要保持页面打开；关闭页面后无法提醒。桌面版支持托盘持续运行。'}</p></div><button className="button primary full-width" onClick={() => setHelp(false)}>好的，慢慢来<ArrowRight size={16} /></button></Modal>}
     {exercise && <Modal label={exercise.title} onClose={() => setExercise(null)} className="exercise-modal"><button className="modal-close icon-button" aria-label="关闭休息灵感" onClick={() => setExercise(null)}><X size={21} /></button><div className={`exercise-modal-art ${exercise.color}`}><img src={`./illustrations/${exercise.art}.svg`} alt="" /></div><div className="exercise-modal-body"><span className="subtle-badge"><exercise.icon size={14} />{exercise.category}<span className="small-dot">·</span>{exercise.type === 'short' ? `${settings.shortDuration} 秒` : `${settings.longDuration} 分钟`}</span><h2>{exercise.title}</h2><p>{exercise.subtitle}</p><ol>{exercise.steps.map(step => <li key={step}>{step}</li>)}</ol><button className="button primary full-width" onClick={() => beginBreak(exercise.type)}><Play size={16} fill="currentColor" />开始这次休息</button></div></Modal>}
     {breathing && <Modal label="呼吸练习" onClose={() => setBreathing(false)} className="breathing-modal"><button className="modal-close icon-button" aria-label="结束呼吸练习" onClick={() => setBreathing(false)}><X size={21} /></button><span className="eyebrow">JUST BREATHE</span><h2>现在，只需要呼吸。</h2><p>不必追赶什么，跟随舒服的节奏。</p><div className={`breathing-orbit ${cycle < 4 ? 'inhale' : cycle < 8 ? 'hold' : 'exhale'}`}><div className="breathing-ring outer" /><div className="breathing-ring middle" /><div className="breathing-circle"><Wind size={28} strokeWidth={1.2} /><span aria-live="polite">{breathLabel}</span><strong>{breathCountdown}</strong></div></div><div className="breathing-steps"><span className={cycle < 4 ? 'active' : ''}>吸气 4 秒</span><span className={cycle >= 4 && cycle < 8 ? 'active' : ''}>停留 4 秒</span><span className={cycle >= 8 ? 'active' : ''}>呼气 6 秒</span></div><p className="breathing-count">已完成 {Math.floor(breathSeconds / 14)} 轮<span className="small-dot">·</span>按自己的舒适程度呼吸</p><button className="button outline" onClick={() => { setBreathing(false); showToast('把这份从容，带回接下来的时光') }}>带着平静，继续</button></Modal>}
-    {inBreak && <Modal label="休息时间" onClose={() => {}} className={`break-modal ${phase === 'long' ? 'long-break-modal' : ''}`}><div className="break-modal-top"><BrandMark small /><span>REPOSE · A LITTLE TIME FOR YOU</span><span className="subtle-badge">{phase === 'long' ? '长休息 · 跟练模式' : '短休息'}</span></div><div className={`break-content ${phase === 'long' ? 'long-break-content' : ''}`}>{phase === 'long' ? <StretchTrainer3D key={breakId} remaining={remaining} duration={timer.phaseDuration} running={running}>{breakStatus}</StretchTrainer3D> : <><div className="break-art short-break-mascot"><img src="./favicon.svg" alt="" /></div><span className="eyebrow">REPOSE HAS ENTERED THE CHAT</span><h2>{shortVoice.title}</h2><p>{shortVoice.body}</p><aside className="eye-care-tip" aria-label="护眼小知识"><span className="eye-care-label">护眼小知识 · 每次休息一条</span><h3>{eyeCareTip.title}</h3><p>{eyeCareTip.body}</p><small>参考：美国国立卫生研究院 NIH · 读完就看远处吧</small></aside></>}{phase !== 'long' && breakStatus}</div>{phase !== 'long' && <div className="break-bottom"><Heart size={13} />不必做得完美，照顾自己就好。</div>}</Modal>}
+    {inBreak && <Modal label="休息时间" onClose={() => {}} className={`break-modal ${phase === 'long' ? 'long-break-modal' : ''}`}><div className="break-modal-top"><BrandMark small /><span>OUTSIE · A LITTLE TIME FOR YOU</span><span className="subtle-badge">{phase === 'long' ? '长休息 · 跟练模式' : '短休息'}</span></div><div className={`break-content ${phase === 'long' ? 'long-break-content' : ''}`}>{phase === 'long' ? <StretchTrainer3D key={breakId} remaining={remaining} duration={timer.phaseDuration} running={running}>{breakStatus}</StretchTrainer3D> : <><div className="break-art short-break-mascot"><img src="./favicon.svg" alt="" /></div><span className="eyebrow">OUTSIE HAS ENTERED THE CHAT</span><h2>{shortVoice.title}</h2><p>{shortVoice.body}</p><aside className="eye-care-tip" aria-label="护眼小知识"><span className="eye-care-label">护眼小知识 · 每次休息一条</span><h3>{eyeCareTip.title}</h3><p>{eyeCareTip.body}</p><small>参考：美国国立卫生研究院 NIH · 读完就看远处吧</small></aside></>}{phase !== 'long' && breakStatus}</div>{phase !== 'long' && <div className="break-bottom"><Heart size={13} />不必做得完美，照顾自己就好。</div>}</Modal>}
   </div>
 }

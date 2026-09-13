@@ -22,6 +22,7 @@ import {
   SlidersHorizontal,
   Smartphone,
   Sprout,
+  Video,
   Wind,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -222,8 +223,8 @@ export default function Home() {
                   Icon: Pause,
                   title: t('“马上”到此为止。', '“In a minute” has a limit.'),
                   body: t(
-                    '休息时间一到，Outsie 就会遮住所有显示器，让你停下来歇一会儿。每次可以推迟一次，再提醒时就得把这次休息完成。',
-                    'When a break begins, Outsie covers every connected display. You get one postponement. When that time is up, your break gets its turn.',
+                    '休息时间一到，Outsie 就会遮住所有显示器，让你停下来歇一会儿。每次可以推迟一次，再提醒时就得把这次休息完成。正在开会？到点的休息会等会议结束再来。',
+                    'When a break begins, Outsie covers every connected display. You get one postponement. When that time is up, your break gets its turn. In a meeting? The break waits for the call to end.',
                   ),
                   code: 'human.pause()',
                   detail: t(
@@ -566,6 +567,15 @@ export default function Home() {
                   tag: 'BREAKS',
                 },
                 {
+                  Icon: Video,
+                  title: t('开会时不打扰', 'Meetings come first'),
+                  detail: t(
+                    'Zoom、Teams、飞书、腾讯会议通话中，到点的休息等会议结束再来。会议时间单独记录，不算专注。',
+                    'On a call in Zoom, Teams, Feishu or Tencent Meeting, a break that comes due waits for the call to end. Meeting time is recorded separately from focus.',
+                  ),
+                  tag: 'MEETINGS',
+                },
+                {
                   Icon: LockKeyhole,
                   title: t('闲置自动锁屏', 'Automatic idle lock'),
                   detail: t(
@@ -753,8 +763,8 @@ export default function Home() {
                   'What devices do I need? Where can I download it?',
                 ),
                 t(
-                  '从本页“下载 Mac 版”可获取安装包。目前提供 v0.6.3，适用于 Apple Silicon 芯片的 Mac，系统需为 macOS 14 或更新版本。安装后应用名为 Repose，包含休息与拉伸功能；手机钥匙和手机工作台不包含在此安装包中。',
-                  'Use “Download for Mac” on this page to get v0.6.3 for Apple Silicon Macs running macOS 14 or later. The installed app is named Repose and includes breaks and stretching. Phone Key and Phone Controls are not included in this download.',
+                  `从本页“下载 Mac 版”可获取安装包。目前提供 v${macRelease.version}，适用于 Apple Silicon 芯片的 Mac，系统需为 macOS 14 或更新版本。安装后应用名为 Outsie，包含休息、拉伸、开会时不打扰、手机钥匙和手机工作台；手机那一端要另装 Android 版，需要 Android 12 或更新版本。`,
+                  `Use “Download for Mac” on this page to get v${macRelease.version} for Apple Silicon Macs running macOS 14 or later. The installed app is named Outsie and includes breaks, stretching, meeting-aware breaks, Phone Key and Phone Controls. Phone Key also needs the Android app on a phone running Android 12 or later.`,
                 ),
               ],
             ].map(([question, answer], i) => (

@@ -77,6 +77,12 @@
   background: #98aa83;
 }
 
+.activity-chart-legend i.meeting,
+.hour-detail i.meeting,
+.daily-chart-stack i.meeting {
+  background: #9fb8bd;
+}
+
 .activity-chart-legend i.rest,
 .hour-detail i.rest,
 .daily-chart-stack i.rest {
@@ -264,6 +270,12 @@
 [data-theme=dark] .hour-detail i.focus,
 [data-theme=dark] .daily-chart-stack i.focus {
   background: #89a276;
+}
+
+[data-theme=dark] .activity-chart-legend i.meeting,
+[data-theme=dark] .hour-detail i.meeting,
+[data-theme=dark] .daily-chart-stack i.meeting {
+  background: #7f9aa0;
 }
 
 [data-theme=dark] .activity-chart-legend i.rest,

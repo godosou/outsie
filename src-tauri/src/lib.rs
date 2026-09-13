@@ -11,6 +11,11 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+pub mod console;
+pub mod console_cli;
+mod meeting;
+mod unlock;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum InactivityReason {
     ScreenLock,
@@ -260,16 +265,26 @@ impl Default for TimerStatus {
 #[serde(rename_all = "camelCase")]
 struct Preferences {
     strict_breaks: bool,
+    /// 「30 秒没碰键盘鼠标就锁屏」. Off unless asked for: it interrupts reading.
     idle_lock_enabled: bool,
     idle_lock_seconds: u32,
+    /// 「你离开，电脑自动锁屏」: the bridge locks when it judges the phone gone.
+    /// Defaulted for a front end that predates the split.
+    #[serde(default = "default_true")]
+    away_lock_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             strict_breaks: true,
-            idle_lock_enabled: true,
+            idle_lock_enabled: false,
             idle_lock_seconds: 30,
+            away_lock_enabled: true,
         }
     }
 }
@@ -494,7 +509,7 @@ fn create_break_windows(app: &AppHandle) -> tauri::Result<()> {
         let position: PhysicalPosition<i32> = *monitor.position();
         let size: PhysicalSize<u32> = *monitor.size();
         let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App("break.html".into()))
-            .title("Repose · 屏幕休息中")
+            .title("Outsie · 屏幕休息中")
             .position(position.x as f64, position.y as f64)
             .inner_size(size.width as f64, size.height as f64)
             .decorations(false)
@@ -619,10 +634,13 @@ fn set_status(app: AppHandle, shared: State<'_, Arc<SharedState>>, value: TimerS
 }
 
 #[tauri::command]
-fn set_preferences(shared: State<'_, Arc<SharedState>>, value: Preferences) {
+fn set_preferences(app: AppHandle, shared: State<'_, Arc<SharedState>>, value: Preferences) {
     if value.idle_lock_seconds != 30 {
         return;
     }
+    // 「你离开，电脑自动锁屏」 is mostly the bridge's job now: it locks the
+    // moment the phone is judged gone, and reads this flag to know whether to.
+    unlock::set_autolock(&app, value.away_lock_enabled);
     let mut state = shared.runtime.lock().expect("state poisoned");
     if state.preferences.idle_lock_enabled != value.idle_lock_enabled {
         state.idle_enabled_at = Instant::now();
@@ -770,6 +788,11 @@ fn run_idle_monitor(app: AppHandle, shared: Arc<SharedState>) {
             let idle = unsafe { repose_idle_seconds() };
             #[cfg(not(target_os = "macos"))]
             let idle = 0.0;
+            // The phone beside you means you have not left, however still the
+            // keyboard is. The idle timer only counts while the phone is not heard.
+            if !unlock::idle_lock_allowed(&unlock::HostMacBackend::presence_report(&app)) {
+                continue;
+            }
             let should_lock = {
                 let mut state = shared.runtime.lock().expect("state poisoned");
                 if !state.preferences.idle_lock_enabled {
@@ -823,19 +846,19 @@ fn run_idle_monitor(app: AppHandle, shared: Arc<SharedState>) {
 
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let menu = MenuBuilder::new(app)
-        .text("open", "打开 Repose · 歇一会")
+        .text("open", "打开 Outsie · 歇一会")
         .separator()
         .text("toggle", "暂停／继续提醒")
         .text("short", "现在小休息")
         .text("long", "现在大休息")
         .separator()
-        .text("quit", "退出 Repose")
+        .text("quit", "退出 Outsie")
         .build()?;
     // The same smiling flower, rendered from public/tray.svg; macOS supplies contrast.
     let tray_icon = tauri::include_image!("icons/tray/18x18.png");
     TrayIconBuilder::with_id("repose-tray")
         .menu(&menu)
-        .tooltip("Repose · 歇一会")
+        .tooltip("Outsie · 歇一会")
         .icon(tray_icon)
         .icon_as_template(true)
         .build(app)?;
@@ -879,8 +902,38 @@ pub fn run() {
             get_lifecycle_snapshot,
             acknowledge_lifecycle_interval,
             postpone_break,
+            meeting::get_meeting_state,
             notify_user,
-            open_security_settings
+            open_security_settings,
+            unlock::unlock_get_snapshot,
+            unlock::unlock_preflight,
+            unlock::unlock_install,
+            unlock::unlock_repair,
+            unlock::unlock_uninstall,
+            unlock::unlock_set_enabled,
+            unlock::unlock_presence_set,
+            unlock::unlock_pause_for,
+            unlock::unlock_revoke_device,
+            unlock::unlock_set_device_capability,
+            unlock::unlock_pair_begin,
+            unlock::unlock_pair_poll,
+            unlock::unlock_pair_confirm,
+            unlock::unlock_pair_await_phone,
+            unlock::unlock_pair_cancel,
+            console::console_status,
+            console::console_ai_prompt,
+            console::console_request_trust,
+            console::console_run,
+            console::console_pick_app,
+            console::console_save,
+            unlock::unlock_calibrate_start,
+            unlock::unlock_calibrate_sample,
+            unlock::unlock_calibrate_finish,
+            unlock::unlock_drill_start,
+            unlock::unlock_open_bluetooth_settings,
+            unlock::unlock_open_lock_screen_settings,
+            unlock::unlock_copy_diagnostics,
+            unlock::unlock_export_manifest
         ])
         .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
         .on_tray_icon_event(|app, event| {
@@ -897,6 +950,10 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Listens for shortcut commands from the phone. In the app because
+            // pressing a key needs the accessibility grant, which belongs here
+            // and never to the root half.
+            console::start_command_watcher(app.handle().clone());
             // Inspect the packaged WKWebView renderer without starting timers,
             // changing saved preferences or covering the user's monitors.
             if std::env::var_os("REPOSE_STRETCH_PREVIEW").is_some() {
@@ -912,10 +969,12 @@ pub fn run() {
             setup_lifecycle(app.handle(), shared.clone());
             run_break_monitor(app.handle().clone(), shared.clone());
             run_idle_monitor(app.handle().clone(), shared.clone());
+            unlock::watch_presence(app.handle().clone());
+            meeting::run_meeting_monitor(app.handle().clone(), shared.clone());
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("failed to build Repose");
+        .expect("failed to build Outsie");
 
     app.run(|app, event| {
         if let RunEvent::ExitRequested { api, .. } = event {

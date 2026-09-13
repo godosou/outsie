@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Repose",
-  "version": "0.6.3",
+  "productName": "Outsie",
+  "mainBinaryName": "Outsie",
+  "version": "0.8.0",
   "identifier": "ai.repose.lite",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -15,7 +16,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Repose · 歇一会",
+        "title": "Outsie · 歇一会",
         "width": 1440,
         "height": 940,
         "minWidth": 960,
@@ -44,6 +45,23 @@
     "shortDescription": "给日常，留一点空白。",
     "macOS": {
       "minimumSystemVersion": "14.0"
+    },
+    "resources": {
+      "../native/macos/minimal-auth-plugin/install.sh": "scripts/install.sh",
+      "../native/macos/minimal-auth-plugin/uninstall.sh": "scripts/uninstall.sh",
+      "../native/macos/minimal-auth-plugin/healthcheck.sh": "scripts/healthcheck.sh",
+      "../native/macos/minimal-auth-plugin/authdb-edit": "scripts/authdb-edit",
+      "../native/macos/minimal-auth-plugin/ai.repose.spike.healthcheck.plist": "scripts/ai.repose.spike.healthcheck.plist",
+      "../native/macos/minimal-auth-plugin/build/ReposeSpike.bundle": "scripts/build/ReposeSpike.bundle",
+      "../tools/ble-spike/mac/permit-bridge.sh": "scripts/permit-bridge.sh",
+      "../tools/ble-spike/mac/presence-pipeline.sh": "scripts/presence-pipeline.sh",
+      "../tools/lib/run-root.sh": "lib/run-root.sh",
+      "../tools/ble-spike/mac/rssi-scan": "scripts/rssi-scan",
+      "../tools/ble-spike/mac/presence-verify": "scripts/presence-verify",
+      "../tools/ble-spike/mac/pair-with-phone": "scripts/pair-with-phone",
+      "../tools/ble-spike/mac/state-advertise": "scripts/state-advertise",
+      "../tools/ble-spike/mac/send-catalogue": "scripts/send-catalogue",
+      "../tools/ble-spike/mac/presence-privileged.sh": "scripts/presence-privileged.sh"
     }
   }
 }

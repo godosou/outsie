@@ -46,7 +46,9 @@ let kioskPausedForLock = false
 let kioskRelease = Promise.resolve()
 const breakWindows = new Map()
 
-app.setName('Repose')
+app.setName('Outsie')
+// Still "Repose": the name changed, the installed data did not. Renaming this
+// directory would silently orphan every existing user's settings and history.
 const userDataPath = path.join(app.getPath('appData'), 'Repose')
 mkdirSync(userDataPath, { recursive: true })
 app.setPath('userData', userDataPath)
@@ -229,7 +231,7 @@ function syncBreakWindows() {
     }
     const win = new BrowserWindow({
       ...display.bounds,
-      title: 'Repose · 屏幕休息中',
+      title: 'Outsie · 屏幕休息中',
       frame: false,
       show: false,
       skipTaskbar: true,
@@ -376,13 +378,13 @@ function rebuildTrayMenu() {
   if (!tray) return
   const deferredBreak = status.phase === 'focus' && status.breakId && !status.canPostpone
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '打开 Repose · 歇一会', click: showWindow },
+    { label: '打开 Outsie · 歇一会', click: showWindow },
     { type: 'separator' },
     { label: strictBreak ? '强制休息中' : deferredBreak ? '已延迟，等待休息' : status.running ? '暂停提醒' : '继续提醒', enabled: !strictBreak && !deferredBreak, click: () => { if (!strictBreak && !deferredBreak) sendCommand('toggle-pause') } },
     { label: '现在短休息', enabled: !strictBreak, click: () => { if (!strictBreak) { showWindow(); sendCommand('start-short-break') } } },
     { label: '现在长休息', enabled: !strictBreak, click: () => { if (!strictBreak) { showWindow(); sendCommand('start-long-break') } } },
     { type: 'separator' },
-    { label: '退出 Repose', accelerator: 'CommandOrControl+Q', enabled: !strictBreak, click: () => { if (!strictBreak) app.quit() } },
+    { label: '退出 Outsie', accelerator: 'CommandOrControl+Q', enabled: !strictBreak, click: () => { if (!strictBreak) app.quit() } },
   ]))
   const applicationMenu = Menu.getApplicationMenu()
   for (const id of ['repose-quit', 'repose-hide']) {
@@ -396,7 +398,7 @@ function updateTrayTooltip() {
   const minutes = Math.floor(status.remaining / 60)
   const seconds = Math.floor(status.remaining % 60).toString().padStart(2, '0')
   const description = status.running ? (phaseNames[status.phase] || '专注中') : '已暂停'
-  tray.setToolTip(`Repose · ${description} · ${minutes}:${seconds}`)
+  tray.setToolTip(`Outsie · ${description} · ${minutes}:${seconds}`)
 }
 
 function createTray() {
@@ -415,7 +417,7 @@ function createWindow() {
     height: 940,
     minWidth: 960,
     minHeight: 720,
-    title: 'Repose · 歇一会',
+    title: 'Outsie · 歇一会',
     backgroundColor: '#F8F9F5',
     show: false,
     autoHideMenuBar: true,
@@ -447,14 +449,14 @@ function createWindow() {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     endStrictBreak()
     if (!quitting && details.reason !== 'clean-exit') {
-      dialog.showErrorBox('Repose 已停止计时', '应用页面意外关闭。请退出并重新打开 Repose，以继续接收休息提醒。')
+      dialog.showErrorBox('Outsie 已停止计时', '应用页面意外关闭。请退出并重新打开 Outsie，以继续接收休息提醒。')
     }
   })
 
   const loaded = isDev ? mainWindow.loadURL(appURL) : mainWindow.loadFile(indexPath)
   loaded.catch(error => {
     if (quitting) return
-    dialog.showErrorBox('无法打开 Repose', isDev
+    dialog.showErrorBox('无法打开 Outsie', isDev
       ? `请确认本地开发服务器正在运行：${appURL}\n\n${error.message}`
       : `请先运行 npm run build，再运行 npm run desktop。\n\n${error.message}`)
     app.quit()
@@ -574,22 +576,22 @@ if (!app.requestSingleInstanceLock()) {
     screen.on('display-metrics-changed', syncBreakWindows)
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       ...(process.platform === 'darwin' ? [{
-        label: 'Repose',
+        label: 'Outsie',
         submenu: [
-          { label: '关于 Repose', role: 'about' },
+          { label: '关于 Outsie', role: 'about' },
           { type: 'separator' },
-          { id: 'repose-hide', label: '隐藏 Repose', role: 'hide' },
+          { id: 'repose-hide', label: '隐藏 Outsie', role: 'hide' },
           { label: '隐藏其他应用', role: 'hideOthers' },
           { label: '显示全部', role: 'unhide' },
           { type: 'separator' },
-          { id: 'repose-quit', label: '退出 Repose', role: 'quit' },
+          { id: 'repose-quit', label: '退出 Outsie', role: 'quit' },
         ],
       }] : []),
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
-      { label: '窗口', submenu: [{ role: 'minimize' }, { label: '打开 Repose', click: showWindow }, ...(isDev ? [{ role: 'toggleDevTools' }] : [])] },
+      { label: '窗口', submenu: [{ role: 'minimize' }, { label: '打开 Outsie', click: showWindow }, ...(isDev ? [{ role: 'toggleDevTools' }] : [])] },
     ]))
   }).catch(error => {
-    dialog.showErrorBox('Repose 无法启动', error.message)
+    dialog.showErrorBox('Outsie 无法启动', error.message)
     app.quit()
   })
 }

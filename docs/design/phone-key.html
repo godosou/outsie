@@ -1,0 +1,1410 @@
+<title>手机钥匙 · 设计文档</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   页面本身的外观。刻意用衬线体——框里的每一个像素都是产品自己的
+   Manrope，这样读的人永远分得清哪是产品、哪是说明。
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --page-bg:#f4f5f1; --page-panel:#ffffff; --page-ink:#2b332a;
+  --page-sub:#5e685b; --page-muted:#78806f; --page-line:#e3e7dd;
+  --page-rail:#eceee7;
+  --accent:#526a43; --redline:#b4744a; --okline:#5c7a45;
+  --serif:"Newsreader", Georgia, "Songti SC", serif;
+  --sans:"Manrope", -apple-system, "PingFang SC", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg:#171d17; --page-panel:#1e261e; --page-ink:#dfe6da;
+    --page-sub:#b2bdac; --page-muted:#8f9a89; --page-line:#333c31;
+    --page-rail:#1b221b; --accent:#a9c391; --redline:#d09a70; --okline:#9cbb7f;
+  }
+}
+:root[data-theme="dark"] {
+  --page-bg:#171d17; --page-panel:#1e261e; --page-ink:#dfe6da;
+  --page-sub:#b2bdac; --page-muted:#8f9a89; --page-line:#333c31;
+  --page-rail:#1b221b; --accent:#a9c391; --redline:#d09a70; --okline:#9cbb7f;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   产品 token。框里不允许出现裸色值：缺的值会得到一个名字，
+   而不是一个例外。整套在切换深色时一起翻面。
+   ═══════════════════════════════════════════════════════════════ */
+.stage {
+  --bg:#fbfcf9; --sidebar:#f3f5ee; --panel:#fff; --sage:#eff3e9;
+  --active:#e5ebdc; --peach:#f7f0e9; --muted-surface:#f4f5f2;
+  --text:#303b32; --subtle:#677160; --muted:#6f766c;
+  --ink-nav:#727d6b; --ink-nav-on:#4e6440; --ink-label:#9aa190;
+  --ink-tagline:#7a8472; --ink-crumb:#7c8576; --ink-icon:#8c9b7d;
+  --ink-badge:#839574; --ink-link:#627255; --ink-onsage:#78876d;
+  --ink-sageStrong:#6c8354; --ink-outline:#6b7a60; --ink-amber:#83693f;
+  --line:#e9ece4; --line-amber:#ecdfc8; --line-chip:#d8dfd0;
+  --line-frame:rgba(35,53,36,.16);
+  --green:#526a43; --dark-green:#3e5738; --green-mark:#6c8354; --green-dot:#90a577;
+  --track:#dce1d7; --knob:#fff; --chev:#b6bdb1; --chip-off-bg:#eef0ea;
+  --bezel:#12160f;
+  --shadow:0 12px 35px #23352406;
+  --shadow-win:0 22px 60px rgba(35,53,36,.13);
+  --shadow-sheet:0 24px 90px rgba(23,40,16,.2);
+  --shadow-knob:0 1px 2px rgba(0,0,0,.13);
+}
+.stage[data-product="dark"] {
+  --bg:#202b24; --sidebar:#1b251e; --panel:#26322a; --sage:#303e2b;
+  --active:#34442d; --peach:#41382e; --muted-surface:#2b3729;
+  --text:#d5dece; --subtle:#abb9a0; --muted:#8c9b83;
+  --ink-nav:#94a68a; --ink-nav-on:#b4c6a0; --ink-label:#7f8c77;
+  --ink-tagline:#8a9880; --ink-crumb:#8a9880; --ink-icon:#8fa27c;
+  --ink-badge:#9db188; --ink-link:#a8bc90; --ink-onsage:#9db188;
+  --ink-sageStrong:#b7d199; --ink-outline:#a8bc90; --ink-amber:#d9bd86;
+  --line:#354031; --line-amber:#4a3f28; --line-chip:#44513d;
+  --line-frame:rgba(0,0,0,.5);
+  --green:#7e9865; --dark-green:#78925e; --green-mark:#8fae72; --green-dot:#a0bc86;
+  --track:#3d4b37; --knob:#cdd8c4; --chev:#6b7a63; --chip-off-bg:#2e3a2b;
+  --shadow:none; --shadow-win:0 22px 60px rgba(0,0,0,.4);
+  --shadow-sheet:0 24px 90px rgba(0,0,0,.55);
+}
+
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page-bg); color:var(--page-ink);
+       font-family:var(--sans); font-size:16px; line-height:1.75;
+       -webkit-font-smoothing:antialiased; }
+h1,h2,h3.serif,.lede { font-family:var(--serif); font-weight:400; }
+h1 { font-size:clamp(32px,4.4vw,46px); line-height:1.1; letter-spacing:-.015em; margin:0 0 16px; }
+h1 em { font-style:italic; color:var(--accent); }
+h2 { font-size:clamp(23px,3vw,30px); line-height:1.22; margin:0 0 6px; }
+h3 { font-family:var(--sans); font-size:16px; font-weight:700; margin:0 0 4px; }
+.lede { font-size:19px; line-height:1.62; color:var(--page-sub); margin:0; }
+.section-lede { color:var(--page-sub); margin:8px 0 22px; max-width:660px; }
+code { font-family:var(--mono); font-size:.86em; }
+
+.shell { display:grid; grid-template-columns:232px minmax(0,1fr); }
+@media (max-width:980px) { .shell { grid-template-columns:1fr; } }
+.rail { position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+        background:var(--page-rail); border-right:1px solid var(--page-line);
+        padding:26px 18px 40px; }
+@media (max-width:980px) {
+  .rail { position:static; height:auto; border-right:0; border-bottom:1px solid var(--page-line); }
+}
+.rail .brand { font-family:var(--serif); font-size:19px; line-height:1.25; margin:0 0 4px; }
+.rail .brandsub { font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+                  text-transform:uppercase; color:var(--page-muted); margin:0 0 20px; }
+.railgrp { font-family:var(--mono); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase;
+           color:var(--page-muted); margin:18px 0 6px; }
+.railitem { display:block; width:100%; text-align:left; border:0; background:none; cursor:pointer;
+            font-family:var(--sans); font-size:13.5px; color:var(--page-sub); line-height:1.4;
+            padding:7px 10px; border-radius:8px; }
+.railitem:hover { background:color-mix(in srgb, var(--page-line) 60%, transparent); }
+.railitem.on { background:var(--page-panel); color:var(--page-ink); font-weight:600;
+               box-shadow:0 1px 2px rgba(0,0,0,.04); }
+.railitem .n { font-family:var(--mono); font-size:10px; color:var(--page-muted); margin-right:8px; }
+.railitem.on .n { color:var(--accent); }
+.railtools { margin-top:24px; padding-top:16px; border-top:1px solid var(--page-line); display:grid; gap:8px; }
+.tool { display:flex; align-items:center; justify-content:space-between; gap:10px;
+        font-size:12px; color:var(--page-sub); }
+.tool button { font:inherit; font-size:11px; cursor:pointer; padding:4px 10px; border-radius:20px;
+               border:1px solid var(--page-line); background:var(--page-panel); color:var(--page-ink); }
+.tool button.on { background:var(--accent); border-color:var(--accent); color:var(--page-bg); }
+
+.main { padding:30px 34px 120px; max-width:1180px; }
+@media (max-width:620px) { .main { padding:24px 16px 80px; } }
+.chapter { animation:fade .24s ease; }
+@keyframes fade { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce) { .chapter { animation:none; } }
+.chnum { font-family:var(--mono); font-size:11px; letter-spacing:.12em; color:var(--accent);
+         display:block; margin-bottom:6px; }
+
+.plate { display:grid; grid-template-columns:minmax(0,1fr) 292px; gap:28px; align-items:start; margin-top:22px; }
+@media (max-width:1160px) { .plate { grid-template-columns:1fr; } }
+.plate.stack { grid-template-columns:1fr; }
+.frame-note { font-family:var(--mono); font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+              color:var(--page-muted); margin:0 0 9px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+.frame-note b { color:var(--accent); font-weight:500; }
+.scroller { overflow-x:auto; padding-bottom:8px; }
+.spec { background:var(--page-panel); border:1px solid var(--page-line); border-radius:14px;
+        padding:16px 18px; font-size:13px; line-height:1.7; }
+.spec h4 { font-family:var(--mono); font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+           color:var(--page-muted); font-weight:400; margin:0 0 8px; }
+.spec h4 + h4 { margin-top:14px; }
+.spec p { margin:0 0 10px; color:var(--page-sub); font-size:12.5px; line-height:1.72; }
+.spec p:last-child { margin-bottom:0; }
+.spec dl { margin:0 0 12px; display:grid; grid-template-columns:auto 1fr; gap:3px 12px; }
+.spec dt { font-family:var(--mono); font-size:11px; color:var(--page-muted); white-space:nowrap; }
+.spec dd { margin:0; font-family:var(--mono); font-size:11px; color:var(--page-ink); }
+
+.tbl-wrap { overflow-x:auto; margin:26px 0 8px; }
+table.after { border-collapse:collapse; width:100%; font-size:13.5px; min-width:660px; }
+table.after th, table.after td { text-align:left; vertical-align:top; padding:11px 14px;
+                                 border-bottom:1px solid var(--page-line); }
+table.after th { font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+                 color:var(--page-muted); font-weight:400; }
+table.after td:first-child { white-space:nowrap; font-weight:600; }
+table.after .fail { color:var(--redline); }
+.voice { border-collapse:collapse; width:100%; font-size:14px; margin-top:16px; }
+.voice td { padding:10px 14px; border-bottom:1px solid var(--page-line); vertical-align:top; width:50%; }
+.voice td.no { color:var(--redline); text-decoration:line-through; text-decoration-color:color-mix(in srgb,var(--redline) 45%,transparent); }
+.voice td.yes { color:var(--page-ink); font-weight:600; }
+.pill { display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:.06em;
+        padding:2px 8px; border-radius:20px; border:1px solid var(--page-line); color:var(--page-muted); }
+.pill.ok { color:var(--okline); border-color:color-mix(in srgb, var(--okline) 40%, transparent); }
+.pill.no { color:var(--redline); border-color:color-mix(in srgb, var(--redline) 40%, transparent); }
+.callout { border:1px solid var(--page-line); border-left:3px solid var(--accent);
+           background:var(--page-panel); border-radius:0 12px 12px 0;
+           padding:14px 18px; margin:18px 0; font-size:14px; color:var(--page-sub); }
+.callout.warn { border-left-color:var(--redline); }
+.callout b { color:var(--page-ink); }
+pre.proto { font-family:var(--mono); font-size:11.5px; line-height:1.9; background:var(--page-panel);
+            border:1px solid var(--page-line); border-radius:10px; padding:16px 18px; overflow-x:auto; }
+
+/* ── Mac 窗口 ─────────────────────────────────────────────────── */
+.stage { font-family:var(--sans); }
+.mac { width:1060px; border-radius:13px; overflow:hidden; background:var(--bg);
+       box-shadow:var(--shadow-win); border:1px solid var(--line-frame); }
+.mac.narrow { width:840px; }
+.titlebar { height:35px; background:var(--sidebar); border-bottom:1px solid var(--line);
+            display:flex; align-items:center; gap:7px; padding:0 13px; }
+.titlebar i { width:11px; height:11px; border-radius:50%; background:var(--track); }
+.titlebar span { flex:1; text-align:center; font-size:11px; color:var(--ink-crumb); }
+.macbody { display:flex; height:620px; }
+.side { width:218px; flex:none; background:var(--sidebar); border-right:1px solid var(--line);
+        padding:26px 20px 0; overflow-y:auto; }
+.brandrow { display:flex; align-items:center; gap:9px; }
+.mark { width:24px; height:24px; position:relative; flex:none; }
+.mark i { position:absolute; width:11px; height:11px; border-radius:50% 50% 50% 0; background:var(--green-mark); }
+.mark i:nth-child(1) { top:0; left:6px; transform:rotate(-45deg); }
+.mark i:nth-child(2) { top:6px; right:0; transform:rotate(45deg); }
+.mark i:nth-child(3) { bottom:0; left:6px; transform:rotate(135deg); }
+.mark i:nth-child(4) { top:6px; left:0; transform:rotate(-135deg); }
+.word { font-size:21px; font-weight:800; letter-spacing:-.8px; color:var(--text); }
+.word em { font-style:normal; color:var(--green); }
+.tagline { font-size:10.5px; color:var(--ink-tagline); margin:8px 0 20px; }
+.navlabel { font-family:var(--mono); font-size:9px; letter-spacing:.13em; text-transform:uppercase;
+            color:var(--ink-label); margin:16px 0 6px 4px; }
+.nav { display:flex; align-items:center; gap:11px; height:38px; padding:0 11px; border-radius:8px;
+       font-size:12.5px; color:var(--ink-nav); cursor:pointer; }
+.nav:hover { background:color-mix(in srgb, var(--active) 55%, transparent); }
+.nav.on { background:var(--active); color:var(--ink-nav-on); font-weight:600; }
+.nav svg { width:17px; height:17px; flex:none; stroke-width:1.6; }
+.content { flex:1; overflow-y:auto; padding:0 34px 40px; }
+.topbar { height:62px; display:flex; align-items:center; justify-content:space-between;
+          font-size:11px; color:var(--ink-crumb); }
+.crumbs { display:flex; gap:7px; align-items:center; }
+.pagehead { padding:6px 0 20px; }
+.kicker { font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+          color:var(--ink-label); margin:0 0 8px; }
+.pagehead h1 { font-family:var(--sans); font-size:27px; font-weight:600; letter-spacing:.3px;
+               margin:0 0 7px; color:var(--text); }
+.pagehead p { margin:0; font-size:12.5px; color:var(--subtle); }
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:12px;
+         padding:22px 24px; box-shadow:var(--shadow); }
+.panel + .panel { margin-top:16px; }
+.sechead { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.sechead h2 { font-family:var(--sans); font-size:14px; font-weight:600; letter-spacing:.4px; margin:0; color:var(--text); }
+.sechead p { margin:5px 0 0; font-size:11.5px; color:var(--muted); }
+.prow { display:flex; align-items:flex-start; gap:15px; padding:17px 0; border-top:1px solid var(--line); }
+.prow:first-of-type { border-top:0; }
+.prow .ico { width:24px; flex:none; color:var(--ink-icon); margin-top:1px; }
+.prow .g { flex:1; min-width:0; }
+.prow h3 { font-size:12.5px; font-weight:600; color:var(--text); margin:0 0 4px; }
+.prow p { margin:0; font-size:11px; line-height:1.68; color:var(--muted); }
+.state { display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted); margin:0; }
+.state.on { color:var(--ink-sageStrong); }
+.dot { width:7px; height:7px; border-radius:50%; background:var(--green-dot); flex:none; }
+.dot.grey { background:var(--chev); }
+.toggle { width:35px; height:20px; border-radius:25px; background:var(--track); padding:3px;
+          display:inline-flex; flex:none; cursor:pointer; transition:background .16s; }
+.toggle span { width:14px; height:14px; border-radius:50%; background:var(--knob);
+               box-shadow:var(--shadow-knob); transition:margin .16s; }
+.toggle.on { background:var(--green); }
+.toggle.on span { margin-left:15px; }
+.toggle.sm { width:30px; height:18px; padding:2px; }
+.toggle.sm span { width:14px; height:14px; }
+.toggle.sm.on span { margin-left:12px; }
+.btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; height:34px;
+       padding:0 16px; border-radius:9px; font-size:11.5px; font-weight:600; cursor:pointer;
+       border:1px solid transparent; background:var(--sage); color:var(--ink-outline); font-family:var(--sans); }
+.btn.primary { background:var(--green); color:#fff; }
+.btn.outline { background:transparent; border-color:var(--line-chip); color:var(--ink-outline); }
+.tbtn { font-size:11px; font-weight:600; color:var(--ink-link); cursor:pointer; white-space:nowrap;
+        background:none; border:0; font-family:var(--sans); padding:0; }
+.devlist { display:grid; gap:9px; }
+.dev { display:flex; align-items:flex-start; gap:13px; padding:14px 15px; border-radius:11px; border:1px solid var(--line); }
+.dev .av { width:34px; height:34px; border-radius:10px; background:var(--sage); flex:none;
+           display:grid; place-items:center; color:var(--green); }
+.dev .g { flex:1; min-width:0; }
+.dev b { display:block; font-size:12.5px; color:var(--text); }
+.dev .sub { display:block; font-size:10.5px; color:var(--muted); margin-top:3px; }
+.caps { display:flex; gap:20px; margin-top:11px; flex-wrap:wrap; }
+.cap { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--subtle); cursor:pointer; }
+.bands { display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:11px;
+         border-top:1px dashed var(--line); flex-wrap:wrap; }
+.bands .when { font-size:10.5px; color:var(--muted); }
+.chip { font-size:10px; padding:3px 9px; border-radius:20px; border:1px solid var(--line-chip); color:var(--ink-badge); }
+.chip.no { color:var(--muted); }
+.fold { font-size:11.5px; color:var(--ink-link); cursor:pointer; margin:14px 0 0; }
+.foot { font-size:10.5px; color:var(--muted); margin:12px 0 0; }
+.amber { background:var(--peach); border:1px solid var(--line-amber); border-radius:10px;
+         padding:13px 15px; font-size:11px; line-height:1.72; color:var(--ink-amber); margin-top:14px; }
+.apptabs { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+.apptab { display:inline-flex; align-items:center; gap:7px; padding:7px 13px; font-size:12px;
+          border-radius:999px; background:var(--sage); color:var(--text); cursor:pointer;
+          border:1px solid transparent; font-family:var(--sans); }
+.apptab .ct { font-family:var(--mono); font-size:10px; color:var(--muted); }
+.apptab.on { background:var(--active); border-color:var(--green); font-weight:600; }
+.apptab.on .ct { color:var(--text); }
+.apptab.add { color:var(--muted); }
+.actrow { display:flex; align-items:center; gap:12px; padding:9px 0; border-top:1px solid var(--line); }
+.actrow:first-child { border-top:0; }
+.actname { flex:1; min-width:0; font-size:12.5px; color:var(--text); display:flex; gap:8px; align-items:center; }
+.keys { display:flex; gap:5px; flex:none; }
+.kbd { font-family:var(--mono); font-size:10.5px; padding:3px 7px; border-radius:6px;
+       border:1px solid var(--line-chip); border-bottom-width:2px; background:var(--panel); color:var(--text); }
+.iconbtn { width:28px; height:28px; border-radius:8px; border:1px solid var(--line); background:none;
+           color:var(--ink-link); cursor:pointer; display:grid; place-items:center; font-size:12px; }
+
+/* ── 手机 ─────────────────────────────────────────────────────── */
+.phone { width:361px; flex:none; border-radius:34px; padding:9px; background:var(--bezel); box-shadow:var(--shadow-win); }
+.phone.sm { width:300px; border-radius:29px; padding:7px; }
+.pscreen { border-radius:26px; overflow:hidden; background:var(--bg); height:722px; display:flex; flex-direction:column; }
+.phone.sm .pscreen { height:600px; border-radius:23px; }
+.pstatus { display:flex; justify-content:space-between; padding:11px 18px 4px; font-size:11px;
+           font-weight:600; color:var(--text); flex:none; }
+.pbody { padding:10px 18px 22px; overflow-y:auto; flex:1; }
+.phead { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.mark.m { width:20px; height:20px; }
+.mark.m i { width:9px; height:9px; }
+.mark.m i:nth-child(1),.mark.m i:nth-child(3) { left:5px; }
+.mark.m i:nth-child(2),.mark.m i:nth-child(4) { top:5px; }
+.pword { font-size:19px; font-weight:800; letter-spacing:-.9px; color:var(--text); }
+.pword em { font-style:normal; color:var(--green); }
+.ptag { font-family:var(--sans); font-size:10.5px; color:var(--muted); }
+.pback { display:inline-flex; align-items:center; gap:6px; font-size:14px; color:var(--green); cursor:pointer; margin-bottom:8px; }
+.ptitle { font-size:22px; font-weight:800; color:var(--text); margin:2px 0 8px; letter-spacing:-.3px; }
+.plead { font-size:12.5px; line-height:1.7; color:var(--subtle); margin:0 0 4px; }
+.phero { background:var(--sage); border-radius:20px; padding:18px; text-align:center; }
+.phero .disc { width:76px; height:76px; border-radius:50%; background:var(--panel); margin:6px auto 12px;
+               display:grid; place-items:center; font-size:30px; }
+.phero h3 { font-size:17px; font-weight:700; color:var(--text); margin:0 0 5px; }
+.phero p { font-size:11.5px; color:var(--subtle); margin:0; line-height:1.65; }
+.prow2 { display:flex; align-items:center; gap:12px; background:var(--panel); border-radius:16px;
+         padding:14px 15px; margin-top:12px; border:1px solid var(--line); }
+.prow2 .g { flex:1; min-width:0; }
+.prow2 b { display:block; font-size:14px; font-weight:700; color:var(--text); }
+.prow2 span.s { display:block; font-size:11.5px; color:var(--subtle); margin-top:2px; }
+.ptoggle { width:44px; height:26px; border-radius:20px; background:var(--track); padding:3px;
+           display:inline-flex; flex:none; cursor:pointer; transition:background .16s; }
+.ptoggle i { width:20px; height:20px; border-radius:50%; background:var(--knob);
+             box-shadow:var(--shadow-knob); transition:margin .16s; }
+.ptoggle.on { background:var(--green); }
+.ptoggle.on i { margin-left:18px; }
+.plabel { font-family:var(--mono); font-size:10px; letter-spacing:.1em; color:var(--muted); margin:20px 0 8px 3px; }
+.pcard { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px 15px; margin-top:10px; }
+.pcard .top { display:flex; gap:11px; align-items:flex-start; }
+.pcard .ic { width:34px; height:34px; border-radius:11px; background:var(--muted-surface); flex:none;
+             display:grid; place-items:center; font-size:16px; color:var(--muted); }
+.pcard b { display:block; font-size:14px; font-weight:700; color:var(--text); }
+.pcard .sub { display:block; font-size:11.5px; color:var(--subtle); margin-top:2px; line-height:1.55; }
+.pcard .sub.dim { color:var(--muted); }
+.pbtn { display:flex; align-items:center; justify-content:center; height:42px; border-radius:12px;
+        font-size:13px; font-weight:600; cursor:pointer; background:var(--panel);
+        border:1px solid var(--line); color:var(--green); font-family:var(--sans); }
+.pbtn.primary { background:var(--green); border-color:var(--green); color:#fff; }
+.pbtn.dim { opacity:.45; cursor:default; }
+.pacts { display:flex; gap:8px; margin-top:12px; }
+.plinks { display:flex; gap:18px; margin-top:11px; }
+.plink { font-size:12px; color:var(--muted); cursor:pointer; }
+.ptiny { font-size:11.5px; color:var(--muted); text-align:center; margin:18px 0 0; line-height:1.7; }
+.pnote { border-radius:12px; padding:12px 14px; font-size:11.5px; line-height:1.7; margin-top:12px; }
+.pnote.amber { background:var(--peach); color:var(--ink-amber); }
+.pnote.info { background:var(--sage); color:var(--ink-onsage); }
+.psync { display:flex; align-items:center; gap:12px; margin-top:10px; }
+.psync .s { flex:1; font-size:11.5px; color:var(--subtle); line-height:1.6; }
+.arow { display:flex; align-items:center; gap:12px; padding:11px 0; border-top:1px solid var(--line); }
+.arow:first-child { border-top:0; }
+.arow .g { flex:1; min-width:0; }
+.arow b { display:block; font-size:15px; font-weight:600; color:var(--text); }
+.arow .k { display:block; font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:2px; }
+.press { flex:none; height:38px; padding:0 18px; border-radius:12px; background:var(--green);
+         color:#fff; font-size:13px; font-weight:600; border:0; cursor:pointer; font-family:var(--sans); }
+.pbar { height:8px; border-radius:5px; background:var(--track); overflow:hidden; margin:14px 0 8px; }
+.pbar i { display:block; height:100%; background:var(--green); transition:width .3s; }
+
+/* 拖动排序 */
+.dragrow { display:flex; align-items:center; gap:10px; padding:10px; border-radius:12px;
+           background:var(--muted-surface); margin-top:6px; border:2px solid transparent; cursor:grab; }
+.dragrow.on { background:var(--sage); border-color:var(--green); }
+.dragrow.dimmed { opacity:.5; }
+.dragrow.dragging { opacity:.35; }
+.dragrow.over { border-color:var(--green); border-style:dashed; }
+.grip { flex:none; width:22px; text-align:center; color:var(--chev); font-size:15px; line-height:1; cursor:grab; }
+.dragrow .g { flex:1; min-width:0; }
+.dragrow b { display:block; font-size:14px; font-weight:600; color:var(--text); }
+.dragrow .s { display:block; font-size:11.5px; color:var(--subtle); margin-top:1px; }
+.hidebtn { flex:none; font-size:12.5px; color:var(--green); background:var(--panel);
+           border:1px solid var(--line); border-radius:9px; padding:6px 10px; cursor:pointer; font-family:var(--sans); }
+
+/* 流程：一排帧 */
+/* 帧缩到 0.5，换行排。流程是用来读的，不是用来滚的；1:1 只留给活的那一章。 */
+.board { display:flex; flex-wrap:wrap; gap:22px 26px; align-items:flex-start; padding:4px 2px 14px; }
+.bf { flex:none; }
+.bf .framewrap { transform:scale(.5); transform-origin:top left; }
+.bf .fz { overflow:hidden; }
+.bcap { font-family:var(--sans); font-size:12.5px; color:var(--page-sub); margin:0 0 9px; max-width:300px; line-height:1.5; min-height:2.9em; }
+.bcap b { color:var(--accent); font-family:var(--mono); margin-right:6px; }
+/* 手机上的快捷键：一格一个按钮 */
+.grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
+.tile { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:14px;
+        padding:12px 8px 10px; text-align:center; cursor:pointer; user-select:none; }
+.tile .ti { display:block; font-size:22px; line-height:1; color:var(--green); margin-bottom:7px; }
+.tile .tn { display:block; font-size:11.5px; font-weight:600; color:var(--text); line-height:1.35; }
+.tile.hidden { opacity:.5; background:var(--muted-surface); }
+.tile[draggable="true"] { cursor:grab; border-style:dashed; }
+.tile.dragging { opacity:.35; }
+.tile.over { border-color:var(--green); border-style:solid; }
+.tile .tx { position:absolute; top:-7px; right:-7px; width:20px; height:20px; border-radius:50%;
+            background:var(--green); color:#fff; font-size:12px; line-height:20px; text-align:center; }
+
+.framewrap { position:relative; display:inline-block; vertical-align:top; }
+.ptoast { position:absolute; left:50%; bottom:26px; transform:translateX(-50%);
+          background:rgba(28,36,26,.94); color:#eef2e9; font-size:12px; padding:10px 16px;
+          border-radius:12px; max-width:86%; text-align:center; line-height:1.55; z-index:5; }
+.sheet { position:absolute; inset:0; background:rgba(24,32,22,.45); display:grid; place-items:center;
+         z-index:6; border-radius:26px; padding:18px; }
+.sheetbox { background:var(--panel); border-radius:18px; padding:20px; width:100%; box-shadow:var(--shadow-sheet); }
+.sheetbox h3 { font-size:15px; margin:0 0 8px; color:var(--text); }
+.sheetbox p { font-size:12px; color:var(--subtle); margin:0 0 14px; line-height:1.7; }
+.sheetacts { display:flex; gap:9px; }
+.macsheet { position:absolute; inset:0; background:rgba(24,32,22,.35); display:grid; place-items:center;
+            z-index:6; border-radius:13px; }
+.macsheetbox { background:var(--panel); border-radius:15px; padding:28px 30px; width:460px; box-shadow:var(--shadow-sheet); }
+.macsheetbox h3 { font-size:19px; font-family:var(--sans); font-weight:600; margin:0 0 10px; color:var(--text); }
+.macsheetbox p { font-size:12.5px; color:var(--subtle); line-height:1.75; margin:0 0 16px; }
+.sasnum { font-family:var(--mono); font-size:32px; letter-spacing:.2em; color:var(--green);
+          text-align:center; margin:14px 0 10px; }
+.bar { height:6px; border-radius:4px; background:var(--track); overflow:hidden; margin:12px 0 8px; }
+.bar i { display:block; height:100%; background:var(--green); transition:width .3s; }
+.stepdots { display:flex; gap:6px; justify-content:center; margin-bottom:14px; }
+.stepdots i { width:7px; height:7px; border-radius:50%; background:var(--track); }
+.stepdots i.on { background:var(--green); }
+
+.tokgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(186px,1fr)); gap:10px; margin-top:14px; }
+.tok { border:1px solid var(--page-line); border-radius:10px; padding:10px 12px; background:var(--page-panel); }
+.tok .sw { height:34px; border-radius:7px; border:1px solid var(--page-line); margin-bottom:8px; }
+.tok .nm { font-family:var(--mono); font-size:10.5px; color:var(--page-ink); }
+.tok .ds { font-size:11px; color:var(--page-sub); margin-top:4px; line-height:1.5; }
+.scale { display:grid; gap:8px; margin-top:14px; }
+.scaleRow { display:flex; align-items:baseline; gap:16px; border-bottom:1px solid var(--page-line); padding-bottom:8px; }
+.scaleRow .sp { font-family:var(--mono); font-size:10.5px; color:var(--page-muted); white-space:nowrap; width:150px; flex:none; }
+</style>
+
+<div class="shell">
+  <nav class="rail" aria-label="章节">
+    <p class="brand">手机钥匙<br>设计文档</p>
+    <p class="brandsub">Outsie · 可交互</p>
+    <div id="rail"></div>
+    <div class="railtools">
+      <div class="tool"><span>产品外观</span><button id="themeBtn" type="button">浅色</button></div>
+      <div class="tool"><span>标注</span><button id="annBtn" type="button" class="on">开</button></div>
+      <div class="tool"><span>状态</span><button id="resetBtn" type="button">重来</button></div>
+    </div>
+  </nav>
+  <main class="main" id="main"></main>
+</div>
+<script>
+'use strict';
+/* ═══════════════════════════════════════════════════════════════════════════
+   一个状态对象，一个 render。
+   主界面那一章是活的：开关和按钮改 S，画面重画。
+   流程那几章是铺开的：每一帧用一个覆盖过的状态画出来，读的人不用点。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const fresh = () => ({
+  macTab:'phone', presence:true, idleLock:true, a11y:false, more:false,
+  phones:[
+    { id:'p1', name:'真我GT5 Pro', unlock:true, control:true, seen:'刚刚见到', paired:'9 月 11 日配好',
+      near:-60, far:-78, calAt:'9 月 11 日' },
+    { id:'p2', name:'备用机 Pixel 6a', unlock:false, control:true, seen:'3 天前见到', paired:'8 月 2 日配好',
+      near:null, far:null, calAt:null },
+  ],
+  apps:[
+    { id:'tmux', name:'终端 · tmux', bundle:'com.apple.Terminal', actions:[
+      { cmd:16, icon:'▥', name:'左右分屏', keys:['⌃B','%'] },
+      { cmd:17, icon:'▤', name:'上下分屏', keys:['⌃B','"'] },
+      { cmd:18, icon:'↹', name:'下一个面板', keys:['⌃B','O'] },
+      { cmd:19, icon:'⤢', name:'放大 / 还原', keys:['⌃B','Z'] },
+      { cmd:20, icon:'✕', name:'关闭面板', keys:['⌃B','X'] },
+      { cmd:21, icon:'＋', name:'新窗口', keys:['⌃B','C'] },
+    ]},
+    { id:'figma', name:'Figma', bundle:'com.figma.Desktop', actions:[
+      { cmd:32, icon:'⌗', name:'切到组件', keys:['⌥','2'] },
+      { cmd:33, icon:'⇱', name:'适应画布', keys:['⇧','1'] },
+      { cmd:34, icon:'▦', name:'切换网格', keys:['⌃','G'] },
+    ]},
+    { id:'code', name:'VS Code', bundle:'com.microsoft.VSCode', actions:[
+      { cmd:48, icon:'⌕', name:'全局搜索', keys:['⇧⌘','F'] },
+      { cmd:49, icon:'⌘', name:'命令面板', keys:['⇧⌘','P'] },
+    ]},
+  ],
+  macApp:'tmux',
+  pScreen:'home', keyOn:true, battOk:true, moreP:false,
+  macs:[
+    { id:'m1', name:'书房的 MacBook', key:166, state:'locked' },
+    { id:'m2', name:'工位上的 iMac',      key:17,  state:'unlocked' },
+    { id:'m3', name:'客厅的 mini',        key:15,  state:'silent' },
+  ],
+  controlMac:'m1', catalogues:{ m1:true, m2:false, m3:false },
+  arrange:{}, pApp:'tmux', editing:false, syncing:false,
+  toast:null, ptoast:null, sheet:null, macSheet:null, pair:null, cal:null,
+});
+let S = fresh();
+let ann = true, sub = 'macPhone', chapter = 'read';
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+/* 给流程章节用：在一个覆盖过的状态上画一帧，不动 S。 */
+const at = (patch, fn) => { const keep = S; S = Object.assign({}, keep, patch); try { return fn(); } finally { S = keep; } };
+
+const ICON = {
+  dash:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+  sliders:'<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+  flower:'<circle cx="12" cy="12" r="3"/><path d="M12 9V3M12 21v-6M9 12H3M21 12h-6"/>',
+  chart:'<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+  phone:'<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/>',
+  cmd:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9M4.6 9a1.7 1.7 0 0 0-.3-1.9"/>',
+  key:'<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 8.8-8.8"/><path d="m17 6 3 3"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  a11y:'<circle cx="12" cy="4" r="2"/><path d="M19 8h-5l-2 5-2-5H5M12 13v8M12 21l-3-3M12 21l3-3"/>',
+  ruler:'<path d="M3 8h18v8H3z"/><path d="M7 8v3M11 8v5M15 8v3M19 8v5"/>',
+};
+const svg = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">${d}</svg>`;
+const NAV = [
+  { g:'休息', items:[ { id:'x1', label:'今日概览', i:ICON.dash }, { id:'x2', label:'休息计划', i:ICON.sliders },
+                     { id:'x3', label:'休息灵感', i:ICON.flower }, { id:'x4', label:'我的记录', i:ICON.chart } ]},
+  { g:'手机控制', items:[ { id:'phone', label:'手机控制', i:ICON.phone }, { id:'shortcuts', label:'快捷键设置', i:ICON.cmd } ]},
+  { g:'其它', items:[ { id:'settings', label:'偏好设置', i:ICON.gear } ]},
+];
+const appById = id => S.apps.find(a => a.id === id) || S.apps[0];
+const macById = id => S.macs.find(m => m.id === id) || S.macs[0];
+const arrOf = id => (S.arrange[id] = S.arrange[id] || { hidden:[], order:[] });
+const brand = () => `<div class="phead"><span class="mark m"><i></i><i></i><i></i><i></i></span>
+  <span><span class="pword">outsie<em>.</em></span><div class="ptag">手机钥匙</div></span></div>`;
+
+/* 手机想怎么看这份目录。没见过的东西排最后、保持可见：反过来的默认值，
+   会把一次成功的同步变成一次看起来失败的同步。 */
+function viewActions(macId, appId, includeHidden) {
+  const a = arrOf(macId), app = appById(appId);
+  const rank = new Map(a.order.map((c, i) => [c, i]));
+  return app.actions.map((act, i) => ({ act, i }))
+    .sort((p, q) => (rank.has(p.act.cmd) ? rank.get(p.act.cmd) : a.order.length + p.i)
+                  - (rank.has(q.act.cmd) ? rank.get(q.act.cmd) : a.order.length + q.i))
+    .map(p => p.act).filter(x => includeHidden || !a.hidden.includes(x.cmd));
+}
+
+/* ═══════════════════ Mac ═══════════════════ */
+function macPhonePage() {
+  return `
+  <div class="pagehead"><p class="kicker">Phone</p><h1>手机就是钥匙。</h1>
+    <p>哪几部手机能碰这台 Mac，各自能做什么。</p></div>
+
+  <div class="panel">
+    <div class="sechead">
+      <div><h2>用手机解锁</h2>
+        <p class="state ${S.presence ? 'on' : ''}" style="margin-top:7px"><span class="dot ${S.presence ? '' : 'grey'}"></span>
+          ${S.presence ? '开着 · 留意着你的手机' : '关着 · 回来要输密码'}</p></div>
+      <span class="toggle ${S.presence ? 'on' : ''}" data-act="presence"><span></span></span>
+    </div>
+    <div class="prow" style="padding-top:18px"><span class="ico">${svg(ICON.key)}</span>
+      <div class="g"><h3>回来，按一下回车就进来了</h3>
+        <p>手机在身边，密码框留空就行。<b>它不会自己打开</b>，那一下回车还是要你按。</p></div></div>
+    <div class="prow"><span class="ico">${svg(ICON.lock)}</span>
+      <div class="g"><h3>你离开，电脑自动锁屏 · ${S.idleLock ? '开着' : '关着'}</h3>
+        <p>这两个是一对。锁得越勤越放心，而它负责让你不用多输一次密码。</p></div>
+      <span class="toggle ${S.idleLock ? 'on' : ''}" data-act="idleLock"><span></span></span></div>
+    <div class="prow"><span class="ico">${svg(ICON.a11y)}</span>
+      <div class="g"><h3>手机选操作，Mac 替你按键 · ${S.a11y ? '已允许' : '还没允许'}</h3>
+        <p>离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键；
+          手机不在旁边、键盘又半分钟没动时，也是它替你按下锁屏键。这要在系统设置里允许一次，macOS 把它叫辅助功能。
+          ${S.a11y ? '' : '<b>没允许之前，手机上的按钮不会动。</b>走远了自动锁屏不用它。'}</p>
+        ${S.a11y ? '' : '<button class="tbtn" style="margin-top:7px" data-act="grant">去系统设置里允许 ↗</button>'}</div></div>
+  </div>
+
+  <div class="panel" id="devPanel">
+    <div class="sechead"><div><h2>你的手机</h2><p>每一部能做什么，在这里定。</p></div>
+      <button class="tbtn" data-act="pairStart">配一部新手机 ›</button></div>
+    <div class="devlist" style="margin-top:15px">
+      ${S.phones.map(d => `
+        <div class="dev ${d.unlock || d.control ? '' : 'off'}"><span class="av">${svg(ICON.phone)}</span>
+          <span class="g"><b>${esc(d.name)}</b><span class="sub">${d.seen} · ${d.paired}</span>
+            <span class="caps">
+              <label class="cap" data-act="cap" data-v="${d.id}:unlock"><span class="toggle sm ${d.unlock ? 'on' : ''}"><span></span></span>解锁</label>
+              <label class="cap" data-act="cap" data-v="${d.id}:control"><span class="toggle sm ${d.control ? 'on' : ''}"><span></span></span>按快捷键</label>
+            </span>
+            <span class="bands"><span class="ico" style="width:18px;color:var(--ink-icon)">${svg(ICON.ruler)}</span>
+              <span class="when">${d.near == null ? '还没量过你的距离' : `${d.calAt}量的距离`}</span>
+              <span class="chip no">换了地方，在手机上重新量</span></span>
+          </span></div>`).join('')}
+    </div>
+    <div class="amber"><b>手机丢了？</b> 先在这里把它的两个开关关掉，马上生效，不用碰到手机。
+      每一台配过它的 Mac 都要关一次。</div>
+    <p class="fold" data-act="more">${S.more ? '▾' : '▸'} 更多</p>
+    ${S.more ? `<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:14px">
+      <div class="prow" style="padding-top:0"><div class="g"><h3>锁一次屏，试试看</h3>
+        <p>装好之后做一次就够。回来时密码框留空，按回车。</p></div>
+        <button class="btn" data-act="drill">锁屏，试一次</button></div>
+      <dl style="display:grid;grid-template-columns:6em 1fr;gap:6px 14px;font-size:11.5px;margin:6px 0 0">
+        <dt style="color:var(--muted)">锁屏规则</dt><dd style="margin:0;color:var(--text)">已就位</dd>
+        <dt style="color:var(--muted)">组件</dt><dd style="margin:0;color:var(--text)">已安装</dd>
+        <dt style="color:var(--muted)">这台 Mac</dt><dd style="margin:0;color:var(--text);font-family:var(--mono)">A4F2</dd>
+        ${S.phones.filter(p => p.near != null).map(p => `<dt style="color:var(--muted)">${esc(p.name)}</dt>
+          <dd style="margin:0;color:var(--text);font-family:var(--mono)">近 ${p.near} · 远 ${p.far} dBm</dd>`).join('')}
+      </dl>
+      <button class="btn outline" style="margin-top:14px" data-act="uninstall">不用了，把 Mac 改回原样</button></div>` : ''}
+    <p class="foot">不管这些开关怎么设，密码一直都能登录。</p>
+  </div>`;
+}
+
+function macShortcutsPage() {
+  const app = appById(S.macApp);
+  return `
+  <div class="pagehead"><p class="kicker">Shortcuts</p><h1>一点，就到。</h1>
+    <p>手机上能按哪些键，在这里定。哪几部手机可以按，在「手机控制」里。</p></div>
+  <div class="panel">
+    <div class="sechead"><div><h2>能按的操作</h2><p>「试一次」会把那个 App 切到最前面再按键，和手机上按下去时一样。</p></div></div>
+    <div class="apptabs">
+      ${S.apps.map(a => `<button class="apptab ${a.id === S.macApp ? 'on' : ''}" data-act="macApp" data-v="${a.id}">
+        ${esc(a.name)}<span class="ct">${a.actions.length}</span></button>`).join('')}
+      <button class="apptab add" data-act="addApp">＋ App</button>
+    </div>
+    <div style="margin-top:16px;border:1px solid var(--line);border-radius:11px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+        <span style="font-size:10.5px;color:var(--muted);font-family:var(--mono)">${app.bundle}</span>
+        <button class="tbtn" data-act="delApp" data-v="${app.id}">移掉这个 App</button></div>
+      <div style="margin-top:10px">
+        ${app.actions.length ? app.actions.map(a => `<div class="actrow">
+            <span class="actname"><span style="color:var(--ink-icon)">${a.icon}</span>${esc(a.name)}</span>
+            <span class="keys">${a.keys.map(k => `<span class="kbd">${esc(k)}</span>`).join('')}</span>
+            <button class="iconbtn" title="重新录" data-act="rec" data-v="${a.cmd}">⌨</button>
+            <button class="iconbtn" title="删掉" data-act="delAct" data-v="${a.cmd}">🗑</button>
+            <button class="btn" style="height:28px;padding:0 12px" data-act="try" data-v="${a.cmd}">试一次</button>
+          </div>`).join('')
+        : '<p style="font-size:12px;color:var(--muted);margin:4px 0 0">这个 App 还没有操作。</p>'}
+        <button class="tbtn" style="margin-top:12px" data-act="addAct">＋ 加一个操作</button></div>
+    </div>
+    ${S.a11y ? '' : `<div class="amber"><b>现在按什么都不会有反应。</b>
+      Outsie 还没被允许替你按键。去「<a href="#" data-act="macTab" data-v="phone" style="color:inherit;font-weight:700">手机控制</a>」那一页允许它，自动锁屏用的也是同一个开关。</div>`}
+    <p class="foot">手机上同步一次，才看得到这些按钮。</p>
+  </div>`;
+}
+
+function macBlank(t, s) {
+  return `<div class="pagehead"><p class="kicker">Outsie</p><h1>${t}</h1><p>${s}</p></div>
+    <div class="panel"><p style="font-size:12.5px;color:var(--muted);margin:0">这一页和手机钥匙无关，这里不画。</p></div>`;
+}
+
+function macWindow(cls) {
+  const body = S.macTab === 'phone' ? macPhonePage() : S.macTab === 'shortcuts' ? macShortcutsPage()
+             : S.macTab === 'settings' ? macBlank('让 Outsie 更懂你。', '提醒、外观、关于。') : macBlank('让休息，自然发生。', '这一页讲的是休息。');
+  const label = (NAV.flatMap(g => g.items).find(i => i.id === S.macTab) || {}).label || '';
+  return `<div class="framewrap"><div class="mac ${cls || ''}">
+    <div class="titlebar"><i></i><i></i><i></i><span>Outsie · 歇一会</span></div>
+    <div class="macbody"><aside class="side">
+      <div class="brandrow"><span class="mark"><i></i><i></i><i></i><i></i></span><span class="word">outsie<em>.</em></span></div>
+      <p class="tagline">给日常，留一点空白</p>
+      ${NAV.map(g => `<p class="navlabel">${g.g}</p><div>${g.items.map(it =>
+        `<div class="nav ${S.macTab === it.id ? 'on' : ''}" data-act="macTab" data-v="${it.id}">${svg(it.i)}${it.label}</div>`).join('')}</div>`).join('')}
+    </aside><main class="content">
+      <div class="topbar"><div class="crumbs"><span>我的空间</span><span>›</span><span style="color:var(--subtle)">${label}</span></div>
+        <div class="crumbs"><span>9月12日 星期六</span></div></div>${body}</main></div></div>
+    ${S.macSheet ? macSheetHTML() : ''}
+    ${S.toast ? `<div class="ptoast" style="bottom:18px">${S.toast}</div>` : ''}</div>`;
+}
+
+/* 锁屏：走过去那一下发生的地方。 */
+function macLock(cls, o) {
+  return `<div class="framewrap"><div class="mac ${cls || ''}" style="background:var(--dark-green)">
+    <div style="height:620px;display:grid;place-items:center;color:#fff;text-align:center;font-family:var(--sans)">
+      <div><div style="width:76px;height:76px;border-radius:50%;background:rgba(255,255,255,.18);margin:0 auto 14px;display:grid;place-items:center;font-size:30px">🙂</div>
+        <div style="font-size:18px;font-weight:600;margin-bottom:14px">你</div>
+        <div style="width:220px;height:32px;border-radius:16px;background:rgba(255,255,255,.22);margin:0 auto;display:flex;align-items:center;padding:0 14px;font-size:12px;color:rgba(255,255,255,.75)">${o.field || '输入密码'}</div>
+        <div style="font-size:11.5px;margin-top:14px;color:rgba(255,255,255,.75)">${o.note || ''}</div></div></div></div></div>`;
+}
+
+/* ═══════════════════ 手机 ═══════════════════ */
+const MS = { locked:{ ic:'🔒', line:'锁着。走过去，密码框留空，按回车。' },
+             unlocked:{ ic:'💻', line:'开着，不用解锁。' },
+             silent:{ ic:'–', line:'没听到它。可能不在附近、睡着了，或者没开 Outsie。' } };
+
+function phoneHome() {
+  const n = S.macs.length;
+  return `${brand()}
+    <div class="phero"><div class="disc">🔑</div><h3>守着你的 ${n} 台 Mac</h3><p>带着手机走，它们自己锁；走回去，按一下回车。</p></div>
+    <div class="prow2"><div class="g"><b>当你的钥匙</b>
+      <span class="s">${S.keyOn ? '开着。附近的 Mac 认得你。' : '关着。现在谁都认不出这部手机。'}</span></div>
+      <span class="ptoggle ${S.keyOn ? 'on' : ''}" data-act="keyOn"><i></i></span></div>
+    ${S.battOk ? '' : `<div class="pnote amber">这部手机会在后台把 Outsie 关掉。到时候 Mac 认不出你，也不会有提示。</div>
+      <div class="pbtn" style="margin-top:10px" data-act="batt">去设置，让它留在后台</div>`}
+    <p class="plabel">我的电脑</p>
+    ${S.macs.map(m => `<div class="pcard"><div class="top"><span class="ic">${MS[m.state].ic}</span>
+        <span style="flex:1;min-width:0"><b>${esc(m.name)}</b><span class="sub ${m.state === 'silent' ? 'dim' : ''}">${MS[m.state].line}</span></span></div>
+      ${m.state === 'silent'
+        ? `<div class="pacts"><span class="pbtn dim" style="flex:1">锁定</span><span class="pbtn primary dim" style="flex:1">控制</span></div>`
+        : `<div class="pacts"><span class="pbtn" style="flex:1" data-act="lock" data-v="${m.id}">锁定</span>
+        <span class="pbtn primary" style="flex:1" data-act="goControl" data-v="${m.id}">控制</span></div>`}
+      <div class="plinks"><span class="plink" data-act="goCal" data-v="${m.id}">重新量距离</span>
+        <span class="plink" data-act="forget" data-v="${m.id}">移走</span></div></div>`).join('')}
+    <div class="pbtn" style="margin-top:14px" data-act="pairPhone">＋ 添加电脑</div>
+    <p class="plink" style="margin-top:18px" data-act="moreP">${S.moreP ? '▾' : '▸'} 更多</p>
+    ${S.moreP ? `<div class="pnote info">每台 Mac 一把钥匙，都存在这部手机里，导不出去。
+        要单独去掉一台，用卡片上的「移走」。</div>
+      <div class="pnote amber">手机丢了：在每一台 Mac 上关掉它的开关。人不在手机旁边时，只能这样。</div>
+      <div class="pbtn" style="margin-top:10px" data-act="unpair">和所有 Mac 解除配对</div>` : ''}
+    <p class="ptiny">手机钥匙用不了的时候，密码照常能登录。</p>`;
+}
+
+function phoneControl() {
+  const m = macById(S.controlMac), has = S.catalogues[m.id];
+  const a = arrOf(m.id);
+  const total = S.apps.reduce((n, x) => n + x.actions.length, 0);
+  const cur = appById(S.pApp);
+  const vis = has ? viewActions(m.id, cur.id, false) : [];
+  const hid = has ? viewActions(m.id, cur.id, true).filter(x => a.hidden.includes(x.cmd)) : [];
+  const tile = (x, hidden) => `<div class="tile ${hidden ? 'hidden' : ''}" draggable="${S.editing && !hidden ? 'true' : 'false'}"
+      data-drag="${x.cmd}" ${S.editing ? '' : `data-act="press" data-v="${x.cmd}"`}>
+      ${S.editing ? `<span class="tx" data-act="hideAct" data-v="${x.cmd}">${hidden ? '＋' : '×'}</span>` : ''}
+      <span class="ti">${x.icon}</span><span class="tn">${esc(x.name)}</span></div>`;
+  return `${brand()}
+    <span class="pback" data-act="pScreen" data-v="home">‹ 返回</span>
+    <p class="ptitle">${esc(m.name)}</p>
+    <p class="plead">按一下，那台 Mac 会先切到这个 App，再替你按键。</p>
+    <div class="psync"><span class="s">${S.syncing ? '正在从 Mac 拿列表。Mac 要在附近，而且开着 Outsie。'
+      : has ? `${total} 个操作。在 Mac 上改过，就再同步一次。` : '还没同步过。'}</span>
+      <span class="pbtn" style="padding:0 16px" data-act="sync">同步</span></div>
+    ${!has ? `<div class="pnote info">这台电脑还没同步过按钮。在 Mac 的「快捷键设置」里配好，同步过来就在这里。</div>`
+    : `<div class="apptabs" style="margin-top:14px">${S.apps.map(x => `<button class="apptab ${x.id === cur.id ? 'on' : ''}"
+          data-act="pApp" data-v="${x.id}">${esc(x.name)}</button>`).join('')}</div>
+      <div class="grid" id="grid">${vis.map(x => tile(x, false)).join('')}
+        ${vis.length ? '' : '<p class="plead" style="grid-column:1/-1;margin:4px">这个 App 的按钮都被你收起来了。</p>'}</div>
+      ${S.editing && hid.length ? `<p class="plabel">收起来的</p><div class="grid">${hid.map(x => tile(x, true)).join('')}</div>` : ''}
+      <div class="plinks" style="justify-content:space-between">
+        <span class="plink" data-act="edit">${S.editing ? '完成' : '整理'}</span>
+        ${S.editing ? '<span class="plink" data-act="resetArrange">恢复成 Mac 上的顺序</span>' : ''}</div>
+      ${S.editing ? `<div class="pnote amber">收起来只是这里不显示。要真的不让这部手机按键，去 Mac 上关掉它。</div>` : ''}`}
+    <div class="pnote info" style="margin-top:14px">按钮只负责发出去。按没按成，要看那台 Mac。</div>`;
+}
+
+function phoneCal() {
+  const m = macById(S.controlMac), c = S.cal || { step:0 };
+  const p = S.phones[0];
+  const body = [
+    `<div class="phero"><div class="disc">📏</div><h3>教它认出你的距离</h3>
+      <p>Mac 靠信号强弱猜你在不在。每个房间都不一样，所以要在<b>你平常用它的地方</b>量一次。</p></div>
+     <div class="pnote info">${p.near == null ? '这台电脑还没量过。' : `上次是 ${p.calAt}量的。重新量的时候，旧的先照常用着；量不出结果，旧的也不会变。`}</div>
+     <div class="pbtn primary" style="margin-top:14px" data-act="calNext">先坐到平常的位置</div>`,
+    `<div class="phero"><div class="disc">🪑</div><h3>坐着别动</h3><p>正在量你在座位上时的信号。看这块屏就好，Mac 那边什么都不用做。</p></div>
+     ${c.secs == null ? '<p class="ptiny" style="margin-top:14px">正在叫 Mac 开始…</p>'
+       : `<div class="pbar"><i style="width:${100 - (c.pct || 0)}%"></i></div><p class="ptiny" style="margin-top:4px">还有 ${c.secs} 秒。</p>`}`,
+    `<div class="phero"><div class="disc">🚶</div><h3>现在拿着手机走开</h3><p>走到你平常会离开的距离。门口、茶水间、另一个房间都行。<b>到了再按下面这个。</b></p></div>
+     <div class="pnote info">路上不量。量的是你站定之后的信号，走动中的那一段混进去，两边就会像。</div>
+     <div class="pbtn primary" style="margin-top:14px" data-act="calFar">到了，开始量</div>`,
+    `<div class="phero"><div class="disc">🧍</div><h3>站着别动</h3><p>正在量你走开之后的信号。</p></div>
+     <div class="pbar"><i style="width:${100 - (c.pct || 0)}%"></i></div><p class="ptiny" style="margin-top:4px">还有 ${c.secs || 0} 秒。别看屏，站着就行。</p>`,
+    `<div class="phero"><div class="disc">✅</div><h3>分得很清楚</h3><p>在座位上和走开了，Mac 现在分得出来。从这次起就用新的。</p></div>
+     <div class="pbtn primary" style="margin-top:14px" data-act="calDone">好</div>`,
+    `<div class="phero"><div class="disc">🤔</div><h3>两边太像了</h3><p>在座位上和走开了，信号差不多。这次的量不出结果，不能用。</p></div>
+     <div class="pnote info">常见原因：走得不够远，手机在包里，中间隔着墙或金属。换个走法再来一次通常就好。
+       ${p.near == null ? '' : '<br>上次量的那组还在用，一个数都没变。'}</div>
+     <div class="pbtn primary" style="margin-top:14px" data-act="calNext">再量一次</div>
+     <div class="pbtn" style="margin-top:10px" data-act="calDone">${p.near == null ? '先用默认值' : '先用上次的'}</div>`,
+    `<div class="phero"><div class="disc">🚶</div><h3>走回去就完成</h3><p>走开之后 Mac 听不到手机了。这最清楚。走回 Mac 旁边，它就把这次记下来。</p></div>
+     <p class="ptiny" style="margin-top:14px">正在等 Mac 回话…</p>`,
+  ][c.step];
+  return `${brand()}<span class="pback" data-act="pScreen" data-v="home">‹ 返回</span>
+    <p class="ptitle">${esc(m.name)}</p>${body}`;
+}
+
+function phonePair() {
+  const s = S.pair || { step:0 };
+  const body = [
+    `<div class="phero"><div class="disc">📡</div><h3>准备好了</h3><p>在 Mac 上点「配一部新手机」，这里会自己接上。</p></div>`,
+    `<div class="phero"><div class="disc">👀</div><h3>核对这六位数字</h3><p>Mac 上现在也显示着同一串。</p></div>
+     <p style="font-family:var(--mono);font-size:30px;letter-spacing:.18em;color:var(--green);text-align:center;margin:16px 0 6px">793 675</p>
+     <p class="ptiny" style="margin-top:0">两边一样，中间就没有人冒充。</p>
+     <div class="pbtn primary" style="margin-top:14px" data-act="pairOk">一样，完成配对</div>
+     <div class="pbtn" style="margin-top:10px" data-act="pairNo">不一样，停下</div>`,
+    `<div class="phero"><div class="disc">✅</div><h3>配好了</h3><p>接下来量一次距离，Mac 才知道你什么时候算「在」。</p></div>
+     <div class="pbtn primary" style="margin-top:14px" data-act="goCal" data-v="m1">量一次距离</div>`,
+  ][s.step];
+  return `${brand()}<span class="pback" data-act="pScreen" data-v="home">‹ 返回</span>${body}`;
+}
+
+function phone(cls) {
+  const body = { home:phoneHome, control:phoneControl, cal:phoneCal, pair:phonePair }[S.pScreen]();
+  return `<div class="framewrap"><div class="phone ${cls || ''}"><div class="pscreen">
+    <div class="pstatus"><span>08:12</span><span>▮ ▲ ▰</span></div><div class="pbody">${body}</div></div></div>
+    ${S.sheet ? `<div class="sheet"><div class="sheetbox"><h3>${S.sheet.title}</h3><p>${S.sheet.body}</p>
+      <div class="sheetacts"><div class="pbtn" style="flex:1" data-act="sheetNo">算了</div>
+      <div class="pbtn primary" style="flex:1" data-act="sheetYes">${S.sheet.yes}</div></div></div></div>` : ''}
+    ${S.ptoast ? `<div class="ptoast">${S.ptoast}</div>` : ''}</div>`;
+}
+
+/* ═══════════════════ Mac 弹窗 ═══════════════════ */
+function macSheetHTML() {
+  const s = S.macSheet;
+  if (s.kind === 'pair') {
+    const b = [
+      `<h3>正在找你的手机</h3><p>在手机上打开 Outsie，它会自己出现。两边都要在场，没有二维码，也不用账号。</p>
+       <div class="bar"><i style="width:${s.pct}%"></i></div>`,
+      `<h3>核对这六位数字</h3><p>手机上现在也显示着同一串。两边都要点一下，先点哪边都行。</p>
+       <div class="sasnum">793 675</div><p style="margin:0 0 16px">两边一样，中间就没有人冒充。</p>
+       <div class="sheetacts" style="justify-content:flex-end"><button class="btn outline" data-act="pairAbort">不一样，停下</button>
+       <button class="btn primary" data-act="pairNext">和手机上一样</button></div>`,
+      `<h3>还差手机上那一下</h3><p>这台 Mac 已经记住「真我GT5 Pro」。在手机上点「一样，完成配对」，这里会自己变成完成。</p>
+       <p style="text-align:center;color:var(--green);letter-spacing:.4em;margin:18px 0">• • •</p>`,
+      `<h3>配好了</h3><p>接下来在<b>手机上</b>量一次距离。你会拿着手机走动，所以那一步不在这里。</p>
+       <div class="sheetacts" style="justify-content:flex-end"><button class="btn primary" data-act="msClose">好</button></div>`,
+    ];
+    return `<div class="macsheet"><div class="macsheetbox"><div class="stepdots">${[0,1,2,3].map(i => `<i class="${i <= s.step ? 'on' : ''}"></i>`).join('')}</div>${b[s.step]}</div></div>`;
+  }
+  if (s.kind === 'rec') {
+    return `<div class="macsheet"><div class="macsheetbox"><h3>${s.editing ? '重新录一次' : '加一个操作'}</h3>
+      ${s.editing ? '' : `<p style="margin-bottom:8px">叫什么</p><input id="recName" value="${esc(s.name)}" placeholder="比如：左右分屏" ${s.armed ? 'disabled' : ''}
+        style="width:100%;padding:9px 12px;border-radius:9px;border:1px solid var(--line-chip);background:var(--bg);color:var(--text);font:inherit;font-size:13px;margin-bottom:14px">`}
+      <p>按什么就记什么，按几下记几下。比如先 <span class="kbd">⌃B</span> 再 <span class="kbd">%</span>。</p>
+      <div style="display:flex;gap:6px;min-height:34px;align-items:center;margin:4px 0 12px">
+        ${s.keys.length ? s.keys.map(k => `<span class="kbd">${esc(k)}</span>`).join('') : '<span style="font-size:12px;color:var(--muted)">还没按</span>'}</div>
+      <p style="font-size:11.5px">${s.armed ? '现在按的键只会记在这里，不会传到别的 App。<b>真的按一下键盘试试。</b>' : '先起名字，再开始录。不然打字的每个字母都会被记成按键。'}</p>
+      <div class="sheetacts" style="justify-content:flex-end"><button class="btn outline" data-act="msClose">算了</button>
+        ${s.armed ? `<button class="btn outline" data-act="recClear">重来</button><button class="btn primary" data-act="recDone">就这些</button>`
+                  : `<button class="btn primary" data-act="recArm">开始录</button>`}</div></div></div>`;
+  }
+  return `<div class="macsheet"><div class="macsheetbox"><h3>${s.title}</h3><p>${s.body}</p>
+    <div class="sheetacts" style="justify-content:flex-end"><button class="btn" data-act="msNo">算了</button>
+    <button class="btn primary" data-act="msYes">${s.yes}</button></div></div></div>`;
+}
+
+/* ═══════════════════ 文档部件 ═══════════════════ */
+const spec = h => ann ? `<div class="spec">${h}</div>` : '';
+function after(rows) {
+  return `<div class="tbl-wrap"><table class="after"><tr><th>按下</th><th>之后</th><th>做不到的时候</th></tr>
+    ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="fail">${r[2]}</td></tr>`).join('')}</table></div>`;
+}
+/* 流程：一排帧，每帧下面一句话。不用点。 */
+function board(frames) {
+  return `<div class="board">${frames.map(f => {
+    const isMac = f.html.includes('class="mac');
+    const w = isMac ? 420 : (f.html.includes('phone sm') ? 150 : 181), h = isMac ? 328 : (f.html.includes('phone sm') ? 307 : 370);
+    return `<div class="bf" style="width:${w}px"><div class="bcap"><b>${f.n}</b> ${f.cap}</div>
+      <div class="fz" style="width:${w}px;height:${h}px">${f.html}</div></div>`; }).join('')}</div>`;
+}
+const tokenRow = list => `<div class="tokgrid">${list.map(([n, d]) => `<div class="tok"><div class="sw stage" style="background:var(${n})"></div>
+  <div class="nm">${n}</div><div class="ds">${d}</div></div>`).join('')}</div>`;
+
+/* ═══════════════════ 章节 ═══════════════════ */
+const SUBS = [ ['macPhone','Mac · 手机控制'], ['macShort','Mac · 快捷键设置'], ['pHome','手机 · 主屏'], ['pControl','手机 · 控制'] ];
+
+const CH = [
+{ id:'read', n:'00', g:'开头', t:'怎么读', render: () => `
+  <span class="chnum">00</span><h1>手机就是钥匙，<em>这是它的样子</em>。</h1>
+  <p class="lede">一份设计文档。第 04 章是活的，框里的开关和按钮都能按；后面的流程是铺开的，一帧一帧看，不用点。
+    每一章末尾都有一张「按下之后」表：这个按钮按下去会发生什么，做不到的时候说什么。</p>
+  <div class="callout"><b>为什么要这张表。</b>这个项目犯过一次同样形状的错：界面说的话和代码做的事来自不同的源头。
+    卸载成功了面板不知道，开关绑在它改不了的字段上，成功之后屏幕不变，于是被点第二次。
+    一份只画顺利路径的稿子，是那个错误的漂亮版本。第三列才是这份文档真正的内容。</div>
+  <h3 class="serif" style="font-size:20px;margin-top:30px">三条贯穿全文的规矩</h3>
+  <p class="section-lede"><b>1 · 屏幕上每一句话，都指得出它读的是哪个事实。</b>手机收不到任何回音，所以它只能说「已发出」，不能说「已按下」。</p>
+  <p class="section-lede"><b>2 · 必定失败的按钮不存在。</b>「现在不能用」要说清去哪儿开，「不存在」才消失。消失的按钮没法解释自己。</p>
+  <p class="section-lede"><b>3 · 每一屏都能找到「密码一直都能登录」。</b>这是整个产品最重要的一句话。</p>
+  <p class="section-lede" style="margin-top:26px">左边三个开关：<b>产品外观</b>切框里的深浅色，框外不跟着变；<b>标注</b>关掉只剩界面；<b>重来</b>把状态恢复成初始值。</p>` },
+
+{ id:'voice', n:'01', g:'开头', t:'文案', render: () => `
+  <span class="chnum">01</span><h2>文案怎么写</h2>
+  <p class="section-lede">和官网一个口气。官网是这样说话的：「你带走手机。我们照看屏幕。」「该歇就歇，放心离开。」「AI 没有肩颈。你有，别僵着。」
+    介绍手机工作台时它说：「离开键鼠，让手歇一会儿。」「手机选操作，耳机说想法。」「怎么顺手，就怎么摆。」
+    <b>介绍一个功能，先说它给你什么，再说它要什么。</b>权限、配对、同步都是「要什么」，不当标题。</p>
+  <h3 style="margin-top:22px">六条</h3>
+  <p class="section-lede"><b>1 · 像朋友说话。</b>用「你」。短句，句号多。一句话说一件事。</p>
+  <p class="section-lede"><b>2 · 标题是一句话。</b>「手机就是钥匙。」「一点，就到。」不是名词短语，不是功能名。</p>
+  <p class="section-lede"><b>3 · 动词开头，不加「请」。</b>「先坐到平常的位置」「拿着手机走开」。</p>
+  <p class="section-lede"><b>4 · 不写参数、单位、协议名。</b>dBm、keyId、HMAC 这些字眼不出现在表面。它们收在「更多」里，给想看的人。<b>这是一条设计规范，不是文案偏好。</b></p>
+  <p class="section-lede"><b>5 · 承诺留余地，失败说下一步。</b>「按不保存密码的方式设计」，不说「绝对安全」。出错时说「再量一次」，不说错误码。</p>
+  <p class="section-lede"><b>6 · 不吓唬，不打包票。</b>「手机丢了？先在这里关掉。」比「安全警告」有用。</p>
+  <h3 style="margin-top:26px">这样写，不这样写</h3>
+  <table class="voice">
+    <tr><td class="no">按下去，那台 Mac 会先切到这个 App，再按键。</td><td class="yes">按一下，那台 Mac 会先切到这个 App，再替你按键。</td></tr>
+    <tr><td class="no">点下去只代表发出了。有没有按成要在 Mac 上看——太远、钥匙关着、或者没给「辅助功能」权限，都会按不了。</td><td class="yes">按钮只负责发出去。按没按成，要看那台 Mac。</td></tr>
+    <tr><td class="no">近 −60 dBm · 远 −78 dBm</td><td class="yes">9 月 11 日量的距离</td></tr>
+    <tr><td class="no">替你按键的权限 · 还没允许。macOS 把「替别的 App 按键」当成辅助功能权限。</td><td class="yes">手机选操作，Mac 替你按键 · 还没允许。离开键盘和鼠标，换个舒服的姿势。常用操作在手机上点一下，Mac 替你按下那组键。</td></tr>
+    <tr><td class="no">隐藏只是不显示，那个键照样能发。要禁止这部手机按键，去 Mac 上关掉它的「让它按快捷键」。</td><td class="yes">收起来只是这里不显示。要真的不让这部手机按键，去 Mac 上关掉它。</td></tr>
+    <tr><td class="no">不在附近 · 也可能是它睡着了、关机了，或者没开 Outsie</td><td class="yes">没听到它。可能不在附近、睡着了，或者没开 Outsie。</td></tr>
+    <tr><td class="no">取消配对（立即生效）</td><td class="yes">和所有 Mac 解除配对</td></tr>
+    <tr><td class="no">两组太接近了，这次没法用</td><td class="yes">两边太像了</td></tr>
+  </table>` },
+
+{ id:'token', n:'02', g:'开头', t:'设计 Token', render: () => `
+  <span class="chnum">02</span><h2>设计 Token</h2>
+  <p class="section-lede">框里没有一个裸色值。缺的值会得到一个名字，不是一个例外。这条有来历：实测 <code>src/styles.css</code> 声明了 14 个 token，然后直接用掉 234 个别的十六进制值。</p>
+  <div class="callout warn"><b>产品代码还没跟着改。</b>对比度那三个值要一起定：<code>--muted</code> 3.11:1 不达标，压到 <code>#6f766c</code>；
+    <code>--ink-link</code> 2.59:1，压到 <code>#627255</code>；<code>--ink-amber</code> 4.19:1，压到 <code>#83693f</code>。</div>
+  <h3 style="margin-top:26px">表面</h3>${tokenRow([['--bg','底'],['--sidebar','侧栏'],['--panel','面板'],['--sage','鼠尾草'],['--active','选中'],['--peach','提示底'],['--muted-surface','静音面']])}
+  <h3 style="margin-top:22px">墨色</h3>${tokenRow([['--text','正文'],['--subtle','次要'],['--muted','弱'],['--ink-nav','侧栏未选'],['--ink-nav-on','侧栏选中'],['--ink-label','分组标题'],['--ink-link','文字按钮'],['--ink-amber','提示字'],['--ink-onsage','sage 上的说明']])}
+  <h3 style="margin-top:22px">线与控件</h3>${tokenRow([['--line','分隔线'],['--line-amber','提示描边'],['--line-chip','胶囊描边'],['--track','开关轨道'],['--knob','开关钮'],['--chev','箭头'],['--green','主色'],['--green-dot','状态点'],['--bezel','手机中框']])}
+  <h3 style="margin-top:26px">字阶</h3>
+  <div class="scale">${[['Mac 页标题','27 / 600 / +0.3','font-size:27px;font-weight:600'],['Mac 区块标题','14 / 600 / +0.4','font-size:14px;font-weight:600'],
+    ['Mac 行标题','12.5 / 600','font-size:12.5px;font-weight:600'],['Mac 说明','11 / 400 / 1.68','font-size:11px'],['手机 标题','22 / 800','font-size:22px;font-weight:800'],
+    ['手机 Hero','17 / 700','font-size:17px;font-weight:700'],['手机 卡片标题','14 / 700','font-size:14px;font-weight:700'],['手机 说明','11.5 / 400 / 1.7','font-size:11.5px'],
+    ['分组标签','10 mono / +0.1em','font-size:10px;font-family:var(--mono);letter-spacing:.1em']]
+    .map(r => `<div class="scaleRow"><span class="sp">${r[1]}</span><span style="${r[2]}">${r[0]}</span></div>`).join('')}</div>
+  <h3 style="margin-top:26px">尺寸</h3>
+  <div class="plate"><div class="spec" style="max-width:none">
+    <h4>Mac</h4><dl><dt>侧栏宽</dt><dd>218</dd><dt>导航项</dt><dd>38 高 · r8 · gap11</dd><dt>顶栏</dt><dd>62 高</dd><dt>内容内边距</dt><dd>0 34</dd>
+      <dt>面板</dt><dd>r12 · pad22 24 · 1px</dd><dt>面板间距</dt><dd>16</dd><dt>偏好行</dt><dd>17 上下 · gap15</dd><dt>开关</dt><dd>35×20 · r25</dd>
+      <dt>按钮</dt><dd>34 高 · r9 · 11.5/600</dd><dt>App 标签</dt><dd>r999 · pad7 13</dd></dl>
+    <h4>手机（361pt = 1264 物理 ÷ 3.5）</h4><dl><dt>左右留白</dt><dd>18</dd><dt>Hero</dt><dd>r20 · pad18</dd><dt>电脑卡片</dt><dd>r16 · pad14 15</dd>
+      <dt>卡片图标</dt><dd>34×34 · r11</dd><dt>按钮</dt><dd>42 高 · r12 · 13/600</dd><dt>开关</dt><dd>44×26 · r20</dd><dt>快捷键格</dt><dd>3 列 · r14 · pad12 · 图标 22</dd></dl>
+  </div>${spec(`<h4>两端为什么不共用尺寸</h4><p>Mac 的 11px 说明在手机上读不出来，手机的 42 高按钮在 Mac 上像玩具。共用的是颜色和口气，不是尺寸。尺寸跟着拇指和鼠标走。</p>
+    <h4>深色</h4><p>token 齐了，左边可以切。还没逐屏核对过对比度，所以它现在的状态是「能看」，不是「验过」。</p>`)}</div>` },
+
+{ id:'ia', n:'03', g:'开头', t:'信息架构', render: () => `
+  <span class="chnum">03</span><h2>信息架构</h2>
+  <p class="section-lede">分组的依据是风险，不是「都是手机发来的」。</p>
+  <div class="plate" style="grid-template-columns:1fr 1fr;gap:22px">
+    <div class="spec" style="padding:20px 22px"><h4>Mac 侧栏</h4>
+      <p style="font-size:13px;color:var(--page-ink)"><b>休息</b><br>今日概览 · 休息计划 · 休息灵感 · 我的记录</p>
+      <p style="font-size:13px;color:var(--page-ink)"><b>手机控制</b><br>
+        <b style="color:var(--accent)">手机控制</b> —— 谁能做什么<br>&nbsp;&nbsp;用手机解锁 · 自动锁屏 · <b>让 Outsie 替你按键</b><br>
+        &nbsp;&nbsp;你的手机（解锁 / 按快捷键）<br>&nbsp;&nbsp;每部手机：上次什么时候量的距离<br>&nbsp;&nbsp;手机丢了 · 更多（试一次 · 技术细节 · 改回原样）<br>
+        <b style="color:var(--accent)">快捷键设置</b> —— 能做什么<br>&nbsp;&nbsp;App 标签 → 这个 App 的操作<br>&nbsp;&nbsp;录一组按键 · 试一次 · 删除</p>
+      <p style="font-size:13px;color:var(--page-ink)"><b>其它</b><br>偏好设置</p></div>
+    <div class="spec" style="padding:20px 22px"><h4>手机 · 没有 tab 栏</h4>
+      <p style="font-size:13px;color:var(--page-ink)"><b style="color:var(--accent)">主屏</b> —— 唯一的目的地<br>
+        &nbsp;&nbsp;当你的钥匙<br>&nbsp;&nbsp;一台电脑一张卡：状态 · 锁定 · 控制 · 重新量距离 · 移走<br>&nbsp;&nbsp;＋ 添加电脑<br>&nbsp;&nbsp;更多（解除配对 · 手机丢了）</p>
+      <p style="font-size:13px;color:var(--page-ink)"><b style="color:var(--accent)">控制 · 某台电脑</b> —— 从那张卡进去<br>
+        &nbsp;&nbsp;同步 → App 标签 → 一格一个按钮<br>&nbsp;&nbsp;整理：拖动排序 · 收起来</p>
+      <p style="font-size:13px;color:var(--page-ink)"><b style="color:var(--accent)">量距离</b> —— 从那张卡进去<br>&nbsp;&nbsp;坐好 → 走开 → 结果</p></div>
+  </div>
+  <h3 class="serif" style="font-size:20px;margin-top:32px">七条分层规则</h3>
+  <p class="section-lede"><b>1 · 谁能做什么，和能做什么，是两个 tab。</b>「手机控制」管设备与权限，「快捷键设置」管有哪些 App、每个 App 有哪些操作。混在一起，同一部手机就会出现在两个地方、带两个开关。
+    名字从「快捷控制」改成「快捷键设置」：这一页是写下有哪些按键的地方，真正做控制的是手机。</p>
+  <p class="section-lede"><b>2 · 权限挂在设备上，一部手机两个开关。</b>解锁和按快捷键是两类风险，要能分别关掉。</p>
+  <p class="section-lede"><b>3 · 系统权限跟着需要它的功能走。</b>辅助功能支撑两件事：离开时按下锁屏键，替手机按下你配的那组键。两件事都在「手机控制」，权限行就在那一页。</p>
+  <p class="section-lede"><b>4 · 配置在 Mac，挑选在手机。</b>按哪几个键、占哪个字节，只在 Mac 上编辑。手机上能做的是显示哪些、什么顺序，直接在控制页拖。</p>
+  <p class="section-lede"><b>5 · 量距离在手机上。</b>你拿着手机走动，看不见 Mac 的屏幕。Mac 是那把尺子，手机是遥控器。</p>
+  <p class="section-lede"><b>6 · 手机上没有 tab 栏。</b>「这把钥匙」那一页删掉了：它端着的第二份电脑名单和主屏是同一批电脑；剩下的解除配对和手机丢了，收进主屏的「更多」。
+    「控制」属于某一台电脑，从那张卡进去，标题就是那台电脑。只剩一个目的地，tab 栏是家具，不是导航。</p>
+  <p class="section-lede"><b>7 · 技术细节收起来。</b>信号强度、钥匙编号、规则名称，都在「更多」里。表面上只说人话。</p>` },
+
+{ id:'main', n:'04', g:'界面', t:'主界面 · 所有 tab', render: () => {
+  const isMac = sub.startsWith('mac');
+  const notes = {
+    macPhone:`<h4>这一页</h4><p><b>两个面板。</b>上面回答「锁和开这一对现在什么状态」，下面回答「谁能开」。</p>
+      <p><b>自动锁屏在这里。</b>手机钥匙存在的全部理由，就是让人敢把自动锁屏开到最紧。分开放，人就会为了少输密码去关锁屏。</p>
+      <p><b>「你离开」指的是手机走远，不是键盘没动。</b>2026-09-12 真机：这个开关一直是「30 秒没动键盘就按锁屏键」，和手机在不在无关，所以走远从来没锁过；而且它要替你按键的权限，那个权限当天才给。改成：监测判定手机走远（低于远处那条线，或 45 秒没听到）的那一刻锁屏，走的是「锁定」按钮那条路（以 root 让显示器睡下，系统设置里「睡眠后立即要求密码」已经是开的），不要权限。闲置锁只在手机不在旁边时才计时，坐着看东西不会被锁。</p>
+      <p><b>替你按键的权限也在这里。</b>上面两件事都要它。试着允许它，再去「快捷键设置」看那条提示消失。</p>
+      <p><b>距离那一行不写数字。</b>写的是「什么时候量的」，重新量在手机上。数字在「更多」里。</p>`,
+    macShort:`<h4>这一页</h4><p><b>先点 App，再出按钮。</b>三个 App 加起来 87 个操作，平铺超过四屏。那么长的列表是划过去的，不是读的。</p>
+      <p><b>没权限时，提示指回「手机控制」。</b>不留一个点不动的「试一次」。</p>`,
+    pHome:`<h4>这一屏</h4><p><b>一台电脑一张卡</b>：状态、锁定、控制，下面两行小字：重新量距离、移走。</p>
+      <p><b>状态三种</b>：锁着、开着、没听到它。「没听到它」是主句，不用「未知」，它读起来像故障，而这是常态。
+        <b>没听到它的时候，锁定和控制都按不了</b>：没人在听的锁定、给一台不在的机器开的控制页，都是必定失败的按钮。</p>
+      <p><b>「没听到它」分三种说法。</b>刚才还听得到（十分钟内）、现在听不到：「刚才还听得到，现在听不到了。走远了的话，它已经自己锁上。」——走远之后手机收不到 Mac 的信标，卡片没法显示「锁着」，但可以说出最可能的事实。很久没听到：「没听到它。可能不在附近、睡着了，或者没开 Outsie。」手机自己的钥匙没在广播：「这部手机的钥匙没在广播，所以听不到它。」——先怪自己，再怪 Mac。</p>
+      <p><b>「当你的钥匙」是一台状态机，不是两个布尔值。</b>服务只记事实：在跑、有钥匙、蓝牙开着、广播已确认、上一次失败、什么时候开始的。屏上那一句每次读的时候从事实推出来，六种：
+        关着 → 「关着。现在谁都认不出这部手机。」· 没钥匙 → 「还没配对，Mac 认不出这部手机。」· 蓝牙关着 → 「手机的蓝牙关着。打开蓝牙，它自己接着广播。」·
+        正在开始（最多十秒）→ 「正在开始广播…几秒就好。」· 没开起来 → 「广播没开起来：原因。关掉再开一次。」· 开着 → 「开着。附近的 Mac 认得你。」
+        开关显示的是你要的（蓝牙关着时开关仍是开的），不是无线电的运气。事实一变屏就重画，不用杀掉 App 再开。
+        2026-09-12 真机：蓝牙关了再开，旧版停在「正在启动…」直到杀掉 App，因为服务只有两个布尔值、没有人监听蓝牙回来、而且蓝牙一关进程就崩了。</p>
+      <p><b>每个等的地方说三件事</b>：在做什么、什么能结束它、大概多久。「正在启动…」三样都没说，是这类句子里最差的一种。</p>
+      <p><b>「让它一直在」在「当你的钥匙」里只占一行。</b>标题下一行小字说状态：「都设好了。」或「还有 1 件没设。点开看怎么设。」点开是一整页，一步一张卡，带真机截图：让 Mac 认出它（附近的设备权限）、息屏之后也在（电池优化豁免）、开机自己起来、后台不被冻结（国产皮肤各自的自启动 / 后台运行 / 不限耗电，车钥匙那类 App 引导的就是这几项；系统读不出来，由人点「我做好了」）、通知栏留一行（可选）。每一步先说给你什么，做完打勾。realme 那一步的图是从这部手机的「应用详情」和「耗电管理」截的，写的就是屏上那几个字：「完全允许后台行为」「管理闲置应用」关掉。</p>
+      <p><b>「走过去按回车」只在 Mac 用配对钥匙签名说自己锁着时才出现。</b>不验签，任何带无线电的人都能广播「开着」把你钉在座位上。</p>
+      <p><b>解除配对在「更多」里</b>，它不是你会回来找的东西。</p>`,
+    pControl:`<h4>这一屏</h4><p><b>标题就是那台电脑。</b>目录按 Mac 存；没有那台的目录时说「还没同步过」，不借别的电脑的按钮来填。</p>
+      <p><b>App 的名字也是按钮。</b>点它，Mac 切到那个 App，不按键；下面的按钮才按键。每个 App 有自己的字节，和操作同一个池子，同样分了就不变。</p>
+      <p><b>一格一个按钮。</b>点「整理」之后可以拖着换位置，× 收起来。收起来的在下面，随时能放回来。</p>
+      <p><b>没有 Hero。</b>这一屏你打开是为了按按钮，大图标会把第一个按钮顶到折叠线以下。</p>`,
+  };
+  const frame = isMac ? macWindow() : phone();
+  return `<span class="chnum">04</span><h2>主界面</h2>
+  <p class="section-lede">两端所有常驻界面。<b>这一章是活的</b>，每个开关和按钮都能按。</p>
+  <div class="apptabs" style="margin:18px 0 4px">${SUBS.map(s => `<button class="apptab ${sub === s[0] ? 'on' : ''}" data-act="sub" data-v="${s[0]}">${s[1]}</button>`).join('')}</div>
+  <div class="plate ${isMac ? 'stack' : ''}"><div><p class="frame-note">${isMac ? '1060 × 620 · 1:1' : '361 pt · 1:1'} <b>可以点</b></p>
+    <div class="scroller">${frame}</div></div>${spec(notes[sub])}</div>
+  ${after([
+    ['用手机解锁','关掉之后状态行改成「回来要输密码」。','—'],
+    ['你离开，电脑自动锁屏','Mac 判定手机走远（信号低于远处那条线，或 45 秒没听到）就立刻锁屏，用的是和手机上「锁定」同一条路，不需要任何权限。坐着不动、手机在旁边：不锁。','手机在旁边时，30 秒没动键盘也不锁；手机不在时才有这条闲置锁，它要替你按键的权限。'],
+    ['去系统设置里允许','打开系统设置；回来时这一行自己变成「已允许」。','系统里撤销了，这一行自己变回去。'],
+    ['解锁 / 按快捷键','马上生效。','关掉「按快捷键」之后，这部手机发来的快捷键 Mac 会拒收。'],
+    ['当你的钥匙','开关信标。','厂商后台杀掉时会悄悄停，所以有那条提示和「去设置」。'],
+    ['锁定 / 控制（没听到它时）','按不了，两个都变淡。','副标题已经说了原因：可能不在附近、睡着了，或者没开 Outsie。不再解释第二遍。'],
+    ['控制（卡片）','进入那台电脑的控制页。','那台还没同步过时，进去是空状态，不是别人的按钮。'],
+    ['整理','按钮进入可拖动、可收起的状态。','—'],
+  ])}`;
+}},
+
+{ id:'pair', n:'05', g:'流程', t:'配对，然后量距离', render: () => {
+  const fr = [
+    { n:'①', cap:'Mac：正在找你的手机', html: at({ macSheet:{ kind:'pair', step:0, pct:55 } }, () => macWindow('narrow')) },
+    { n:'②', cap:'两边显示同一串数字', html: at({ macSheet:{ kind:'pair', step:1 } }, () => macWindow('narrow')) },
+    { n:'②', cap:'手机上也是它', html: at({ pScreen:'pair', pair:{ step:1 } }, () => phone('sm')) },
+    { n:'③', cap:'Mac 等的是手机用上新钥匙，不是一句话', html: at({ macSheet:{ kind:'pair', step:2 } }, () => macWindow('narrow')) },
+    { n:'④', cap:'配好了。接下来去量距离', html: at({ pScreen:'pair', pair:{ step:2 } }, () => phone('sm')) },
+    { n:'⑤', cap:'先坐到平常的位置', html: at({ pScreen:'cal', cal:{ step:0 } }, () => phone('sm')) },
+    { n:'⑤', cap:'坐着别动，倒数 20 秒', html: at({ pScreen:'cal', cal:{ step:1, pct:35, secs:13 } }, () => phone('sm')) },
+    { n:'⑤', cap:'拿着手机走开。到了才按', html: at({ pScreen:'cal', cal:{ step:2 } }, () => phone('sm')) },
+    { n:'⑤', cap:'按了「到了」才开始量远处，也倒数 20 秒', html: at({ pScreen:'cal', cal:{ step:3, pct:55, secs:9 } }, () => phone('sm')) },
+    { n:'⑤', cap:'远处听不见：走回去就完成', html: at({ pScreen:'cal', cal:{ step:6 } }, () => phone('sm')) },
+    { n:'⑥', cap:'分得清楚', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
+    { n:'⑥', cap:'两边太像，给两个出口', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
+  ];
+  return `<span class="chnum">05</span><h2>配对，然后量距离</h2>
+  <p class="section-lede">五步，跨两块屏。先点哪边都行。重要的是两边都点，以及 Mac 最后等的是一个信号，不是一句话。<b>量距离整个在手机上</b>：你拿着手机走动，看不见 Mac 的屏幕。</p>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>为什么只有一个编号</h4><p>这六位是整个配对里唯一需要人核对的东西。曾经紧接着弹出一串八位十六进制「配对编号」，没有任何东西说明该核对哪一个。在一个防中间人的流程里，那正是攻击者需要的困惑。</p>
+    <h4>「不一样，停下」是一个真答案</h4><p>不是取消。按了之后不要就着这次重试。允许重试等于让对方一直猜，六位数字就不再是六位数字。</p>
+    <h4>远处不自动开始</h4><p>近处量完，手机停在「走开」那一屏，等你按「到了」。路上的信号是从近到远的一条斜线，混进远处那一组，两组就会挨在一起。这是「两边太像」最常见的成因，靠一个按钮就能挡掉。</p>
+    <h4>远处听不见也是答案</h4><p>「到了」本身是一条蓝牙指令，从远处发出。远处出了范围，Mac 就永远收不到它，两边一起干等——真机上第一次走就卡在这里。所以远处倒数完没有结果，不算失败：手机说「走回去就完成」，走近之后把「远处结束」补送给 Mac，Mac 把远处记成「听不见」。走开之后互相听不见，是分得最清楚的一种。只有近处听不到手机才是失败。</p>
+    <h4>倒数，不计时</h4><p>两段各 20 秒，Mac 和手机用同一个数。屏上是倒数的圈，告诉你还要站多久；「N 秒了」是在让你猜。</p>
+    <h4>量距离必须能失败</h4><p>两边太像时给原因和两个出口。一个不能失败的校准，只会写进一个它自己都不信的数字。</p>
+    <h4>Mac 是尺子，手机是遥控器</h4><p>信号是 Mac 听到的，手机自己量不了。所以手机发指令、Mac 采样、Mac 把进度用状态信标报回来。这需要状态字节多几个取值，见第 14 章。</p>`)}</div>
+  ${after([
+    ['配一部新手机','Mac 开始找；手机上打开 Outsie 就出现。','手机没开蓝牙时停在「正在找」，说去哪儿开。'],
+    ['和手机上一样','Mac 记下这次交换，等手机用上新钥匙。','两边不一样：按「不一样，停下」，这次作废，不重试。'],
+    ['一样，完成配对（手机）','手机写入钥匙，开始用它签名。','钥匙位被占的情形还没处理（未实现，见第 15 章）。'],
+    ['先坐到平常的位置','Mac 采 20 秒近处，手机倒数。量完停在「走开」那一屏。','这 20 秒里 Mac 没听到手机：说「没听到手机」，两个出口。开始之前那一屏就说：Mac 上要开着 Outsie，屏幕别锁着。'],
+    ['到了，开始量','手机倒数 20 秒，Mac 同时采远处。路上不量。','走动中的信号混进去，两边就会像，所以远处不自动开始。'],
+    ['（远处倒数完）','有结果就出结果。没有，就是 Mac 没听到「到了」：手机说「走回去就完成」。','远处听不见不是失败，是最清楚的一种结果。'],
+    ['（走回去）','手机把「远处结束」补送给 Mac，Mac 记下这次，回「量好了」。','两分钟还没回话：「Mac 没回音」。'],
+    ['（远处量完）','出结果。','两边太像：走失败屏，给原因和两个出口。'],
+    ['再量一次','回到「先坐到平常的位置」。旧的还在用。','—'],
+    ['先用上次的 / 先用默认值','关掉，什么都没变。','—'],
+  ])}`;
+}},
+
+{ id:'recal', n:'06', g:'流程', t:'重新量距离', render: () => {
+  const fr = [
+    { n:'①', cap:'卡片上的「重新量距离」', html: at({ pScreen:'home' }, () => phone('sm')) },
+    { n:'②', cap:'说清楚现在用的是哪一组', html: at({ pScreen:'cal', cal:{ step:0 } }, () => phone('sm')) },
+    { n:'③', cap:'坐好，倒数', html: at({ pScreen:'cal', cal:{ step:1, pct:70, secs:6 } }, () => phone('sm')) },
+    { n:'④', cap:'走开，到了再按', html: at({ pScreen:'cal', cal:{ step:2 } }, () => phone('sm')) },
+    { n:'④', cap:'站定了才量', html: at({ pScreen:'cal', cal:{ step:3, pct:30, secs:14 } }, () => phone('sm')) },
+    { n:'⑤', cap:'成功', html: at({ pScreen:'cal', cal:{ step:4 } }, () => phone('sm')) },
+    { n:'⑤', cap:'失败：上次的一个数都没变', html: at({ pScreen:'cal', cal:{ step:5 } }, () => phone('sm')) },
+    { n:'Mac', cap:'Mac 上只写什么时候量的', html: at({ macTab:'phone' }, () => macWindow('narrow')) },
+  ];
+  return `<span class="chnum">06</span><h2>重新量距离</h2>
+  <p class="section-lede">换了座位、换了房间，就重新量。入口在手机的电脑卡片上。</p>
+  <div class="callout warn"><b>为什么一切正常时也要有入口。</b>换个座位、挪张桌子之后，没有任何可观测的东西会变坏。插件照样放行，面板照样是「就绪」，于是既不会有提示，也没有入口。一个只能在坏掉之后进入的校准，等于要求人先把它弄坏。</div>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>名字</h4><p>沿用已有的词。按钮叫「重新量距离」，失败后的重试叫「再量一次」。不发明第三个说法。</p>
+    <h4>重做的失败出口和第一次不一样</h4><p>第一次分不开时，出口是「再量一次」和「先用默认值」。重做时没有「默认值」这个选项，已经有一组在用了。出口是「再量一次」和「先用上次的」。</p>
+    <h4>重做期间旧的继续用</h4><p>绝不能出现「量到一半，这台 Mac 没有阈值」。那要么谁走过都开，要么你自己也开不了。</p>`)}</div>
+  ${after([
+    ['重新量距离','先说清现在用的是哪一组，再开始。','从没量过时说「还没量过」，不编一个日期。'],
+    ['先坐到平常的位置','采近处。<b>旧的一直在用。</b>','中途退出 = 什么都没变。'],
+    ['到了，开始量','这时才采远处，倒数 20 秒。','没按之前 Mac 不采，你可以慢慢走。远处听不见：走回去就完成，同第 05 章。'],
+    ['好（成功）','从这次起用新的。','—'],
+    ['先用上次的','关掉，一个数都没变。','—'],
+  ])}`;
+}},
+
+{ id:'mkkey', n:'07', g:'流程', t:'在 Mac 上配一个快捷键', render: () => {
+  const fr = [
+    { n:'①', cap:'加一个操作：先起名字', html: at({ macTab:'shortcuts', macSheet:{ kind:'rec', name:'', keys:[], armed:false } }, () => macWindow('narrow')) },
+    { n:'②', cap:'开始录，按什么记什么', html: at({ macTab:'shortcuts', macSheet:{ kind:'rec', name:'左右分屏', keys:['⌃B','%'], armed:true } }, () => macWindow('narrow')) },
+    { n:'③', cap:'写进列表。手机要同步一次才看得到', html: at({ macTab:'shortcuts', toast:'写进去了。手机上同步一次，就看得到。' }, () => macWindow('narrow')) },
+    { n:'④', cap:'试一次，有权限', html: at({ macTab:'shortcuts', a11y:true, toast:'切到「终端 · tmux」，按了「左右分屏」' }, () => macWindow('narrow')) },
+    { n:'④', cap:'试一次，没权限：指回手机控制', html: at({ macTab:'shortcuts', a11y:false, toast:'Outsie 还没被允许替你按键。去「手机控制」那一页允许它。' }, () => macWindow('narrow')) },
+  ];
+  return `<span class="chnum">07</span><h2>在 Mac 上配一个快捷键</h2>
+  <p class="section-lede">加 App，加操作，录一组键，试一次。整个过程只在 Mac 上，录按键要一把真键盘。</p>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>先起名字再录</h4><p>不然打字的每个字母都会被记成按键。录制是两段的：起名 → 开始录 → 按键 → 就这些。中途什么都不保存。</p>
+    <h4>字节是 Mac 分配的，分了就不变</h4><p>删掉一个操作不会让别的改号。所以一部很久没同步的手机按下去什么都不发生，而不是按到顶替它的那个操作上。</p>
+    <h4>「试一次」会把那个 App 切到最前面</h4><p>和手机上按下去一样。这件事会真的发生在屏幕上，所以要在按之前说。</p>
+    <h4>命令行也能看、能改：<code>outsie shortcuts</code></h4><p>面板之外的第二个入口，给人也给 AI。<code>list</code> 看每个 App 的操作、按键、字节；<code>add-app</code> / <code>add --app 飞书 --name 搜索 --keys "cmd+k"</code> / <code>remove</code> 改；<code>import</code> 合并一份 JSON（同名 App 更新，同名操作只换按键，字节不变）；<code>export</code> 打出可以再导入的；<code>--schema</code> <code>--examples</code> 给 AI 读。改的是面板读的同一个文件，Mac 立刻读到，手机同步一次。按键写法就是人说的那样：cmd+k、shift+cmd+p、ctrl+b, %、enter、f12。装在 Outsie.app 里（Contents/MacOS/outsie-cli），软链到 ~/.local/bin/outsie。</p>
+    <h4>「复制给 AI 的说明」</h4><p>快捷键设置页顶上一个按钮，复制的是 <code>outsie shortcuts --prompt</code> 那一段：命令、按键写法、导入格式、现在已有哪些 App、五条规则（同名合并、新 App 要 bundleId、名字要短、不删没提的、改完提醒手机同步）。贴给任何会跑命令的 AI，说一句「给飞书加个搜索」就行。这条链路有测试：<code>tests/cli/outsie-shortcuts-chain.sh</code> 在临时 HOME 里走「说明 → AI 回答 → import → list」，<code>--live</code> 真的问一次模型；2026-09-12 晚用 Claude 跑通，模型只凭说明就给出了能直接导入的 JSON。</p>`)}</div>
+  ${after([
+    ['＋ App','打开系统选 App 的面板，选中的加进来并展开。','同一个 App 加两次会被挡下。'],
+    ['＋ 加一个操作','弹窗：先问名字，再录键。','名字为空，「开始录」点不动。'],
+    ['就这些','写进配置，读回来显示。','没按任何键，点不动。'],
+    ['试一次','切到那个 App，按下那组键。','没权限：按钮变灰，上方一句话指回「手机控制」。'],
+    ['🗑 / 移掉这个 App','写盘后读回。','—'],
+  ])}`;
+}},
+
+{ id:'sync', n:'08', g:'流程', t:'同步到手机', render: () => {
+  const fr = [
+    { n:'①', cap:'这台电脑还没同步过', html: at({ pScreen:'control', controlMac:'m2' }, () => phone('sm')) },
+    { n:'②', cap:'正在拿列表', html: at({ pScreen:'control', controlMac:'m2', syncing:true }, () => phone('sm')) },
+    { n:'③', cap:'到了，一格一个按钮', html: at({ pScreen:'control', controlMac:'m2', catalogues:{ m2:true }, ptoast:'收到 11 个操作' }, () => phone('sm')) },
+    { n:'③', cap:'没到：Mac 不在附近', html: at({ pScreen:'control', controlMac:'m2', ptoast:'没同步成。Mac 要在附近，而且开着 Outsie。' }, () => phone('sm')) },
+    { n:'③', cap:'到了但签名对不上：丢掉，留上一份', html: at({ pScreen:'control', controlMac:'m1', ptoast:'收到的东西不是你配对的那台 Mac 发的，已经丢掉。' }, () => phone('sm')) },
+  ];
+  return `<span class="chnum">08</span><h2>同步到手机</h2>
+  <p class="section-lede">手机发一个「请求」，Mac 主动连上来写一份列表，带签名。</p>
+  <div class="callout"><b>为什么列表要签名。</b>一份伪造的列表不需要做任何聪明的事：它给按钮贴错标签。按钮上写「锁屏」，发出去的字节在 Mac 自己的配置里对应的却是别的操作。
+    所以列表带一个签名，用的是配对时派生的第二把钥匙：它能签一份按钮列表，却永远造不出一条在场信标。验不过就丢掉，并保留上一份。</div>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>窗口只开那几十秒</h4><p>在场信标是不可连接的，没有任何东西能顺着它伸进手机。拿列表需要相反的东西，所以它被围起来：点了才开 60 秒，自己关。</p>
+    <h4>「正在拿」读的是窗口真的开着</h4><p>曾经这句话由按钮自己写，然后被下一个状态事件覆盖，按下去看起来像什么都没发生。</p>
+    <h4>每份列表按签它的钥匙归档</h4><p>所以答错的那台不会落到错的格子里，只是你想要的那台仍然空着。</p>`)}</div>
+  ${after([
+    ['同步','开 60 秒接收窗口，发出请求。','没配对 / 蓝牙关着：当场说，窗口不开。'],
+    ['（Mac 送到）','验签 → 存下这台 Mac 的列表 → 按钮出现。','签名对不上：丢掉，留上一份，说「不是你配对的那台 Mac 发的」。'],
+    ['（60 秒到）','窗口关。','这次没等到：「没同步成。Mac 要在附近，而且开着 Outsie。」'],
+    ['（同步之后）','你的排序和收起来的都还在，只清掉 Mac 上已经没有的。','排序和列表分开存，混在一起下次同步会把排序冲掉。'],
+  ])}`;
+}},
+
+{ id:'press', n:'09', g:'流程', t:'按一下之后', render: () => {
+  const fr = [
+    { n:'①', cap:'按一下', html: at({ pScreen:'control', ptoast:'已发出。' }, () => phone('sm')) },
+    { n:'②', cap:'钥匙关着', html: at({ pScreen:'control', keyOn:false, ptoast:'手机钥匙关着。先去主屏打开。' }, () => phone('sm')) },
+    { n:'③', cap:'Mac 收到，切到 App，按键', html: at({ macTab:'shortcuts', a11y:true, toast:'手机说：按「左右分屏」。切到「终端 · tmux」，按了。' }, () => macWindow('narrow')) },
+    { n:'④', cap:'Mac 收到，但这部手机被关了按键', html: at({ macTab:'phone', toast:'手机说：按「左右分屏」。这部手机的「按快捷键」关着，没按。' }, () => macWindow('narrow')) },
+    { n:'⑤', cap:'Mac 收到，但没被允许替你按键', html: at({ macTab:'shortcuts', a11y:false, toast:'手机说：按「左右分屏」。Outsie 还没被允许替你按键，没按。' }, () => macWindow('narrow')) },
+  ];
+  return `<span class="chnum">09</span><h2>按一下之后</h2>
+  <p class="section-lede">指令走那条单向信标：认证过、防重放、实测通过。代价是没有回程。手机知道自己发出去了，不知道 Mac 按没按成。</p>
+  <div class="callout"><b>所以按钮只能说「已发出」。</b>要说「已按下」，得让 Mac 在状态信标里回一句「按到第几个了」。那是下一版协议，不在这一轮。</div>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>标签既是分组，也是目标</h4><p>选中「终端」再点「左右分屏」，读起来像是把键发给终端。它确实就是：Mac 先把那个 App 切到最前面，再按键。切到前面这件事会真的发生在屏幕上，所以屏幕上要先说。</p>
+    <h4>一个字节能表达的就这么多</h4><p>「按第几个」，没有参数，没有返回值。换来的是「必须在附近」免费成立：Mac 得听得到这条广播才拿得到指令。</p>`)}</div>
+  ${after([
+    ['按一下（一切正常）','Mac 收到、验签、切 App、按键。手机说「已发出」。','—'],
+    ['点 App 的名字','切分组；同时发那个 App 自己的字节，Mac 切到它，不按键。手机说「已发出」。','来自旧版 Mac 的列表没有这个字节：只切分组。9 月 12 日真机：人两次点「飞书」都在等 Mac 切过去。'],
+    ['按一下（钥匙关着）','什么都不发。','「手机钥匙关着。先去主屏打开。」'],
+    ['按一下（Mac 关了这部手机的按键）','Mac 收到、验签通过、拒收。','手机这边看不出区别。这正是「已发出 ≠ 已按下」的现场。'],
+    ['按一下（Mac 没被允许按键）','Mac 收到，试着按，失败。','Mac 上说：还没被允许替你按键。'],
+  ])}`;
+}},
+
+{ id:'arrange', n:'10', g:'流程', t:'整理：拖动排序，收起来', render: () => {
+  const fr = [
+    { n:'①', cap:'点「整理」', html: at({ pScreen:'control' }, () => phone('sm')) },
+    { n:'②', cap:'拖着换位置，× 收起来', html: at({ pScreen:'control', editing:true }, () => phone('sm')) },
+    { n:'③', cap:'收起来的在下面，随时放回', html: at({ pScreen:'control', editing:true, arrange:{ m1:{ hidden:[19,20], order:[18,16,17,21] } } }, () => phone('sm')) },
+    { n:'④', cap:'完成', html: at({ pScreen:'control', arrange:{ m1:{ hidden:[19,20], order:[18,16,17,21] } } }, () => phone('sm')) },
+  ];
+  return `<span class="chnum">10</span><h2>整理：拖动排序，收起来</h2>
+  <p class="section-lede">直接在控制页做，不另开一页。只改这部手机看到什么，Mac 上不变。</p>
+  <div class="callout warn"><b>收起来不等于禁止。</b>收起来的操作，它的字节照样能发。换一部手机、重装一次 App，它就又在了。真正的开关在 Mac 上，每部手机一个。界面上要把这句写出来。</div>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>按字节存，不按序号</h4><p>序号会因为 Mac 上删掉一个操作而整体挪位，「收起来的第 3 个」会变成另一个操作。</p>
+    <h4>新来的默认显示，排在末尾</h4><p>反过来很糟：你在 Mac 上加好一个操作、同步、然后找不到它，会以为同步失败。</p>
+    <h4>拖动</h4><p>长按拿起，拖到位置放下。在手机上，长按是为了不和上下滚动打架。</p>
+    <h4>恢复</h4><p>「恢复成 Mac 上的顺序」必须有。没有它，收错之后唯一的出路是记得自己收过什么。</p>`)}</div>
+  ${after([
+    ['整理','按钮进入可拖动、可收起的状态。','—'],
+    ['拖动','整份顺序写下来，不只是被移动的那一个。','只存被移动的那个，一次拖动会把没碰过的也洗牌。'],
+    ['×','移到「收起来的」。','它的字节照样能发，这是显示偏好，不是权限。'],
+    ['＋（收起来的）','放回原来的位置。','—'],
+    ['恢复成 Mac 上的顺序','清空这台电脑的整理记录。','—'],
+    ['完成','回到按按钮的状态。','—'],
+  ])}`;
+}},
+
+{ id:'lock', n:'11', g:'流程', t:'锁定，然后走回去', render: () => {
+  const fr = [
+    { n:'①', cap:'手机上按「锁定」', html: at({ pScreen:'home', ptoast:'已发出。Mac 在附近的话，几秒内会锁。' }, () => phone('sm')) },
+    { n:'②', cap:'Mac 锁上了', html: macLock('narrow', { note:'' }) },
+    { n:'③', cap:'走回去：密码框留空，按回车', html: macLock('narrow', { field:'（留空，按回车）', note:'手机在身边。' }) },
+    { n:'④', cap:'进来了', html: at({ macTab:'phone' }, () => macWindow('narrow')) },
+    { n:'⑤', cap:'手机不在：照常要密码。这不是故障', html: macLock('narrow', { field:'输入密码', note:'没找到你的手机。密码一直都能用。' }) },
+  ];
+  return `<span class="chnum">11</span><h2>锁定，然后走回去</h2>
+  <div class="callout warn"><b>锁屏宁可晚，不可错。</b>2026-09-12 晚：手机放地上，单个样本掉到远处线以下，Mac 一分钟锁了三次。走远的判定现在是四道：
+    ① 看的是最近五个样本的中位数，不是最新一个（单个 −93 会被扔掉）；② 中位数要在远处线以下持续 10 秒；③ <b>键盘鼠标 20 秒内有动静就不锁</b>，无线电说什么都不算——人在打字就是在；
+    ④ 一次离开只锁一次，60 秒内不重复。完全没信号时：45 秒清掉放行（Mac 不再自动放你进，这是安全方向），<b>60 秒</b>才锁屏，而且同样过前三道。走近相反：第一个够强的样本就放行，不等。<br><b>锁之前先说。</b>判定一旦开始（信号低于远处线在等那 10 秒，或没信号在等那 60 秒），Mac 屏幕顶上出一条：「手机走远了 · 8 秒后锁屏。碰一下键盘或鼠标就不锁。」秒数真的在走，碰键盘它就消失。监测每秒把「还有几秒」写进状态行的第四个字段，App 读到就画。</div>
+  <p class="section-lede">一个方向是手机让 Mac 锁上，另一个方向是人走回去，密码框留空，按一下回车。后者没有按钮可按，那正是它的设计。</p>
+  <div class="callout warn"><b>它不会在你走近时自己打开。</b>手机替代的是你的密码，不是那一下按键。屏幕上每次提到解锁都要带上这半句。</div>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>能锁，不能开</h4><p>手机能让 Mac 锁屏，不能让它开屏。这不是没做，是不做：一条能开屏的指令，等于把「人在附近」这个可以被中继伪造的事实，变成一把可以远程转动的钥匙。</p>
+    <h4>偶尔第一次回车会失败</h4><p>手机还没被认出来的那几秒里会。再按一次通常就好。这句话要写在使用指南里。</p>`)}</div>
+  ${after([
+    ['锁定','指令进队列，25 秒内 Mac 收到就锁。','钥匙关着 / 没配对：当场说，不入队。'],
+    ['（走回去按回车）','插件看到在场凭据还新鲜，放行。','凭据过期或不在附近：照常要密码，不是报错。'],
+    ['（手机不在）','插件拒绝，锁屏照常要密码。','这是正确行为。产品的底线是密码一直可用。'],
+  ])}`;
+}},
+
+{ id:'remove', n:'12', g:'流程', t:'移走 · 解除配对 · 改回原样', render: () => {
+  const fr = [
+    { n:'①', cap:'移走一台', html: at({ pScreen:'home', sheet:{ title:'移走「工位上的 iMac」？', body:'这部手机丢掉它那把钥匙，那台 Mac 就不会再因为你走近而解锁。那台 Mac 上的设置不会变，它只是认不出这部手机了。想恢复，重新配对。', yes:'移走' } }, () => phone('sm')) },
+    { n:'②', cap:'和所有 Mac 解除配对', html: at({ pScreen:'home', moreP:true, sheet:{ title:'和所有 Mac 解除配对？', body:'所有 Mac 马上认不出这部手机。想再用，重新配对。', yes:'解除' } }, () => phone('sm')) },
+    { n:'③', cap:'Mac：把 Mac 改回原样', html: at({ macTab:'phone', more:true, macSheet:{ title:'把这台 Mac 改回原样？', body:'锁屏规则从备份还原，组件删除，这台 Mac 上的钥匙删除。做完之后每一条都重新读一遍报给你。', yes:'改回原样' } }, () => macWindow('narrow')) },
+    { n:'④', cap:'三行都是读回来的', html: at({ macTab:'phone', toast:'✓ 锁屏规则已还原　✓ 组件已删除　✓ 钥匙已删除' }, () => macWindow('narrow')) },
+  ];
+  return `<span class="chnum">12</span><h2>三种「不要了」</h2>
+  <p class="section-lede">后果差得很远，所以不放在一起，也不长得一样。</p>
+  ${board(fr)}
+  <div class="plate stack">${spec(`<h4>移走 ≠ 那台 Mac 忘了我</h4><p>这部手机丢掉它那把钥匙，那台 Mac 那边的设置不会变。这句话必须写在确认框里，否则人会以为自己在两边都清干净了。</p>
+    <h4>改回原样是三件事，逐条读回来</h4><p>每一行都是做完之后重新去系统里读出来的，不是代码里写死的 true。本项目曾经报告「钥匙已删除」而钥匙还在盘上。</p>`)}</div>
+  ${after([
+    ['移走','这部手机删掉那一把钥匙，卡片消失。','确认框直说：那台 Mac 那边不会变。'],
+    ['和所有 Mac 解除配对','所有钥匙一次删光。','确认框再说一次「所有」。'],
+    ['不用了，把 Mac 改回原样','还原、删组件、删钥匙，逐条读回来显示。','任何一步没成，显示那一步的真实状态，不给笼统的对勾。'],
+    ['删掉这把钥匙（Mac）','钥匙、它的来源和手机记录、按钮列表的钥匙一起删。正在跑的监测下一秒起不再认它。','列表马上少一行。没手机了，「配一部新手机」还在标题旁，不用去翻「更多」。'],
+    ['（手机丢了）','在每一台 Mac 上关掉它的开关。','远程停用还没做。直说。'],
+  ])}`;
+}},
+
+{ id:'model', n:'13', g:'参考', t:'安全模型', render: () => `
+  <span class="chnum">13</span><h2>安全模型</h2>
+  <p class="section-lede">界面上的每一句话，最后都要落到这里的某一条上。</p>
+  <h3 style="margin-top:22px">它做什么</h3><p class="section-lede">判断「配对过的那部手机在不在附近」，并据此让 macOS 在锁屏上少要一次密码。仅此而已。</p>
+  <h3 style="margin-top:22px">它不做什么</h3>
+  <ul style="color:var(--page-sub);line-height:1.9">
+    <li><b>不替代密码。</b>任何状态下密码都能登录。</li>
+    <li><b>不做身份识别。</b>它判断的是「配对过的手机在不在」，不是「是不是你本人」。</li>
+    <li><b>不做远程控制。</b>手机能锁屏，不能开屏。</li>
+    <li><b>不在手机上编辑快捷键。</b>手机上能改的只有看到哪些、什么顺序。</li>
+    <li><b>不做「需要手机确认才解锁」。</b>不在范围里。</li>
+  </ul>
+  <h3 style="margin-top:22px">两把钥匙，一次配对</h3>
+  <div class="callout">同一次 ECDH、同一份记录，靠不同的标签派生两把互不相关的钥匙。
+    <p style="font-family:var(--mono);font-size:12px;margin:12px 0;color:var(--page-ink)">K　　 = HKDF(x, salt=记录, info="repose-pair-v3 presence-key")　← root 独占<br>K_cat = HKDF(x, salt=记录, info="repose-pair-v3 console-key")　 ← App 可读</p>
+    K 签在场信标，只有 root 那一半读得到。K_cat 签按钮列表，在用户态。偷走 K_cat 的人能伪造一份按钮列表，但开不了这台 Mac。</div>
+  ${after([
+    ['重放一条录到的信标','序号必须严格增大，30 秒计数器窗口。','—'],
+    ['伪造一部手机','拿不到 K 就造不出能验过的签名。实测：冒充者 0/24。','—'],
+    ['配对时插在中间','六位数字两边核对，不一致就作废，不重试。','真·中间人测试还没做，需要第二台 Android。'],
+    ['伪造一份按钮列表','用 K_cat 验，验不过丢掉并保留上一份。','—'],
+    ['把信号中继到远处','<b>挡不住。</b>这是这一类方案共同的边界，产品不假装能挡。','所以它只省一次密码，不当身份凭证。'],
+  ])}` },
+
+{ id:'proto', n:'14', g:'参考', t:'协议', render: () => `
+  <span class="chnum">14</span><h2>协议</h2>
+  <h3 style="margin-top:20px">在场信标 <code>repose-presence-v2</code>（手机 → Mac，不可连接）</h3>
+  <pre class="proto"><code>服务 UUID  0xFFF0
+载荷       version(1) ‖ keyId(1) ‖ cmd(1) ‖ seq(4 BE) ‖ tag(8)        15 字节
+预映像     "repose-presence-v2 beacon" ‖ keyId ‖ counter(8 BE) ‖ cmd ‖ seq
+tag        HMAC-SHA256(K, msg)[0..8)
+counter    floor(unix / 30)，从不传输，两端各自推算，±1 容差
+cmd        0 无 · 1 锁屏 · 3 请求列表 · 4 开始量近处 · 5 开始量远处 · 6 远处结束，定下来 · 16.. 快捷键
+           ← 6 是手机远处倒数完还没结果时发的；走回去 Mac 才听得到，所以每 10 秒重发到有结果
+seq        手机持久化递增；Mac 只接受严格更大的</code></pre>
+  <h3 style="margin-top:24px">状态信标 <code>repose-macstate-v2</code>（Mac → 手机）</h3>
+  <pre class="proto"><code>服务 UUID  0xFFF7
+载荷       version(1) ‖ keyId(1) ‖ macId(2) ‖ state(1) ‖ tag(8)       13 字节
+承载       BLE 本地名，base64url 18 字符
+state      0 开着 · 1 锁着 · <b>2 量近处 · 3 近处好了，等你走开 · 4 量远处 · 5 量好了 · 6 两边太像 · 7 没听到手机</b>
+           ← 量距离在手机上，靠这几个值报进度。3 是必须有的：远处不自动开始，Mac 要说「等你」
+           ← 7 只出自近处那 20 秒。远处听不到手机是「量好了」（远处记成听不见），不是 7
+macId      硬件 UUID 的 SHA-256 前两字节，纳入预映像</code></pre>
+  <h3 style="margin-top:24px">按钮列表 <code>repose-console-v1</code>（Mac → 手机，短时可连接）</h3>
+  <pre class="proto"><code>服务 UUID  0xFFF9   特征 0xFFFA
+分片       idx(2 BE) ‖ total(2 BE) ‖ bytes
+整体       version(1) ‖ revision(4 BE) ‖ jsonUtf8 ‖ tag(16)
+tag        HMAC(K_cat, "repose-console-v1 catalogue" ‖ 整体去掉 tag)[0..16)
+窗口       点「同步」之后开 60 秒
+归档       按验签匹配上的那把钥匙存，也就是哪台 Mac 发的</code></pre>
+  <h3 style="margin-top:24px">配对 <code>repose-pair-v3</code></h3>
+  <pre class="proto"><code>GATT FFF1   FFF2 写 PK_M · FFF3 读 PK_P‖Cp · FFF4 写 Nm · FFF5 读 Np · FFF6 名字 · FFF8 读 keyId‖phoneId
+记录        SHA256("repose-pair-v3 sas" ‖ pkM ‖ pkP ‖ nm ‖ np ‖ keyId ‖ phoneId)
+keyId       手机首次配对时自己取 1..255；Mac 槽位被占则回「换一个」</code></pre>
+  <p class="section-lede"><b>keyId 由手机拥有。</b>一部手机配多台 Mac 时只有一套广播，只能带一个 keyId。由 Mac 分配，第二台就会要求改号，改号会让第一台认不出它。</p>` },
+
+{ id:'status', n:'15', g:'参考', t:'实现状态', render: () => `
+  <span class="chnum">15</span><h2>实现状态</h2>
+  <p class="section-lede">「设计了」和「能用」是两件事，混在一起写是这个项目犯过最贵的错误。</p>
+  <div class="tbl-wrap"><table class="after"><tr><th style="width:32%">能力</th><th style="width:16%">状态</th><th>证据 / 缺什么</th></tr>
+  ${[
+    ['配对（核对六位数字）','ok','两端同时显示同一串；自检含 OpenSSL 已知答案'],
+    ['配对时钥匙位被占→换一个','no','第 14 章协议里写了这一步；Mac 不回「换一个」，手机也不换位，两端都没实现。第 05 章那一行直说'],
+    ['在场信标 + 签名','ok','真机 16/16 有效，冒充者 0/24'],
+    ['插件在 macOS 26.6.2 上放行 / 拒绝','ok','放行多次；手机关机时拒绝，本机实测'],
+    ['手机 → Mac 锁屏','ok','25 秒内收到 21 次'],
+    ['Mac → 手机状态（带 macId）','ok','手机按 Mac 分别显示锁/开'],
+    ['安装 / 改回原样','ok','三行逐条读回'],
+    ['一部手机配多台 Mac','ok','手机持 3 把钥匙'],
+    ['一台 Mac 配多部手机','part','协议和 UI 都在，只有一部手机没实测'],
+    ['量距离（Mac 上驱动）','part','Mac 侧的「量一下距离」入口还在。手机流程 9 月 12 日两次真机走通，删它排在 0.8.0 之后'],
+    ['<b>量距离搬到手机上</b>','ok','9 月 12 日真机两次：第一次远处出了范围，按兜底算（远 = 近 − 12）；22:47 第二次真量到远处（近 −57，远 −79），量完 Mac 自动重启监测换上新阈值。两段各 20 秒倒数（第 05 章）'],
+    ['快捷键设置（Mac 编辑器）','ok','加 App / 加操作 / 录键 / 试一次'],
+    ['列表传到手机并验签','ok','87 个操作送达，验签通过'],
+    ['手机按一下 → Mac 按键','ok','9 月 12 日晚真机：手机按「搜索」，Mac 切到飞书按了 ⌘K，再按「取消」按了 Esc（console.log 逐条对上）。此前三个坑：按钮内芯吃掉点击；蓝牙关掉时进程崩；从后台 activate 在 macOS 14+ 无效（改成先激活自己再让出）'],
+    ['<b>走远自动锁屏</b>','ok','9 月 12 日真机两次：走远 46 秒没听到 → AWAY → 锁屏；关手机蓝牙 46 秒同样锁。开关背后原来是 30 秒闲置计时 + 按键，和手机无关；现在是监测判定走远即锁，走「锁定」同一条路，不要权限'],
+    ['点 App 名字切 App','ok','9 月 12 日晚真机：飞书、Codex、Arc、Antigravity 各一次，Mac 2 秒内到前台，不开新窗口'],
+    ['删掉这把钥匙之后 Mac 立刻不再认它','ok','验证器实测：删文件前 VALID，删后 1.5 秒 NOKEY'],
+    ['整理（收起来 + 排序）','ok','拖动换位、× 收起来，都在控制页里；按 Mac 分别存'],
+    ['每部手机的「按快捷键」开关','ok','关掉后 Mac 拒收，四个方向验过'],
+    ['权限行在「手机控制」','ok','9 月 12 日真机看过；权限本身还没给'],
+    ['手机上没有 tab 栏 / 控制绑定到某台电脑','ok','第 03/04 章'],
+    ['「这把钥匙」删掉，收进主屏「更多」','ok','第 03 章'],
+    ['技术细节收进「更多」','ok','第 01 章第 4 条'],
+    ['手机卡片按钥匙位点亮','ok','9 月 12 日真机：旧版按记录里的 macId 匹配，老版本配的钥匙位没记录，永远灰'],
+    ['删掉这把钥匙之后 Mac 立刻不再认它','ok','9 月 12 日真机：旧版删了文件还继续认了 8 分钟。验证器改成每秒确认钥匙文件还在；用同一条信标驱动本机的验证器实测：删文件前 VALID，删后 1.5 秒 NOKEY'],
+    ['移走之后手机不再用那把钥匙广播','part','9 月 12 日真机：旧版继续广播。已改成通知服务重建信标；真机没再删过钥匙'],
+    ['「当你的钥匙」认得系统蓝牙','ok','9 月 12 日晚真机：关蓝牙，服务不崩、行文改口；开蓝牙 3 秒内重新广播，Mac 随即 ENTER'],
+    ['后台常驻引导（权限 · 电池 · 自启动 / 后台运行）','ok','9 月 12 日晚真机截图：主屏一行 + 一整页分步引导，realme 那一步带真机截图；已做的打勾'],
+    ['走远判定不抖','part','9 月 12 日晚真机：手机放地上，单个样本掉到远处线以下就锁了三次。改成中位数 + 持续 10 秒 + 键盘 20 秒内有动静不锁 + 60 秒冷却，没信号 60 秒才锁（第 11 章）；22:47 重新量距离后监测重启，新判定已在跑。到 9 月 13 日 0.8.0 打包，bridge.log 里没再出现误锁，两次到 61 秒都被键盘守卫挡下；真走远一次再定'],
+    ['<code>outsie shortcuts</code> 命令行','ok','list / add-app / add / remove / import / export / --schema / --examples；14 条测试；在本机对真实配置 list 过'],
+    ['锁屏倒计时横幅','ok','9 月 12 日 23:32 真机：关手机蓝牙，21 秒后 Mac 窗口顶上出「一分钟没听到手机 · 40 秒后锁屏」；61 秒时判定，键盘 14 秒内有动静，没锁（守卫①按设计挡下）；开蓝牙 Mac 立刻 ENTER。横幅在两次汇报之间自己走秒'],
+    ['「复制给 AI 的说明」→ AI → outsie shortcuts','ok','prompt 由代码生成（自带现状）；链路测试 canned + --live 都过，真模型一次给出可导入的 JSON'],
+    ['两端图标一致','ok','手机用 Mac 同一套图标（tauri 生成的 mipmap + 自适应图标）'],
+    ['应用叫 Outsie（0.7.0 起）','ok','9 月 13 日：界面、文档、官网、通知、DMG 名全换。标识不动：ai.repose.lite、ai.repose.spike.*、ai.repose.blespike、repose-* 事件与协议名、REPOSE_* 环境变量。改了就丢授权、丢配对'],
+    ['手机四屏视觉走查（adb 截图）','ok','9 月 13 日：主屏、让它一直在、控制、量距离说明各截一遍，改了 13 处：开关样式、按钮层级、行距、夜间模式开关旋钮'],
+    ['0.8.0 发布','ok','9 月 13 日：DMG + APK + SHA256SUMS.txt 挂在 GitHub release v0.8.0，从消过毒的公开 checkout 推的；二进制里没有本机路径；官网下载区指向它，介绍加了「开会时不打扰」'],
+    ['没手机时「配一部新手机」在标题旁','part','9 月 12 日真机：旧版藏在「更多」里。已改；待真机'],
+    ['远程停用','no','界面上直说做不到'],
+    ['更新 App 之后蓝牙权限会丢','ok','根治了：本机自签证书签包（Outsie Dev），签名要求变成「标识 + 证书」，重装不变。9 月 12 日重装后授权仍在。不需要 Developer ID'],
+    ['真·中间人测试','no','需要第二台 Android'],
+    ['需要手机确认才解锁','skip','不做'],
+    ['<b>面板跟随 Mac 前台 App</b>（官网承诺）','no','官网「电脑切到哪，面板跟到哪」。今天的信标单向，Mac 报不出前台 App；要状态信标多带一个字段。先在官网上改口，或者排进下一版协议'],
+    ['<b>耳机语音输入</b>（官网承诺）','skip','官网「手机选操作，耳机说想法」。和手机钥匙无关，不在这份文档里；官网那句话要么指向别的功能，要么删掉'],
+  ].map(r => `<tr><td>${r[0]}</td><td><span class="pill ${r[1]==='ok'?'ok':(r[1]==='no'||r[1]==='skip')?'no':''}">${{ok:'实测通过',part:'部分',no:'未实现',skip:'不做'}[r[1]]}</span></td><td>${r[2]}</td></tr>`).join('')}
+  </table></div>` },
+
+{ id:'accept', n:'16', g:'参考', t:'验收 · 还没画的', render: () => `
+  <span class="chnum">16</span><h2>验收</h2>
+  <ol style="color:var(--page-sub);line-height:1.95">
+    <li><b>屏幕上每一句话，都指得出它读的是哪个事实。</b></li>
+    <li><b>必定失败的按钮不存在。</b>「现在不能用」要说清去哪儿开。</li>
+    <li><b>每一屏都能找到「密码一直都能登录」。</b></li>
+    <li><b>表面上没有参数、单位、协议名。</b>它们在「更多」里。</li>
+    <li><b>同步不冲掉整理</b>：Mac 上新加的出现在末尾，排序和收起来的一条都不变。</li>
+    <li><b>量距离必须能失败</b>，重做失败时旧的一个数都不变。</li>
+    <li><b>改回原样的三行是读回来的。</b></li>
+    <li><b>手机只说「已发出」。</b></li>
+  </ol>
+  <h2 style="margin-top:40px">还没画的</h2>
+  <ul style="color:var(--page-sub);line-height:1.9">
+    <li><b>空状态</b>：一部手机都没有时，先说这是什么，再给按钮。</li>
+    <li><b>手机被系统后台杀掉之后</b>：提示有了，「已经被杀掉了」这个状态画不出来，手机自己也不知道。</li>
+    <li><b>「钥匙对不上」</b>：听得到信标却验不过。今天是静默失效。</li>
+    <li><b>深色逐屏核对。</b></li>
+  </ul>` },
+];
+
+/* ═══════════════════ render + 事件 ═══════════════════ */
+function render() {
+  const c = CH.find(x => x.id === chapter) || CH[0];
+  $('#main').innerHTML = `<div class="chapter stage" data-product="${document.documentElement.dataset.product || 'light'}">${c.render()}</div>`;
+  let g = '';
+  $('#rail').innerHTML = CH.map(x => { let o = ''; if (x.g !== g) { g = x.g; o += `<p class="railgrp">${g}</p>`; }
+    return o + `<button class="railitem ${x.id === chapter ? 'on' : ''}" data-ch="${x.id}"><span class="n">${x.n}</span>${x.t}</button>`; }).join('');
+  wireDrag();
+}
+function toast(msg, phoneSide) {
+  if (phoneSide) { S.ptoast = msg; setTimeout(() => { S.ptoast = null; render(); }, 2600); }
+  else { S.toast = msg; setTimeout(() => { S.toast = null; render(); }, 2600); }
+  render();
+}
+let timer = null;
+const step = (fn, ms) => { clearTimeout(timer); timer = setTimeout(fn, ms); };
+function pairTick() {
+  const s = S.macSheet; if (!s || s.kind !== 'pair' || s.step !== 0) return;
+  s.pct = Math.min(100, s.pct + 20);
+  if (s.pct >= 100) { s.step = 1; S.pair = { step:1 }; }
+  render(); if (s.step === 0) step(pairTick, 420);
+}
+function calTick() {
+  const c = S.cal; if (!c || (c.step !== 1 && c.step !== 3)) return;
+  c.pct = Math.min(100, c.pct + 14); c.secs = Math.max(0, 20 - Math.round(c.pct * 0.2));
+  // 近处量完停在「走开」那一屏，等人按「到了」。远处不自动开始。
+  // 远处倒数完还没有结果，就是 Mac 没听到「到了」：走回去就完成。
+  if (c.pct >= 100) { if (c.step === 1) { c.step = 2; c.pct = 0; c.secs = 0; } else { c.step = c.forceFail ? 5 : 6; } }
+  render(); if (c.step === 1 || c.step === 3) step(calTick, 380);
+}
+
+/* 拖动排序：HTML5 dnd 就够了，原型里用鼠标。手机上是长按拿起。 */
+let dragging = null;
+function wireDrag() {
+  document.querySelectorAll('.tile[draggable="true"]').forEach(t => {
+    t.addEventListener('dragstart', e => { dragging = +t.dataset.drag; t.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    t.addEventListener('dragend', () => { dragging = null; render(); });
+    t.addEventListener('dragover', e => { e.preventDefault(); t.classList.add('over'); });
+    t.addEventListener('dragleave', () => t.classList.remove('over'));
+    t.addEventListener('drop', e => { e.preventDefault(); const to = +t.dataset.drag; if (dragging != null && dragging !== to) moveAct(dragging, to); dragging = null; render(); });
+  });
+}
+function moveAct(from, to) {
+  const a = arrOf(S.controlMac), app = appById(S.pApp);
+  const vis = viewActions(S.controlMac, app.id, false).map(x => x.cmd);
+  const hid = viewActions(S.controlMac, app.id, true).map(x => x.cmd).filter(c => a.hidden.includes(c));
+  const i = vis.indexOf(from), j = vis.indexOf(to); if (i < 0 || j < 0) return;
+  vis.splice(j, 0, vis.splice(i, 1)[0]);
+  const mine = new Set(vis.concat(hid));
+  a.order = vis.concat(hid).concat(a.order.filter(c => !mine.has(c)));   // 整份顺序写下来
+}
+
+document.addEventListener('click', e => {
+  const ch = e.target.closest('[data-ch]');
+  if (ch) { chapter = ch.dataset.ch; window.scrollTo(0, 0); render(); return; }
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  const act = el.dataset.act, v = el.dataset.v; e.preventDefault();
+  const A = {
+    sub: () => { sub = v; if (v === 'macPhone') S.macTab = 'phone'; if (v === 'macShort') S.macTab = 'shortcuts';
+                 if (v === 'pHome') S.pScreen = 'home'; if (v === 'pControl') { S.pScreen = 'control'; S.catalogues[S.controlMac] = true; } },
+    macTab: () => { S.macTab = v; }, macApp: () => { S.macApp = v; }, pApp: () => { S.pApp = v; },
+    pScreen: () => { S.pScreen = v; S.editing = false; },
+    presence: () => { S.presence = !S.presence; }, idleLock: () => { S.idleLock = !S.idleLock; },
+    keyOn: () => { S.keyOn = !S.keyOn; }, batt: () => { S.battOk = true; toast('好了，它会留在后台。', true); },
+    more: () => { S.more = !S.more; }, moreP: () => { S.moreP = !S.moreP; },
+    grant: () => { S.a11y = true; toast('已允许 Outsie 替你按键。'); },
+    cap: () => { const [id, k] = v.split(':'); const p = S.phones.find(x => x.id === id); p[k] = !p[k]; },
+    pairStart: () => { S.macSheet = { kind:'pair', step:0, pct:0 }; S.pScreen = 'pair'; S.pair = { step:0 }; step(pairTick, 420); },
+    pairPhone: () => { S.macSheet = { kind:'pair', step:0, pct:0 }; S.pScreen = 'pair'; S.pair = { step:0 }; S.macTab = 'phone'; step(pairTick, 420); },
+    pairNext: () => { S.macSheet.step = 2; },
+    pairAbort: () => { S.macSheet = null; S.pScreen = 'home'; S.pair = null; toast('这次作废了。重新开始一次，不要就着这次重试。'); },
+    pairOk: () => { if (S.macSheet && S.macSheet.step === 2) { S.macSheet.step = 3; S.pair = { step:2 }; } },
+    pairNo: () => { S.macSheet = null; S.pScreen = 'home'; S.pair = null; toast('停下了。重新开始一次配对。', true); },
+    goCal: () => { S.controlMac = v || S.controlMac; S.macSheet = null; S.pScreen = 'cal'; S.cal = { step:0, pct:0, secs:0, forceFail: S.controlMac === 'm3' }; },
+    calNext: () => { S.cal.step = 1; S.cal.pct = 0; S.cal.secs = 20; step(calTick, 380); },
+    calFar: () => { S.cal.step = 3; S.cal.pct = 0; S.cal.secs = 20; step(calTick, 380); },
+    calDone: () => { if (S.cal.step === 4) { const p = S.phones[0]; p.near = -57; p.far = -80; p.calAt = '9 月 12 日'; } S.cal = null; S.pScreen = 'home'; },
+    msClose: () => { S.macSheet = null; if (S.pScreen === 'pair') S.pScreen = 'home'; S.pair = null; },
+    addApp: () => { const id = 'app' + (S.apps.length + 1); S.apps.push({ id, name:'新加的 App', bundle:'com.example.new', actions:[] }); S.macApp = id; toast('加上了。给它加一个操作。'); },
+    delApp: () => { S.apps = S.apps.filter(a => a.id !== v); if (!S.apps.length) S.apps.push({ id:'x', name:'空', bundle:'—', actions:[] }); S.macApp = S.apps[0].id; },
+    delAct: () => { const a = appById(S.macApp); a.actions = a.actions.filter(x => x.cmd !== +v); },
+    addAct: () => { S.macSheet = { kind:'rec', name:'', keys:[], armed:false, editing:false }; },
+    rec: () => { const a = appById(S.macApp).actions.find(x => x.cmd === +v); S.macSheet = { kind:'rec', name:a.name, keys:[], armed:true, editing:true, cmd:a.cmd }; },
+    recArm: () => { const i = document.getElementById('recName'); const nm = (i && i.value || '').trim(); if (!nm) return; S.macSheet.name = nm; S.macSheet.armed = true; },
+    recClear: () => { S.macSheet.keys = []; },
+    recDone: () => { const s = S.macSheet; if (!s.keys.length) return; const app = appById(S.macApp);
+      if (s.editing) { app.actions.find(x => x.cmd === s.cmd).keys = s.keys.slice(); }
+      else { const used = S.apps.flatMap(x => x.actions.map(y => y.cmd)); let cmd = 16; while (used.includes(cmd)) cmd++; app.actions.push({ cmd, icon:'⌨', name:s.name, keys:s.keys.slice() }); }
+      S.macSheet = null; toast('写进去了。手机上同步一次，就看得到。'); },
+    try: () => { const a = appById(S.macApp).actions.find(x => x.cmd === +v);
+      toast(S.a11y ? `切到「${appById(S.macApp).name}」，按了「${a.name}」` : 'Outsie 还没被允许替你按键。去「手机控制」那一页允许它。'); },
+    goControl: () => { S.controlMac = v; S.pScreen = 'control'; S.pApp = 'tmux'; S.editing = false; },
+    lock: () => { if (!S.keyOn) return toast('手机钥匙关着。先打开上面的开关。', true); toast('已发出。Mac 在附近的话，几秒内会锁。', true); },
+    sync: () => { const m = macById(S.controlMac); if (!S.keyOn) return toast('手机钥匙关着，Mac 收不到。', true);
+      S.syncing = true; render(); step(() => { S.syncing = false; S.catalogues[m.id] = true; toast(`收到 ${S.apps.reduce((n,a)=>n+a.actions.length,0)} 个操作`, true); }, 1600); },
+    press: () => { const m = macById(S.controlMac); if (!S.keyOn) return toast('手机钥匙关着。先去主屏打开。', true);
+      if (m.state === 'silent') return toast('已发出。不过没听到这台 Mac，多半收不到。', true);
+      toast('已发出。', true); },
+    edit: () => { S.editing = !S.editing; },
+    hideAct: () => { const a = arrOf(S.controlMac), c = +v; a.hidden = a.hidden.includes(c) ? a.hidden.filter(x => x !== c) : a.hidden.concat(c); },
+    resetArrange: () => { S.arrange[S.controlMac] = { hidden:[], order:[] }; },
+    forget: () => { const m = macById(v); S.sheet = { title:`移走「${m.name}」？`, body:'这部手机丢掉它那把钥匙，那台 Mac 就不会再因为你走近而解锁。那台 Mac 上的设置不会变，它只是认不出这部手机了。想恢复，重新配对。', yes:'移走',
+      act:() => { S.macs = S.macs.filter(x => x.id !== v); delete S.catalogues[v]; } }; },
+    unpair: () => { S.sheet = { title:'和所有 Mac 解除配对？', body:'所有 Mac 马上认不出这部手机。想再用，重新配对。', yes:'解除', act:() => { S.macs = []; S.catalogues = {}; S.moreP = false; } }; },
+    sheetNo: () => { S.sheet = null; }, sheetYes: () => { const a = S.sheet.act; S.sheet = null; if (a) a(); },
+    drill: () => toast('锁屏了。回来时密码框留空，按回车。'),
+    uninstall: () => { S.macSheet = { title:'把这台 Mac 改回原样？', body:'锁屏规则从备份还原，组件删除，这台 Mac 上的钥匙删除。做完之后每一条都重新读一遍报给你。', yes:'改回原样', act:'uninstall' }; },
+    msYes: () => { const s = S.macSheet; S.macSheet = null; if (s.act === 'uninstall') toast('✓ 锁屏规则已还原　✓ 组件已删除　✓ 钥匙已删除'); },
+    msNo: () => { S.macSheet = null; },
+  };
+  if (A[act]) { A[act](); render(); }
+});
+
+window.addEventListener('keydown', e => {
+  const s = S.macSheet; if (!s || s.kind !== 'rec' || !s.armed) return;
+  e.preventDefault(); e.stopPropagation();
+  if (['Shift','Control','Alt','Meta'].includes(e.key)) return;
+  const mods = (e.ctrlKey ? '⌃' : '') + (e.altKey ? '⌥' : '') + (e.shiftKey ? '⇧' : '') + (e.metaKey ? '⌘' : '');
+  const name = { ' ':'Space','Enter':'↩','Escape':'⎋','Tab':'⇥','Backspace':'⌫','ArrowUp':'↑','ArrowDown':'↓','ArrowLeft':'←','ArrowRight':'→' }[e.key] || e.key.toUpperCase();
+  s.keys.push(mods + name); render();
+}, true);
+
+$('#themeBtn').addEventListener('click', () => { const d = document.documentElement.dataset.product === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.product = d; $('#themeBtn').textContent = d === 'dark' ? '深色' : '浅色'; render(); });
+$('#annBtn').addEventListener('click', () => { ann = !ann; $('#annBtn').textContent = ann ? '开' : '关'; $('#annBtn').classList.toggle('on', ann); render(); });
+$('#resetBtn').addEventListener('click', () => { S = fresh(); render(); });
+document.documentElement.dataset.product = 'light';
+render();
+</script>

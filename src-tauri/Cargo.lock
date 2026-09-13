@@ -2034,6 +2034,7 @@ checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.1",
  "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
 ]
@@ -2481,10 +2482,13 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "repose"
-version = "0.6.3"
+version = "0.8.0"
 dependencies = [
  "cc",
+ "objc2",
+ "objc2-foundation",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

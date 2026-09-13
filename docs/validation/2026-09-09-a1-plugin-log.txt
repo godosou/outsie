@@ -1,0 +1,5 @@
+2026-09-09T11:29:39.348 pid=6051 uid=92 AuthorizationPluginCreate hostVersion=4
+2026-09-09T11:29:39.348 pid=6051 uid=92 MechanismCreate id=log mode=log
+2026-09-09T11:29:39.350 pid=6051 uid=92 MechanismInvoke enter mode=log
+2026-09-09T11:29:39.350 pid=6051 uid=92 MechanismInvoke result=Allow
+2026-09-09T11:29:39.351 pid=6051 uid=92 MechanismDestroy
