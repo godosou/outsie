@@ -254,9 +254,22 @@ APK；走一遍量距离（远处站到听不见的地方）；控制页看按�
   发 v0.7.0，违反了这条：240 个 commit 的作者邮箱是工作邮箱，一份文档带本机路径，DMG 里有 561 处本机路径。
   0.8.0 走正路：把工作树按文件（不是历史）拷进 `.public/outsie`，还原那边自己的官网配置（package/lock/tsconfig/vite/layout.tsx），
   排除 website/.openai 和 pair-vectors.sh（两段 PEM 测试私钥），文档里的本机路径换回 /Users/developer；六个镜头并行扫一遍 diff，
-  每条发现两个复核；官网 tsc、oxlint、build:pages 在公开 checkout 里过。发完 v0.8.0 之后删掉公开的 phone-key 分支和 v0.7.0
-  release + tag（GitHub 可能还会按哈希吐出那些 commit 一阵子）。
+  每条发现两个复核；官网 tsc、oxlint、build:pages 在公开 checkout 里过。**公开仓库上的两处遗留还没清**：phone-key 分支（240 个 commit，作者邮箱是工作邮箱）
+  和 v0.7.0 release + tag（那个 DMG 里有 561 处本机路径）。删分支和删 release 是不可逆的对外动作，等用户点头再做；
+  删了 GitHub 也可能按哈希再吐一阵子。公开 main 的头一个 commit（0.7.0 官网那条）原来的作者是真名 + 私人 Gmail，
+  已经 amend 成 godosou noreply 并 force-push，现在 main 上 42 个 commit 的身份只有 noreply 一个。
 - **发布包不带本机路径**：0.7.0 的二进制里有 561 处 /Users/…；release 构建加 `--remap-path-prefix` / `-ffile-prefix-map`，
   两处 `env!("CARGO_MANIFEST_DIR")` 的开发兜底改成只在 debug 构建里编译（BLE 工具目录、授权插件目录），strings 里 /Users/ 归零。
 - **0.8.0**：cargo 170 · npm 140 · gradle 93 · tsc · 官网 tsc · CLI 链路测试全绿。DMG（Outsie Dev 自签，hdiutil verify 过）+ APK + SHA256SUMS.txt，
   两端都装了；Mac 装完监测四个进程都从 /Applications/Outsie.app 起来，bridge ENTER −57。
+
+### 0.8.0 发出去之后核对过的
+
+| 核对 | 结果 |
+|---|---|
+| 公开 main | `0b3ebd2`，从 `.public/outsie` 推的；459 个文件里真名 / 工作邮箱 / 内网域名 / 托管 ID / 本机路径 / 测试私钥各 0 处 |
+| Pages | 部署成功；`outsie.dev` 和 `godosou.github.io/outsie` 都 200，下载区指 v0.8.0 两个包，「开会时不打扰」在，全页 0 处旧名 |
+| Release | v0.8.0（预览版）三个附件都 200，下载回来的 DMG / APK 和 SHA256SUMS.txt 逐一对上 |
+| 两端 | Mac `/Applications/Outsie.app` 0.8.0，签名校验过，监测四进程起来，bridge ENTER −57；手机 versionName 0.8.0 / versionCode 3 |
+| 发布二进制 | `strings` 里 `/Users/` 归零（0.7.0 是 561 处） |
+| 隐私扫描 | 六个镜头扫 diff + 49 个新文件；改掉的：两张引导截图裁掉状态栏（原图露出哪些 App 有通知、第二张 SIM 在漫游）、VM 笔记里的内网 IP 和字面密码、签名脚本里写死的 p12 口令、设计文档和 Kotlin 注释里的真名、手机 adb 序列号、几处残留旧名。复核阶段有一批 agent 撞到模型额度上限，没跑完的部分我自己用 grep 兜了一遍 |
